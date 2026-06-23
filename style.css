@@ -63,6 +63,7 @@ html, body {
 .sync-status { font-size: 0.72rem; opacity: 0.9; }
 .sync-status.ok::before { content: "● "; color: #b2f2bb; }
 .sync-status.err::before { content: "● "; color: #ffc9c9; }
+.sync-status.pending::before { content: "● "; color: #ffd8a8; }
 .theme-toggle {
   border: none;
   background: rgba(255, 255, 255, 0.15);

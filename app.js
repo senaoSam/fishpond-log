@@ -25,11 +25,12 @@ const OPTION_LABELS = {
   feedNos: "飼料編號",
   mixes: "拌料",
   disinfectants: "消毒劑",
-  tags: "分類標籤"
+  tags: "群組"
 };
 
 // ---------- 全域狀態 ----------
 let db = null;
+let cloudSynced = false;    // 目前資料是否已與雲端同步(false=離線/同步中,寫入暫存本機)
 let allRecords = [];        // 由 Firestore 即時同步的全部紀錄(含 id)
 let options = { ...DEFAULT_OPTIONS };
 let editingId = null;       // 目前正在編輯的紀錄 id(null = 新增模式)
@@ -223,14 +224,17 @@ function subscribeData() {
 
   // 2) 紀錄
   const q = query(collection(db, "records"), orderBy("date", "desc"));
-  onSnapshot(q, (snap) => {
+  onSnapshot(q, { includeMetadataChanges: true }, (snap) => {
     allRecords = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-    setSync("ok", "已同步DB");
+    // fromCache=true 代表尚未與雲端同步(離線或同步中);hasPendingWrites=有本地未上傳的寫入
+    cloudSynced = !snap.metadata.fromCache;
+    if (cloudSynced) setSync("ok", "已同步DB");
+    else setSync("pending", "離線(資料暫存本機)");
     renderList();
     renderStatsView();
     renderPondFilter();
     renderTodayList();
-  }, (err) => { console.error(err); setSync("err", "讀取紀錄失敗"); });
+  }, (err) => { console.error(err); cloudSynced = false; setSync("err", "讀取紀錄失敗"); });
 }
 
 // ============================================================
@@ -377,7 +381,7 @@ function renderRecordTags() {
   const mine = new Set((options.pondTags || {})[pond] || []);
   box.hidden = false;
   box.innerHTML = `
-    <span class="record-tags-label">分類(${escapeHtml(pond)}):</span>
+    <span class="record-tags-label">群組(${escapeHtml(pond)}):</span>
     ${tags.map((t) => `
       <button type="button" class="tag-pick ${mine.has(t) ? "on" : ""}" data-rectag="${escapeHtml(t)}">${escapeHtml(t)}</button>
     `).join("")}`;
@@ -447,39 +451,36 @@ async function onSaveRecord(e) {
 
   const saveBtn = $("#saveBtn");
   saveBtn.disabled = true;
-  try {
-    // 若輸入了新池塘名稱,自動加入池塘清單
-    if (pond && !options.ponds.includes(pond)) {
-      await addOption("ponds", pond);
-    }
 
-    if (editingId) {
-      await updateDoc(doc(db, "records", editingId), rec);
-      showToast(`已更新 ✔ ${pondLabel(rec.pond)} ${fmt(rec.bags)}包`);
-    } else {
-      rec.createdAt = serverTimestamp();
-      await addDoc(collection(db, "records"), rec);
-      showToast(`已儲存 ✔ ${pondLabel(rec.pond)} ${fmt(rec.bags)}包`);
-    }
-    flashSaveOk();                 // 按鈕短暫變綠打勾
-    resetForm({ keepContext: true });
-  } catch (err) {
-    console.error(err);
-    showToast("儲存失敗:" + err.message, true);
-  } finally {
-    saveBtn.disabled = false;
+  // 若輸入了新池塘名稱,自動加入池塘清單
+  if (pond && !options.ponds.includes(pond)) addOption("ponds", pond).catch(() => {});
+
+  // 注意:離線時 Firestore 的寫入 promise 要等連線才 resolve,不能 await(會卡住)。
+  // 改為發出寫入後立即依「目前是否已同步雲端」給提示;真正失敗(如權限)用 catch 補報。
+  const action = editingId ? "更新" : "儲存";
+  const writePromise = editingId
+    ? updateDoc(doc(db, "records", editingId), rec)
+    : addDoc(collection(db, "records"), { ...rec, createdAt: serverTimestamp() });
+  writePromise.catch((err) => { console.error(err); showToast(`${action}失敗:` + err.message, true); });
+
+  if (cloudSynced) {
+    showToast(`已${action} ✔ ${pondLabel(rec.pond)} ${fmt(rec.bags)}包`);
+  } else {
+    showToast(`已存到本機 ⏳ 連線後自動上傳`, false);
   }
+  flashSaveOk(cloudSynced);
+  resetForm({ keepContext: true });
+  saveBtn.disabled = false;
 }
 
-// 儲存成功時:按鈕短暫變綠 + 打勾,給明確的視覺回饋
-function flashSaveOk() {
+// 儲存成功時:按鈕短暫變色 + 文字回饋。synced=false 時用不同字樣(已存本機)
+function flashSaveOk(synced = true) {
   const btn = $("#saveBtn");
-  const original = btn.textContent;
   btn.classList.add("btn-ok-flash");
-  btn.textContent = "✔ 已儲存";
+  btn.textContent = synced ? "✔ 已儲存" : "⏳ 已存本機";
   setTimeout(() => {
     btn.classList.remove("btn-ok-flash");
-    if (!editingId) btn.textContent = "儲存紀錄"; else btn.textContent = original;
+    btn.textContent = "儲存紀錄";   // 存檔後一律回新增模式
   }, 1200);
 }
 
@@ -828,7 +829,7 @@ function renderStats() {
   // 各標籤統計表(有貼標籤才顯示);刻意無合計列 —— 不同標籤不應相加
   const tagCard = tagRows ? `
     <div class="card">
-      <div class="stats-title">🏷️ 各群組(標籤)總包數</div>
+      <div class="stats-title">🏷️ 各群組總包數</div>
       <table>
         <thead><tr><th>群組</th><th class="num">總包數</th></tr></thead>
         <tbody>${tagRows}</tbody>
@@ -916,7 +917,7 @@ function exportToExcel(records, label, { byMonth = false } = {}) {
     "日期": r.date,
     "時段": periodLabel(r.period),
     "池塘": r.pond,
-    "分類": ((options.pondTags || {})[r.pond] || []).join("-"),
+    "群組": ((options.pondTags || {})[r.pond] || []).join("-"),
     "包數": Number(r.bags) || 0,
     "飼料編號": r.feedNo || "",
     "拌料": r.mix || "",
@@ -951,7 +952,7 @@ function exportToExcel(records, label, { byMonth = false } = {}) {
   const tagSummary = [];
   // 依設定的標籤順序排列
   (options.tags || []).forEach((t) => { if (byTag[t] != null) tagSummary.push({ A: t, B: byTag[t] }); });
-  if (!tagSummary.length) tagSummary.push({ A: "(尚無分類資料)", B: "" });
+  if (!tagSummary.length) tagSummary.push({ A: "(尚無群組資料)", B: "" });
 
   const wb = XLSX.utils.book_new();
   const wsDetail = XLSX.utils.json_to_sheet(detail);
@@ -964,7 +965,7 @@ function exportToExcel(records, label, { byMonth = false } = {}) {
 
   const wsTag = XLSX.utils.json_to_sheet(tagSummary, { skipHeader: true });
   wsTag["!cols"] = [{ wch: 18 }, { wch: 10 }];
-  XLSX.utils.book_append_sheet(wb, wsTag, "分類統計");
+  XLSX.utils.book_append_sheet(wb, wsTag, "群組統計");
 
   // 工作表 3(區間匯出才有):月分總覽
   if (byMonth) {
@@ -991,9 +992,13 @@ function exportToExcel(records, label, { byMonth = false } = {}) {
 // ============================================================
 //  設定頁(編輯四組固定選項)
 // ============================================================
+// 各組的區塊標題(預設用 OPTION_LABELS;tags 另給「管理群組」以和「池塘群組」區分)
+const GROUP_HEADINGS = { tags: "管理群組" };
+
 // 渲染單一組選項(chip 清單 + 新增列)
 function renderOptionGroup(key) {
   const items = options[key] || [];
+  const heading = GROUP_HEADINGS[key] || OPTION_LABELS[key];
   const chips = items.map((it, i) => `
     <span class="chip" data-key="${key}" data-idx="${i}">
       <span class="chip-grip" title="拖曳排序">⠿</span>
@@ -1003,7 +1008,7 @@ function renderOptionGroup(key) {
   const hint = items.length > 1 ? ' <span class="reorder-hint">↕ 可拖曳排序</span>' : "";
   return `
     <details class="card opt-group" open>
-      <summary>${OPTION_LABELS[key]}(${items.length})${hint}</summary>
+      <summary>${heading}(${items.length})${hint}</summary>
       <div class="chip-list" data-list="${key}">${chips}</div>
       <div class="add-row">
         <input type="text" placeholder="新增${OPTION_LABELS[key]}…" data-addkey="${key}" />
@@ -1053,7 +1058,7 @@ function renderPondTagsSection() {
   if (!ponds.length) {
     inner = '<p class="hint">尚無池塘。請先到下方「池塘名稱」新增,或記錄時輸入。</p>';
   } else if (!tags.length) {
-    inner = '<p class="hint">尚無標籤。請先到下方「分類標籤」新增(如:第一區、鱸魚)。</p>';
+    inner = '<p class="hint">尚無群組。請先到下方「群組」新增(如:第一區、鱸魚)。</p>';
   } else {
     const pondTags = options.pondTags || {};
     inner = ponds.map((p) => {
@@ -1070,7 +1075,7 @@ function renderPondTagsSection() {
   }
   return `
     <details class="card opt-group" open>
-      <summary>池塘分類 <span class="reorder-hint">點標籤切換歸屬</span></summary>
+      <summary>池塘群組 <span class="reorder-hint">點群組切換歸屬</span></summary>
       ${inner}
     </details>`;
 }
@@ -1085,7 +1090,7 @@ async function togglePondTag(pond, tag) {
   pondTags[pond] = (options.tags || []).filter((t) => list.has(t));
   try {
     await updateDoc(doc(db, "settings", "options"), { pondTags });
-  } catch (err) { showToast("儲存分類失敗:" + err.message, true); }
+  } catch (err) { showToast("儲存群組失敗:" + err.message, true); }
 }
 
 async function addOption(key, value) {
