@@ -9,3 +9,6 @@ node_modules/
 package-lock.json
 yarn.lock
 # 注意:pnpm-lock.yaml 要進 repo(鎖定版本),不要忽略
+
+# Claude Code 個人本地設定(權限偏好,不進 repo);.mcp.json 則保留進 repo
+.claude/settings.local.json
