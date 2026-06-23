@@ -25,11 +25,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       # 純前端、無 build。直接把整個專案當成靜態網站上傳。
       - name: Setup Pages
         uses: actions/configure-pages@v5
+        with:
+          enablement: true   # 若 Pages 尚未啟用,自動啟用(不必先在 Settings 手動開)
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
