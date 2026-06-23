@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#0b7285" />
+  <title>魚塭紀錄</title>
+  <link rel="manifest" href="manifest.json" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="app-header">
+    <h1>🐟 魚塭紀錄</h1>
+    <span id="syncStatus" class="sync-status">連線中…</span>
+  </header>
+
+  <main id="main">
+    <!-- ========== 記錄頁 ========== -->
+    <section id="page-record" class="page active">
+      <h2>新增紀錄</h2>
+      <form id="recordForm" class="card">
+        <label>
+          池塘名稱
+          <div class="combo">
+            <select id="pondSelect"></select>
+            <input id="pondInput" type="text" placeholder="或輸入新池塘名稱" autocomplete="off" />
+          </div>
+        </label>
+
+        <label>
+          日期
+          <input id="dateInput" type="date" required />
+        </label>
+
+        <label>時段</label>
+        <div class="seg" id="periodSeg">
+          <button type="button" class="seg-btn active" data-period="morning">早上</button>
+          <button type="button" class="seg-btn" data-period="afternoon">下午</button>
+        </div>
+
+        <label>
+          輸入幾包
+          <input id="bagsInput" type="number" inputmode="decimal" step="0.5" min="0" placeholder="0" required />
+        </label>
+
+        <label>
+          飼料編號
+          <select id="feedNoSelect" class="opt-select" data-key="feedNos"></select>
+        </label>
+
+        <label>
+          拌料(可不選)
+          <select id="mixSelect" class="opt-select" data-key="mixes"></select>
+        </label>
+
+        <label>
+          消毒劑(可不選)
+          <select id="disinfectantSelect" class="opt-select" data-key="disinfectants"></select>
+        </label>
+
+        <label>
+          備註(選填)
+          <input id="noteInput" type="text" placeholder="" autocomplete="off" />
+        </label>
+
+        <button type="submit" class="btn-primary btn-big" id="saveBtn">儲存紀錄</button>
+        <button type="button" class="btn-ghost" id="cancelEditBtn" hidden>取消編輯</button>
+      </form>
+      <p id="recordMsg" class="msg"></p>
+    </section>
+
+    <!-- ========== 列表 / 查詢頁 ========== -->
+    <section id="page-list" class="page">
+      <h2>紀錄查詢</h2>
+      <div class="card filters">
+        <label>
+          月份
+          <input id="listMonth" type="month" />
+        </label>
+        <label>
+          池塘
+          <select id="listPondFilter"><option value="">全部</option></select>
+        </label>
+      </div>
+      <p class="list-count" id="listCount"></p>
+      <div id="listContainer"></div>
+    </section>
+
+    <!-- ========== 月統計頁 ========== -->
+    <section id="page-stats" class="page">
+      <h2>月統計</h2>
+      <div class="card filters">
+        <label>
+          月份
+          <input id="statsMonth" type="month" />
+        </label>
+        <button type="button" class="btn-primary" id="exportBtn">📊 匯出 Excel</button>
+      </div>
+      <div id="statsContainer"></div>
+    </section>
+
+    <!-- ========== 設定頁 ========== -->
+    <section id="page-settings" class="page">
+      <h2>設定選項</h2>
+      <p class="hint">在這裡新增 / 刪除各欄位的固定選項,所有裝置即時同步。</p>
+      <div id="settingsContainer"></div>
+    </section>
+  </main>
+
+  <!-- ========== 底部導覽列 ========== -->
+  <nav class="tabbar">
+    <button class="tab active" data-page="record">📝<span>記錄</span></button>
+    <button class="tab" data-page="list">📋<span>查詢</span></button>
+    <button class="tab" data-page="stats">📊<span>統計</span></button>
+    <button class="tab" data-page="settings">⚙️<span>設定</span></button>
+  </nav>
+
+  <!-- SheetJS for Excel export -->
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
+  <!-- App config + logic (ES module) -->
+  <script type="module" src="app.js"></script>
+</body>
+</html>

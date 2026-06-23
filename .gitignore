@@ -1,0 +1,9 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+desktop.ini
+*.log
+
+# Node (僅本地測試會用到,不該進 repo)
+node_modules/
+package-lock.json
