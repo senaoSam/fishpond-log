@@ -14,10 +14,12 @@
   --total-bg: #f1f7f9;       /* 合計列背景 */
   --chip-x-bg: #d7dde3;      /* chip 刪除鈕背景 */
   --radius: 12px;
+  color-scheme: light;       /* 原生 UI(日曆彈窗/下拉/捲軸)用淺色 */
 }
 
 /* ---------- 深色主題 ---------- */
 [data-theme="dark"] {
+  color-scheme: dark;        /* 原生日曆彈窗等自動轉深色 */
   --bg: #14191e;
   --card: #1e2630;
   --field: #232c37;
@@ -45,7 +47,7 @@ html, body {
   font-size: 16px;
 }
 
-/* ---------- Header ---------- */
+/* ---------- Header(精簡,家人自用) ---------- */
 .app-header {
   position: sticky;
   top: 0;
@@ -53,13 +55,11 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 16px calc(12px + env(safe-area-inset-top));
-  padding-top: max(12px, env(safe-area-inset-top));
+  padding: 4px 12px;
+  padding-top: max(4px, env(safe-area-inset-top));
   background: var(--header);
   color: #fff;
 }
-.app-header h1 { font-size: 1.15rem; margin: 0; }
-.header-right { display: flex; align-items: center; gap: 12px; }
 .sync-status { font-size: 0.72rem; opacity: 0.9; }
 .sync-status.ok::before { content: "● "; color: #b2f2bb; }
 .sync-status.err::before { content: "● "; color: #ffc9c9; }
@@ -67,10 +67,10 @@ html, body {
   border: none;
   background: rgba(255, 255, 255, 0.15);
   color: #fff;
-  font-size: 1.1rem;
+  font-size: 0.95rem;
   line-height: 1;
-  width: 36px;
-  height: 36px;
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
   cursor: pointer;
   display: flex;
@@ -116,10 +116,50 @@ input, select {
   color: var(--text);
 }
 input:focus, select:focus { outline: 2px solid var(--primary); border-color: var(--primary); }
+
+/* ---------- 包數:整數 . 小數,各帶 +/− ---------- */
+.bags-row { display: flex; align-items: center; gap: 6px; margin: 6px 0 14px; }
+.bags-dot { font-size: 1.4rem; font-weight: 700; color: var(--muted); }
+.stepper { display: flex; align-items: stretch; flex: 1 1 0; min-width: 0; }   /* 整數/小數兩組等寬 */
+.step-btn {
+  flex: 0 0 auto;
+  width: 44px;
+  min-height: 48px;               /* 手機觸控目標至少 48px 高 */
+  font-size: 1.25rem;
+  font-weight: 700;
+  border: 1px solid var(--border);
+  background: var(--field);
+  color: var(--primary);
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;     /* 消除手機點擊 300ms 延遲、避免雙擊縮放 */
+}
+/* 窄螢幕:按鈕縮一點,讓數字框比例更協調 */
+@media (max-width: 400px) {
+  .step-btn { width: 38px; font-size: 1.1rem; }
+  .bags-row { gap: 4px; }
+}
+.step-btn:first-child { border-radius: 10px 0 0 10px; }
+.step-btn:last-child { border-radius: 0 10px 10px 0; }
+.step-btn:active { background: var(--primary); color: #fff; }
+.stepper input {
+  width: 100%;
+  margin-top: 0;
+  text-align: center;
+  border-radius: 0;
+  border-left: none;
+  border-right: none;
+  font-size: 1.2rem;
+  font-weight: 700;
+  padding: 12px 4px;
+}
+/* 隱藏 number input 的原生上下箭頭(spinner) */
+.stepper input::-webkit-outer-spin-button,
+.stepper input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.stepper input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
 select { appearance: none; background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'><path d='M2 4l4 4 4-4' fill='none' stroke='%236b7785' stroke-width='2'/></svg>"); background-repeat: no-repeat; background-position: right 12px center; padding-right: 34px; }
-/* 深色模式下,日期/月份輸入框的原生圖示反白 */
-[data-theme="dark"] input[type="date"]::-webkit-calendar-picker-indicator,
-[data-theme="dark"] input[type="month"]::-webkit-calendar-picker-indicator { filter: invert(1) opacity(0.7); }
+/* 日期/月份圖示與彈窗的深淺,改由 :root 的 color-scheme 自動處理 */
 
 .combo { display: flex; flex-direction: column; gap: 6px; }
 
@@ -151,6 +191,9 @@ select { appearance: none; background-image: url("data:image/svg+xml;utf8,<svg x
 }
 .btn-primary:active { background: var(--primary-dark); }
 .btn-big { padding: 16px; font-size: 1.1rem; margin-top: 4px; }
+/* 儲存成功:按鈕短暫變綠閃爍 */
+.btn-ok-flash { background: var(--ok) !important; animation: ok-pulse 0.4s ease; }
+@keyframes ok-pulse { 0% { transform: scale(1); } 40% { transform: scale(1.04); } 100% { transform: scale(1); } }
 .btn-ghost {
   width: 100%;
   margin-top: 8px;
@@ -201,6 +244,8 @@ th { background: var(--th-bg); font-weight: 700; }
 td.num, th.num { text-align: right; }
 tr.total td { font-weight: 800; background: var(--total-bg); border-top: 2px solid var(--primary); }
 .stats-title { font-weight: 700; margin: 18px 0 6px; }
+/* 各群組統計:標籤後面附涵蓋的池塘 */
+.tag-ponds { display: block; font-size: 0.78rem; color: var(--muted); font-weight: 400; margin-top: 2px; }
 
 /* ---------- 統計:群組視角下拉 ---------- */
 .stats-tag-label {
@@ -326,6 +371,39 @@ tr.total td { font-weight: 800; background: var(--total-bg); border-top: 2px sol
 .add-row input { flex: 1 1 auto; min-width: 0; margin-top: 0; }
 .add-row button { flex: 0 0 auto; width: auto; white-space: nowrap; padding: 0 18px; }
 
+/* ---------- 記錄頁:當日已記錄清單 ---------- */
+.today-list { margin-bottom: 16px; }
+.today-head { font-weight: 700; font-size: 0.9rem; color: var(--muted); margin: 0 2px 8px; }
+.today-hint { font-weight: 400; font-size: 0.78rem; color: var(--primary); }
+.today-empty { color: var(--muted); font-size: 0.85rem; margin: 0 2px; }
+.today-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: var(--card);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--primary);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  cursor: pointer;
+}
+.today-item:active { background: var(--th-bg); }
+
+/* ---------- 記錄頁:該池標籤選擇 ---------- */
+.record-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+  margin-top: -4px;
+}
+.record-tags-label { font-size: 0.85rem; color: var(--muted); font-weight: 600; }
+
 /* ---------- 池塘分類 ---------- */
 .pondtag-row {
   display: flex;
@@ -357,6 +435,25 @@ tr.total td { font-weight: 800; background: var(--total-bg); border-top: 2px sol
   border-color: var(--primary);
   font-weight: 700;
 }
+
+/* ---------- 固定儲存列(記錄頁) ---------- */
+.save-bar {
+  position: fixed;
+  left: 0; right: 0;
+  /* 疊在分頁列(約 56px)正上方,並避開手機底部安全區 */
+  bottom: calc(56px + env(safe-area-inset-bottom));
+  z-index: 21;
+  display: flex;
+  gap: 10px;
+  padding: 10px 16px;
+  background: var(--card);
+  border-top: 1px solid var(--border);
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.12);
+}
+.save-bar #saveBtn { flex: 1 1 auto; margin-top: 0; }
+.save-bar #cancelEditBtn { flex: 0 0 auto; width: auto; margin-top: 0; padding: 0 18px; }
+/* 記錄頁要多留底部空間,避免內容被儲存列+分頁列遮住(由 JS 加 .on-record) */
+body.on-record #main { padding-bottom: 172px; }
 
 /* ---------- Tabbar ---------- */
 .tabbar {

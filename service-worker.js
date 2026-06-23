@@ -2,7 +2,7 @@
 // 快取 App 殼層(HTML/CSS/JS),讓加到主畫面後可離線開啟。
 // 資料本身走 Firestore(它有自己的離線快取),這裡不快取 API 回應。
 
-const CACHE = "yutun-shell-v18";
+const CACHE = "yutun-shell-v32";
 const SHELL = [
   "./",
   "./index.html",

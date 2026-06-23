@@ -11,17 +11,18 @@
 </head>
 <body>
   <header class="app-header">
-    <h1>🐟 魚塭紀錄</h1>
-    <div class="header-right">
-      <span id="syncStatus" class="sync-status">連線中…</span>
-      <button id="themeToggle" class="theme-toggle" type="button" aria-label="切換深色模式" title="切換深色 / 淺色模式">🌙</button>
-    </div>
+    <span id="syncStatus" class="sync-status">連線中…</span>
+    <button id="themeToggle" class="theme-toggle" type="button" aria-label="切換深色模式" title="切換深色 / 淺色模式">🌙</button>
   </header>
 
   <main id="main">
     <!-- ========== 記錄頁 ========== -->
     <section id="page-record" class="page active">
       <h2>新增紀錄</h2>
+
+      <!-- 當日(隨日期欄)已記錄清單,點可編輯 -->
+      <div id="todayList" class="today-list"></div>
+
       <form id="recordForm" class="card">
         <label>
           池塘名稱
@@ -30,6 +31,9 @@
             <input id="pondInput" type="text" placeholder="或輸入新池塘名稱" autocomplete="off" />
           </div>
         </label>
+
+        <!-- 該池標籤(分類):選定池塘後可順便勾選 -->
+        <div id="recordTags" class="record-tags" hidden></div>
 
         <label>
           日期
@@ -43,14 +47,24 @@
         </div>
 
         <label>
-          輸入幾包
-          <input id="bagsInput" type="number" inputmode="decimal" step="0.5" min="0" placeholder="0" required />
-        </label>
-
-        <label>
           飼料編號
           <select id="feedNoSelect" class="opt-select" data-key="feedNos"></select>
         </label>
+
+        <label>輸入幾包(前整數・後小數)</label>
+        <div class="bags-row">
+          <div class="stepper">
+            <button type="button" class="step-btn" data-step="int" data-dir="-1" aria-label="整數減一">−</button>
+            <input id="bagsInt" type="number" inputmode="numeric" min="0" step="1" value="2" aria-label="包數整數" />
+            <button type="button" class="step-btn" data-step="int" data-dir="1" aria-label="整數加一">＋</button>
+          </div>
+          <span class="bags-dot">.</span>
+          <div class="stepper">
+            <button type="button" class="step-btn" data-step="dec" data-dir="-1" aria-label="小數減一">−</button>
+            <input id="bagsDec" type="number" inputmode="numeric" min="0" max="9" step="1" value="0" aria-label="包數小數" />
+            <button type="button" class="step-btn" data-step="dec" data-dir="1" aria-label="小數加一">＋</button>
+          </div>
+        </div>
 
         <label>
           拌料(可不選)
@@ -66,9 +80,6 @@
           備註(選填)
           <input id="noteInput" type="text" placeholder="" autocomplete="off" />
         </label>
-
-        <button type="submit" class="btn-primary btn-big" id="saveBtn">儲存紀錄</button>
-        <button type="button" class="btn-ghost" id="cancelEditBtn" hidden>取消編輯</button>
       </form>
       <p id="recordMsg" class="msg"></p>
     </section>
@@ -151,6 +162,12 @@
       <div id="settingsContainer"></div>
     </section>
   </main>
+
+  <!-- 固定儲存列(僅記錄頁顯示,浮在分頁列上方) -->
+  <div id="saveBar" class="save-bar">
+    <button type="button" class="btn-ghost" id="cancelEditBtn" form="recordForm" hidden>取消編輯</button>
+    <button type="submit" class="btn-primary btn-big" id="saveBtn" form="recordForm">儲存紀錄</button>
+  </div>
 
   <!-- ========== 底部導覽列 ========== -->
   <nav class="tabbar">

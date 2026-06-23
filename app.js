@@ -218,16 +218,18 @@ function subscribeData() {
     renderOptionSelects();
     renderSettings();
     renderPondFilter();
+    renderRecordTags();
   }, (err) => { console.error(err); setSync("err", "讀取設定失敗"); });
 
   // 2) 紀錄
   const q = query(collection(db, "records"), orderBy("date", "desc"));
   onSnapshot(q, (snap) => {
     allRecords = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-    setSync("ok", "已同步");
+    setSync("ok", "已同步DB");
     renderList();
     renderStatsView();
     renderPondFilter();
+    renderTodayList();
   }, (err) => { console.error(err); setSync("err", "讀取紀錄失敗"); });
 }
 
@@ -286,6 +288,9 @@ function renderPondFilter() {
 function setupRecordForm() {
   $("#dateInput").value = todayStr();
 
+  // 改日期 → 更新「當日已記錄」清單
+  $("#dateInput").addEventListener("change", renderTodayList);
+
   // 時段切換
   $("#periodSeg").addEventListener("click", (e) => {
     const btn = e.target.closest(".seg-btn");
@@ -294,19 +299,130 @@ function setupRecordForm() {
     $$("#periodSeg .seg-btn").forEach((b) => b.classList.toggle("active", b === btn));
   });
 
-  // 選了下拉池塘 → 清掉手動輸入(以下拉為準)
+  // 選了下拉的池塘 → 隱藏並清空手動輸入(強制以下拉為準,避免兩邊衝突);
+  // 下拉選回空白 → 顯示輸入框,可打新池塘名。
   $("#pondSelect").addEventListener("change", () => {
-    if ($("#pondSelect").value) $("#pondInput").value = "";
+    syncPondInputVisibility();
+    renderRecordTags();
   });
-  // 在 opt-select 選 "+ 新增" 不需要,因為新增在設定頁。
+  // 手打池塘名也即時更新標籤區
+  $("#pondInput").addEventListener("input", renderRecordTags);
+
+  // 包數 +/− 按鈕
+  $$(".step-btn").forEach((btn) =>
+    btn.addEventListener("click", () => stepBags(btn.dataset.step, Number(btn.dataset.dir))));
+
+  // 打字輸入時即時修正:整數只留數字、小數只留個位(0~9)
+  $("#bagsInt").addEventListener("input", (e) => {
+    e.target.value = e.target.value.replace(/\D/g, "");      // 只留數字
+  });
+  $("#bagsDec").addEventListener("input", (e) => {
+    const d = e.target.value.replace(/\D/g, "");
+    e.target.value = d === "" ? "" : d.slice(-1);             // 只留最後一位(0~9)
+  });
+  // 失焦時若留空,補回 0,避免空白
+  $("#bagsInt").addEventListener("blur", (e) => { if (e.target.value === "") e.target.value = "0"; });
+  $("#bagsDec").addEventListener("blur", (e) => { if (e.target.value === "") e.target.value = "0"; });
 
   $("#recordForm").addEventListener("submit", onSaveRecord);
   $("#cancelEditBtn").addEventListener("click", resetForm);
 }
 
+// 依下拉狀態決定輸入框顯示與否:選了既有池塘就隱藏+清空輸入框
+function syncPondInputVisibility() {
+  const picked = $("#pondSelect").value;
+  const input = $("#pondInput");
+  if (picked) { input.value = ""; input.hidden = true; }
+  else { input.hidden = false; }
+}
+
 function getPondValue() {
+  // 下拉與輸入框互斥:選了下拉用下拉,否則用手打
+  const picked = $("#pondSelect").value;
+  if (picked) return picked;
   const typed = $("#pondInput").value.trim();
-  return typed || $("#pondSelect").value || "";
+  return typed;
+}
+
+// 讀取包數 = 整數 + 小數(小數框存 0~9,代表第一位小數)
+function getBagsValue() {
+  const i = parseInt($("#bagsInt").value, 10);
+  const d = parseInt($("#bagsDec").value, 10);
+  const intPart = isNaN(i) ? 0 : Math.max(0, i);
+  const decPart = isNaN(d) ? 0 : Math.min(9, Math.max(0, d));
+  return intPart + decPart / 10;
+}
+
+// +/− 按鈕:which='int' 整數±1(不低於0);which='dec' 小數±1 在 0~9 循環
+function stepBags(which, dir) {
+  if (which === "int") {
+    const el = $("#bagsInt");
+    const v = Math.max(0, (parseInt(el.value, 10) || 0) + dir);
+    el.value = v;
+  } else {
+    const el = $("#bagsDec");
+    let v = (parseInt(el.value, 10) || 0) + dir;
+    if (v > 9) v = 0;          // 0.9 再 + 回到 0.0
+    if (v < 0) v = 9;          // 0.0 再 − 回到 0.9
+    el.value = v;
+  }
+}
+
+// 記錄頁:依目前選定的池塘,顯示可勾選的標籤(分類)。無池塘或無標籤則隱藏。
+function renderRecordTags() {
+  const box = $("#recordTags");
+  const pond = getPondValue();
+  const tags = options.tags || [];
+  if (!pond || !tags.length) { box.hidden = true; box.innerHTML = ""; return; }
+  const mine = new Set((options.pondTags || {})[pond] || []);
+  box.hidden = false;
+  box.innerHTML = `
+    <span class="record-tags-label">分類(${escapeHtml(pond)}):</span>
+    ${tags.map((t) => `
+      <button type="button" class="tag-pick ${mine.has(t) ? "on" : ""}" data-rectag="${escapeHtml(t)}">${escapeHtml(t)}</button>
+    `).join("")}`;
+  box.querySelectorAll("[data-rectag]").forEach((b) =>
+    b.addEventListener("click", async () => {
+      await togglePondTag(pond, b.dataset.rectag);
+      // togglePondTag 會寫回 Firestore;onSnapshot 回來會更新 options,但本地先即時切換顯示
+      b.classList.toggle("on");
+    }));
+}
+
+// 把一筆紀錄轉成條列文字:池塘 - 時段 - 飼料 - N包 - 拌料 - 消毒 - 備註(空欄略過)
+function recordSummaryLine(r) {
+  const parts = [
+    pondLabel(r.pond),
+    periodLabel(r.period),
+    r.feedNo,
+    `${fmt(Number(r.bags) || 0)}包`,
+    r.mix,
+    r.disinfectant,
+    r.note
+  ].filter((x) => x != null && String(x).trim() !== "");
+  return parts.map(escapeHtml).join(" - ");
+}
+
+// 記錄頁上方:列出「日期欄」當天已記錄的清單,點可編輯
+function renderTodayList() {
+  const box = $("#todayList");
+  const date = $("#dateInput").value;
+  if (!date) { box.innerHTML = ""; return; }
+  const recs = allRecords
+    .filter((r) => r.date === date)
+    .sort((a, b) => (a.period === "morning" ? 0 : 1) - (b.period === "morning" ? 0 : 1));
+
+  if (!recs.length) {
+    box.innerHTML = `<div class="today-head">${escapeHtml(date)}</div><p class="today-empty">這天還沒有紀錄</p>`;
+    return;
+  }
+  box.innerHTML = `
+    <div class="today-head">${escapeHtml(date)} 已記錄 ${recs.length} 筆 <span class="today-hint">(點擊可編輯)</span></div>
+    ${recs.map((r) => `
+      <button type="button" class="today-item" data-edit="${r.id}">${recordSummaryLine(r)}</button>
+    `).join("")}`;
+  box.querySelectorAll("[data-edit]").forEach((b) =>
+    b.addEventListener("click", () => startEdit(b.dataset.edit)));
 }
 
 async function onSaveRecord(e) {
@@ -314,9 +430,9 @@ async function onSaveRecord(e) {
   if (!db) { showMsg("尚未設定 Firebase,無法儲存", true); return; }
 
   const pond = getPondValue();
-  const bags = parseFloat($("#bagsInput").value);
+  const bags = getBagsValue();
   if (!pond) { showMsg("請選擇或輸入池塘名稱", true); return; }
-  if (isNaN(bags)) { showMsg("請輸入包數", true); return; }
+  if (bags <= 0) { showMsg("包數需大於 0", true); return; }
 
   const rec = {
     pond,
@@ -339,19 +455,32 @@ async function onSaveRecord(e) {
 
     if (editingId) {
       await updateDoc(doc(db, "records", editingId), rec);
-      showMsg("已更新 ✔");
+      showToast(`已更新 ✔ ${pondLabel(rec.pond)} ${fmt(rec.bags)}包`);
     } else {
       rec.createdAt = serverTimestamp();
       await addDoc(collection(db, "records"), rec);
-      showMsg("已儲存 ✔");
+      showToast(`已儲存 ✔ ${pondLabel(rec.pond)} ${fmt(rec.bags)}包`);
     }
+    flashSaveOk();                 // 按鈕短暫變綠打勾
     resetForm({ keepContext: true });
   } catch (err) {
     console.error(err);
-    showMsg("儲存失敗:" + err.message, true);
+    showToast("儲存失敗:" + err.message, true);
   } finally {
     saveBtn.disabled = false;
   }
+}
+
+// 儲存成功時:按鈕短暫變綠 + 打勾,給明確的視覺回饋
+function flashSaveOk() {
+  const btn = $("#saveBtn");
+  const original = btn.textContent;
+  btn.classList.add("btn-ok-flash");
+  btn.textContent = "✔ 已儲存";
+  setTimeout(() => {
+    btn.classList.remove("btn-ok-flash");
+    if (!editingId) btn.textContent = "儲存紀錄"; else btn.textContent = original;
+  }, 1200);
 }
 
 function showMsg(text, isErr) {
@@ -361,24 +490,31 @@ function showMsg(text, isErr) {
   if (!isErr) setTimeout(() => { if (el.textContent === text) el.textContent = ""; }, 2500);
 }
 
-// 重設表單。keepContext=true 時保留日期/池塘,方便連續記下一池
+// 重設表單。
+// keepContext=true(存檔後):保留池塘/日期/時段/飼料/包數,只清空備註、拌料、消毒。
+// keepContext=false(取消編輯):整張表清回預設。
 function resetForm(opts = {}) {
   const keep = opts.keepContext === true;
   editingId = null;
   $("#saveBtn").textContent = "儲存紀錄";
   $("#cancelEditBtn").hidden = true;
-  $("#bagsInput").value = "";
-  $("#feedNoSelect").selectedIndex = 0;
+  // 這三項每筆通常不同,存檔後一律清空
   $("#mixSelect").value = "";
   $("#disinfectantSelect").value = "";
   $("#noteInput").value = "";
   if (!keep) {
+    $("#bagsInt").value = "2";       // 預設 2 包
+    $("#bagsDec").value = "0";
+    $("#feedNoSelect").selectedIndex = 0;
     $("#dateInput").value = todayStr();
     $("#pondSelect").value = "";
     $("#pondInput").value = "";
     currentPeriod = "morning";
     $$("#periodSeg .seg-btn").forEach((b) => b.classList.toggle("active", b.dataset.period === "morning"));
   }
+  syncPondInputVisibility();   // 同步池塘輸入框顯隱
+  renderRecordTags();          // 池塘可能變動或清空,更新標籤區
+  renderTodayList();           // 日期可能重設,更新當日清單
 }
 
 function startEdit(id) {
@@ -391,7 +527,12 @@ function startEdit(id) {
   // 池塘:若在清單中用下拉,否則填到輸入框
   if (options.ponds.includes(r.pond)) { $("#pondSelect").value = r.pond; $("#pondInput").value = ""; }
   else { $("#pondSelect").value = ""; $("#pondInput").value = r.pond; }
-  $("#bagsInput").value = r.bags;
+  syncPondInputVisibility();
+  renderRecordTags();
+  renderTodayList();           // 日期可能改變,更新當日清單
+  const bags = Number(r.bags) || 0;
+  $("#bagsInt").value = Math.floor(bags);
+  $("#bagsDec").value = Math.round((bags - Math.floor(bags)) * 10);  // 第一位小數
   $("#feedNoSelect").value = r.feedNo || "";
   $("#mixSelect").value = r.mix || "";
   $("#disinfectantSelect").value = r.disinfectant || "";
@@ -661,13 +802,42 @@ function renderStats() {
     byFeed[fk] = (byFeed[fk] || 0) + b;
   }
 
+  // (3) 各標籤(群組)總包數:該標籤涵蓋的池塘加總,並記錄涵蓋哪些池
+  const byTag = {};   // { 標籤: { total, ponds:Set } }
+  for (const [pond, bags] of Object.entries(byPond)) {
+    for (const t of (options.pondTags || {})[pond] || []) {
+      const e = (byTag[t] ||= { total: 0, ponds: new Set() });
+      e.total += bags;
+      e.ponds.add(pond);
+    }
+  }
+
   const pondRows = Object.entries(byPond).sort((a, b) => b[1] - a[1])
     .map(([k, v]) => `<tr><td>${escapeHtml(pondLabel(k))}</td><td class="num">${fmt(v)}</td></tr>`).join("");
   const feedRows = Object.entries(byFeed)
     .sort((a, b) => b[1] - a[1])
     .map(([k, v]) => `<tr><td>${escapeHtml(k)}</td><td class="num">${fmt(v)}</td></tr>`).join("");
+  // 標籤列依設定的標籤順序排列
+  const tagRows = (options.tags || []).filter((t) => byTag[t])
+    .map((t) => {
+      const e = byTag[t];
+      const ponds = [...e.ponds].join("、");
+      return `<tr><td>${escapeHtml(t)}<span class="tag-ponds">${escapeHtml(ponds)}</span></td><td class="num">${fmt(e.total)}</td></tr>`;
+    }).join("");
+
+  // 各標籤統計表(有貼標籤才顯示);刻意無合計列 —— 不同標籤不應相加
+  const tagCard = tagRows ? `
+    <div class="card">
+      <div class="stats-title">🏷️ 各群組(標籤)總包數</div>
+      <table>
+        <thead><tr><th>群組</th><th class="num">總包數</th></tr></thead>
+        <tbody>${tagRows}</tbody>
+      </table>
+      <p class="hint">每個群組獨立計算(該群組所有池的加總);不同群組不應相加。</p>
+    </div>` : "";
 
   c.innerHTML = `
+    ${tagCard}
     <div class="card">
       <div class="stats-title">🏊 各池塘總包數</div>
       <table>
@@ -1087,6 +1257,9 @@ async function removeOption(key, idx) {
 function switchPage(name) {
   $$(".page").forEach((p) => p.classList.toggle("active", p.id === "page-" + name));
   $$(".tab").forEach((t) => t.classList.toggle("active", t.dataset.page === name));
+  const onRecord = name === "record";
+  $("#saveBar").hidden = !onRecord;            // 儲存列只在記錄頁顯示
+  document.body.classList.toggle("on-record", onRecord);  // 控制底部留白
   window.scrollTo({ top: 0 });
 }
 function setupTabs() {
@@ -1102,6 +1275,7 @@ function main() {
   setupRecordForm();
   setupList();
   setupStats();
+  switchPage("record");            // 設定初始分頁狀態(含儲存列顯示、底部留白)
   // 先以預設選項渲染一次(離線/未連線也有畫面)
   renderOptionSelects();
   renderSettings();
