@@ -12,7 +12,10 @@
 <body>
   <header class="app-header">
     <h1>🐟 魚塭紀錄</h1>
-    <span id="syncStatus" class="sync-status">連線中…</span>
+    <div class="header-right">
+      <span id="syncStatus" class="sync-status">連線中…</span>
+      <button id="themeToggle" class="theme-toggle" type="button" aria-label="切換深色模式" title="切換深色 / 淺色模式">🌙</button>
+    </div>
   </header>
 
   <main id="main">
@@ -115,6 +118,20 @@
     <button class="tab" data-page="stats">📊<span>統計</span></button>
     <button class="tab" data-page="settings">⚙️<span>設定</span></button>
   </nav>
+
+  <!-- 自訂確認對話框 -->
+  <div id="modalOverlay" class="modal-overlay" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalText">
+      <p id="modalText" class="modal-text"></p>
+      <div class="modal-actions">
+        <button type="button" class="btn-ghost" id="modalCancel">取消</button>
+        <button type="button" class="btn-primary" id="modalOk">確定</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 短訊提示 -->
+  <div id="toast" class="toast" hidden></div>
 
   <!-- SheetJS for Excel export -->
   <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>

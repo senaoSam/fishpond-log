@@ -56,6 +56,89 @@ function escapeHtml(s) {
 function periodLabel(p) { return p === "afternoon" ? "下午" : "早上"; }
 
 // ============================================================
+//  深色 / 淺色主題
+// ============================================================
+const THEME_KEY = "yutun-theme";          // localStorage:'dark' | 'light'
+const THEME_COLOR = { light: "#0b7285", dark: "#1a222b" }; // 對應 header 色,給手機狀態列
+
+function applyTheme(theme) {
+  const isDark = theme === "dark";
+  document.documentElement.setAttribute("data-theme", isDark ? "dark" : "light");
+  const btn = $("#themeToggle");
+  if (btn) btn.textContent = isDark ? "☀️" : "🌙";
+  // 同步更新 PWA 狀態列顏色
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute("content", isDark ? THEME_COLOR.dark : THEME_COLOR.light);
+}
+
+function setupTheme() {
+  // 優先用使用者上次的選擇;沒有的話跟隨系統偏好
+  const saved = localStorage.getItem(THEME_KEY);
+  const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+  applyTheme(saved || (prefersDark ? "dark" : "light"));
+
+  $("#themeToggle").addEventListener("click", () => {
+    const next = document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark";
+    localStorage.setItem(THEME_KEY, next);
+    applyTheme(next);
+  });
+
+  // 使用者沒手動選過時,跟著系統設定即時變化
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", (e) => {
+    if (!localStorage.getItem(THEME_KEY)) applyTheme(e.matches ? "dark" : "light");
+  });
+}
+
+// ============================================================
+//  自訂對話框 / 提示(取代瀏覽器原生 alert / confirm)
+// ============================================================
+// 顯示確認對話框,回傳 Promise<boolean>。
+function showConfirm(message, { okText = "確定", danger = false } = {}) {
+  return new Promise((resolve) => {
+    const overlay = $("#modalOverlay");
+    const okBtn = $("#modalOk");
+    const cancelBtn = $("#modalCancel");
+    $("#modalText").textContent = message;
+    okBtn.textContent = okText;
+    okBtn.classList.toggle("btn-danger", danger);
+
+    const close = (result) => {
+      overlay.hidden = true;
+      okBtn.removeEventListener("click", onOk);
+      cancelBtn.removeEventListener("click", onCancel);
+      overlay.removeEventListener("click", onBackdrop);
+      document.removeEventListener("keydown", onKey);
+      resolve(result);
+    };
+    const onOk = () => close(true);
+    const onCancel = () => close(false);
+    const onBackdrop = (e) => { if (e.target === overlay) close(false); };
+    const onKey = (e) => {
+      if (e.key === "Escape") close(false);
+      if (e.key === "Enter") close(true);
+    };
+
+    okBtn.addEventListener("click", onOk);
+    cancelBtn.addEventListener("click", onCancel);
+    overlay.addEventListener("click", onBackdrop);
+    document.addEventListener("keydown", onKey);
+    overlay.hidden = false;
+    okBtn.focus();
+  });
+}
+
+// 短訊提示(取代資訊型 alert)。isErr=true 顯示紅底。
+let toastTimer = null;
+function showToast(message, isErr = false) {
+  const el = $("#toast");
+  el.textContent = message;
+  el.className = "toast" + (isErr ? " err" : "");
+  el.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.hidden = true; }, 2600);
+}
+
+// ============================================================
 //  Firebase 初始化
 // ============================================================
 function initFirebase() {
@@ -342,10 +425,15 @@ function renderList() {
 
 async function onDelete(id) {
   const r = allRecords.find((x) => x.id === id);
-  if (!confirm(`確定刪除這筆紀錄?\n${r?.date} ${periodLabel(r?.period)} ${r?.pond}`)) return;
+  const ok = await showConfirm(
+    `確定刪除這筆紀錄?\n${r?.date} ${periodLabel(r?.period)} ${r?.pond}`,
+    { okText: "刪除", danger: true }
+  );
+  if (!ok) return;
   try {
     await deleteDoc(doc(db, "records", id));
-  } catch (err) { alert("刪除失敗:" + err.message); }
+    showToast("已刪除 ✔");
+  } catch (err) { showToast("刪除失敗:" + err.message, true); }
 }
 
 // ============================================================
@@ -426,8 +514,8 @@ function exportExcel() {
     const pa = a.period === "morning" ? 0 : 1, pb = b.period === "morning" ? 0 : 1;
     return pa - pb;
   });
-  if (!recs.length) { alert("這個月沒有資料可匯出"); return; }
-  if (typeof XLSX === "undefined") { alert("Excel 函式庫尚未載入,請檢查網路後重試"); return; }
+  if (!recs.length) { showToast("這個月沒有資料可匯出", true); return; }
+  if (typeof XLSX === "undefined") { showToast("Excel 函式庫尚未載入,請檢查網路後重試", true); return; }
 
   // 工作表 1:明細
   const detail = recs.map((r) => ({
@@ -523,7 +611,11 @@ async function removeOption(key, idx) {
   if (!db) return;
   const list = (options[key] || []).slice();
   const removed = list[idx];
-  if (!confirm(`確定刪除「${removed}」?\n(已存在的舊紀錄不受影響)`)) return;
+  const ok = await showConfirm(
+    `確定刪除「${removed}」?\n(已存在的舊紀錄不受影響)`,
+    { okText: "刪除", danger: true }
+  );
+  if (!ok) return;
   list.splice(idx, 1);
   await updateDoc(doc(db, "settings", "options"), { [key]: list });
 }
@@ -544,6 +636,7 @@ function setupTabs() {
 //  啟動
 // ============================================================
 function main() {
+  setupTheme();
   setupTabs();
   setupRecordForm();
   setupList();

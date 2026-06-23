@@ -11,10 +11,10 @@
 // 我們依你的需求把規則設為完全公開(見 DEPLOY.md)。
 
 export const firebaseConfig = {
-  apiKey: "請填入你的_API_KEY",
-  authDomain: "你的專案.firebaseapp.com",
-  projectId: "你的專案ID",
-  storageBucket: "你的專案.appspot.com",
-  messagingSenderId: "請填入",
-  appId: "請填入"
+  apiKey: "AIzaSyByR0BzPrlN8ZGw-ZeS7-2HShw9ZLx7y6Y",
+  authDomain: "fishpond-log-e4c57.firebaseapp.com",
+  projectId: "fishpond-log-e4c57",
+  storageBucket: "fishpond-log-e4c57.firebasestorage.app",
+  messagingSenderId: "310814722472",
+  appId: "1:310814722472:web:6d899a4d2d843a1b17b59d"
 };

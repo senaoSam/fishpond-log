@@ -1,0 +1,13 @@
+{
+  "name": "fishpond-log",
+  "version": "1.0.0",
+  "private": true,
+  "description": "魚塭紀錄 PWA(純前端 + Firestore)",
+  "scripts": {
+    "dev": "serve -l 8000 ."
+  },
+  "devDependencies": {
+    "serve": "^14.2.3"
+  },
+  "packageManager": "pnpm@10.15.0"
+}
