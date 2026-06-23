@@ -93,13 +93,38 @@
     <!-- ========== 月統計頁 ========== -->
     <section id="page-stats" class="page">
       <h2>月統計</h2>
-      <div class="card filters">
+
+      <!-- 總覽 / 單月 切換 -->
+      <div class="seg" id="statsModeSeg">
+        <button type="button" class="seg-btn active" data-mode="overview">📅 月份總覽</button>
+        <button type="button" class="seg-btn" data-mode="single">🔍 單月詳細</button>
+      </div>
+
+      <!-- 總覽模式才顯示的區間篩選 -->
+      <div class="card" id="statsRangeControls">
+        <div class="quick-range" id="quickRange">
+          <button type="button" class="chip-btn" data-range="3">近 3 個月</button>
+          <button type="button" class="chip-btn" data-range="6">近 6 個月</button>
+          <button type="button" class="chip-btn" data-range="12">近 12 個月</button>
+          <button type="button" class="chip-btn active" data-range="all">全部</button>
+        </div>
+        <div class="range-inputs">
+          <label>從<input id="rangeFrom" type="month" /></label>
+          <label>至<input id="rangeTo" type="month" /></label>
+        </div>
+        <button type="button" class="btn-primary" id="exportRangeBtn">📊 匯出區間 Excel</button>
+      </div>
+
+      <!-- 單月模式才顯示的月份選擇 -->
+      <div class="card filters" id="statsSingleControls" hidden>
         <label>
           月份
           <input id="statsMonth" type="month" />
         </label>
         <button type="button" class="btn-primary" id="exportBtn">📊 匯出 Excel</button>
       </div>
+
+      <div id="statsOverview"></div>
       <div id="statsContainer"></div>
     </section>
 

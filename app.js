@@ -192,7 +192,7 @@ function subscribeData() {
     allRecords = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     setSync("ok", "已同步");
     renderList();
-    renderStats();
+    renderStatsView();
     renderPondFilter();
   }, (err) => { console.error(err); setSync("err", "讀取紀錄失敗"); });
 }
@@ -439,15 +439,152 @@ async function onDelete(id) {
 // ============================================================
 //  月統計頁
 // ============================================================
+let statsMode = "overview";   // 'overview'(月份總覽)| 'single'(單月詳細)
+
 function setupStats() {
   $("#statsMonth").value = thisMonthStr();
   $("#statsMonth").addEventListener("change", renderStats);
   $("#exportBtn").addEventListener("click", exportExcel);
+  $("#exportRangeBtn").addEventListener("click", exportRange);
+
+  // 總覽 / 單月 切換
+  $$("#statsModeSeg .seg-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      statsMode = btn.dataset.mode;
+      $$("#statsModeSeg .seg-btn").forEach((b) => b.classList.toggle("active", b === btn));
+      renderStatsView();
+    });
+  });
+
+  // 快選區間鈕:換算成起訖月填入欄位
+  $$("#quickRange .chip-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const r = btn.dataset.range;
+      if (r === "all") {
+        $("#rangeFrom").value = "";
+        $("#rangeTo").value = "";
+      } else {
+        const months = Number(r);
+        const now = thisMonthStr();                 // YYYY-MM
+        $("#rangeTo").value = now;
+        $("#rangeFrom").value = addMonths(now, -(months - 1));
+      }
+      setActiveQuick(r);
+      renderOverview();
+    });
+  });
+
+  // 手動改起訖月 → 視為自訂區間,清掉快選高亮
+  ["#rangeFrom", "#rangeTo"].forEach((sel) => {
+    $(sel).addEventListener("change", () => { setActiveQuick(null); renderOverview(); });
+  });
+}
+
+// YYYY-MM 加減月份
+function addMonths(ym, delta) {
+  const [y, m] = ym.split("-").map(Number);
+  const idx = (y * 12 + (m - 1)) + delta;
+  const ny = Math.floor(idx / 12);
+  const nm = (idx % 12) + 1;
+  return `${ny}-${String(nm).padStart(2, "0")}`;
+}
+
+// 設定快選鈕高亮(null = 全部不亮,代表自訂區間)
+function setActiveQuick(range) {
+  $$("#quickRange .chip-btn").forEach((b) => b.classList.toggle("active", b.dataset.range === range));
+}
+
+// 依目前模式決定要渲染總覽還是單月
+function renderStatsView() {
+  const single = statsMode === "single";
+  $("#statsSingleControls").hidden = !single;
+  $("#statsRangeControls").hidden = single;
+  $("#statsOverview").innerHTML = "";
+  $("#statsContainer").innerHTML = "";
+  if (single) renderStats();
+  else renderOverview();
 }
 
 function statsRecords() {
   const month = $("#statsMonth").value;
   return allRecords.filter((r) => month && (r.date || "").startsWith(month));
+}
+
+// ---------- 月份總覽 ----------
+// 列出所有有資料的月份,每月顯示總包數、長條圖、各飼料包數;點月份可展開單月詳細。
+function renderOverview() {
+  const c = $("#statsOverview");
+  if (!allRecords.length) { c.innerHTML = '<p class="empty">尚無任何紀錄</p>'; return; }
+
+  // 區間(起訖月,空字串代表不限)
+  const from = $("#rangeFrom").value;
+  const to = $("#rangeTo").value;
+
+  // 依月份彙整(套用區間過濾)
+  const byMonth = {};   // { 'YYYY-MM': { total, count, feeds: {編號: 包數} } }
+  for (const r of allRecords) {
+    const m = (r.date || "").slice(0, 7);
+    if (!m) continue;
+    if (from && m < from) continue;
+    if (to && m > to) continue;
+    const b = Number(r.bags) || 0;
+    const e = (byMonth[m] ||= { total: 0, count: 0, feeds: {} });
+    e.total += b;
+    e.count += 1;
+    const fk = r.feedNo || "(未填)";
+    e.feeds[fk] = (e.feeds[fk] || 0) + b;
+  }
+
+  const months = Object.keys(byMonth).sort().reverse();   // 新月份在上
+  if (!months.length) { c.innerHTML = '<p class="empty">這個區間內沒有紀錄</p>'; return; }
+  const maxTotal = Math.max(...months.map((m) => byMonth[m].total), 1);
+  const grandTotal = months.reduce((s, m) => s + byMonth[m].total, 0);
+  // 區間說明文字
+  const rangeText = (from || to)
+    ? `${from || "最早"} ～ ${to || "最新"}`
+    : "全部月份";
+
+  const rows = months.map((m) => {
+    const e = byMonth[m];
+    const pct = Math.max(2, Math.round((e.total / maxTotal) * 100));
+    // 各飼料:依包數大→小,做成小標籤
+    const feedTags = Object.entries(e.feeds).sort((a, b) => b[1] - a[1])
+      .map(([k, v]) => `<span class="feed-tag">${escapeHtml(k)} <b>${fmt(v)}</b></span>`).join("");
+    return `
+      <div class="ov-row" data-month="${m}" role="button" tabindex="0" title="點此查看 ${m} 詳細">
+        <div class="ov-head">
+          <span class="ov-month">${m}</span>
+          <span class="ov-total">${fmt(e.total)} <small>包</small></span>
+        </div>
+        <div class="ov-bar"><span style="width:${pct}%"></span></div>
+        <div class="ov-meta">
+          <span class="ov-count">${e.count} 筆</span>
+          <span class="ov-feeds">${feedTags}</span>
+        </div>
+      </div>`;
+  }).join("");
+
+  c.innerHTML = `
+    <div class="card ov-card">
+      <div class="stats-title">📅 月份總覽(${months.length} 個月・${rangeText})</div>
+      ${rows}
+      <div class="ov-grand">區間合計 <b>${fmt(grandTotal)}</b> 包</div>
+    </div>`;
+
+  // 點某月 → 切到單月詳細
+  c.querySelectorAll(".ov-row").forEach((el) => {
+    const go = () => openSingleMonth(el.dataset.month);
+    el.addEventListener("click", go);
+    el.addEventListener("keydown", (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); go(); } });
+  });
+}
+
+// 從總覽點某月,切換到單月詳細並定位到該月
+function openSingleMonth(month) {
+  statsMode = "single";
+  $$("#statsModeSeg .seg-btn").forEach((b) => b.classList.toggle("active", b.dataset.mode === "single"));
+  $("#statsMonth").value = month;
+  renderStatsView();
 }
 
 function renderStats() {
@@ -507,15 +644,38 @@ function fmt(n) {
 // ============================================================
 //  匯出 Excel (SheetJS)
 // ============================================================
+// 單月匯出(單月詳細頁的按鈕)
 function exportExcel() {
-  const month = $("#statsMonth").value || "全部";
-  const recs = statsRecords().slice().sort((a, b) => {
+  const month = $("#statsMonth").value;
+  if (!month) { showToast("請先選擇月份", true); return; }
+  const recs = statsRecords();
+  exportToExcel(recs, month, { byMonth: false });
+}
+
+// 區間匯出(總覽頁的按鈕);依目前 rangeFrom/rangeTo 過濾,並附月分總覽表
+function exportRange() {
+  const from = $("#rangeFrom").value;
+  const to = $("#rangeTo").value;
+  const recs = allRecords.filter((r) => {
+    const m = (r.date || "").slice(0, 7);
+    if (!m) return false;
+    if (from && m < from) return false;
+    if (to && m > to) return false;
+    return true;
+  });
+  const label = (from || to) ? `${from || "最早"}_${to || "最新"}` : "全部";
+  exportToExcel(recs, label, { byMonth: true });
+}
+
+// 通用匯出:recs=要匯的紀錄,label=檔名標籤,withByMonth=是否附「月分總覽」表
+function exportToExcel(records, label, { byMonth = false } = {}) {
+  if (typeof XLSX === "undefined") { showToast("Excel 函式庫尚未載入,請檢查網路後重試", true); return; }
+  const recs = records.slice().sort((a, b) => {
     if (a.date !== b.date) return a.date < b.date ? -1 : 1;
     const pa = a.period === "morning" ? 0 : 1, pb = b.period === "morning" ? 0 : 1;
     return pa - pb;
   });
-  if (!recs.length) { showToast("這個月沒有資料可匯出", true); return; }
-  if (typeof XLSX === "undefined") { showToast("Excel 函式庫尚未載入,請檢查網路後重試", true); return; }
+  if (!recs.length) { showToast("這個範圍沒有資料可匯出", true); return; }
 
   // 工作表 1:明細
   const detail = recs.map((r) => ({
@@ -555,7 +715,26 @@ function exportExcel() {
   wsSum["!cols"] = [{ wch: 18 }, { wch: 10 }];
   XLSX.utils.book_append_sheet(wb, wsSum, "統計");
 
-  XLSX.writeFile(wb, `魚塭紀錄_${month}.xlsx`);
+  // 工作表 3(區間匯出才有):月分總覽
+  if (byMonth) {
+    const m = {};   // { 'YYYY-MM': { total, count } }
+    for (const r of recs) {
+      const ym = (r.date || "").slice(0, 7);
+      if (!ym) continue;
+      const e = (m[ym] ||= { total: 0, count: 0 });
+      e.total += Number(r.bags) || 0;
+      e.count += 1;
+    }
+    const monthRows = Object.keys(m).sort().map((ym) => ({
+      "月份": ym, "總包數": m[ym].total, "筆數": m[ym].count
+    }));
+    monthRows.push({ "月份": "合計", "總包數": total, "筆數": recs.length });
+    const wsMonth = XLSX.utils.json_to_sheet(monthRows);
+    wsMonth["!cols"] = [{ wch: 12 }, { wch: 10 }, { wch: 8 }];
+    XLSX.utils.book_append_sheet(wb, wsMonth, "月分總覽");
+  }
+
+  XLSX.writeFile(wb, `魚塭紀錄_${label}.xlsx`);
 }
 
 // ============================================================
@@ -566,13 +745,16 @@ function renderSettings() {
   c.innerHTML = Object.keys(OPTION_LABELS).map((key) => {
     const items = options[key] || [];
     const chips = items.map((it, i) => `
-      <span class="chip">${escapeHtml(it)}
-        <button title="刪除" data-rmkey="${key}" data-rmidx="${i}">×</button>
+      <span class="chip" data-key="${key}" data-idx="${i}">
+        <span class="chip-grip" title="拖曳排序">⠿</span>
+        <span class="chip-label">${escapeHtml(it)}</span>
+        <button class="chip-del" title="刪除" data-rmkey="${key}" data-rmidx="${i}">×</button>
       </span>`).join("") || '<span class="hint">尚無選項</span>';
+    const hint = items.length > 1 ? ' <span class="reorder-hint">↕ 可拖曳排序</span>' : "";
     return `
       <details class="card opt-group" open>
-        <summary>${OPTION_LABELS[key]}(${items.length})</summary>
-        <div class="chip-list">${chips}</div>
+        <summary>${OPTION_LABELS[key]}(${items.length})${hint}</summary>
+        <div class="chip-list" data-list="${key}">${chips}</div>
         <div class="add-row">
           <input type="text" placeholder="新增${OPTION_LABELS[key]}…" data-addkey="${key}" />
           <button class="btn-primary btn-sm" data-addbtn="${key}">新增</button>
@@ -582,6 +764,7 @@ function renderSettings() {
 
   c.querySelectorAll("[data-rmkey]").forEach((b) =>
     b.addEventListener("click", () => removeOption(b.dataset.rmkey, Number(b.dataset.rmidx))));
+  c.querySelectorAll("[data-list]").forEach((listEl) => setupChipDrag(listEl));
   c.querySelectorAll("[data-addbtn]").forEach((b) =>
     b.addEventListener("click", () => {
       const key = b.dataset.addbtn;
@@ -605,6 +788,131 @@ async function addOption(key, value) {
   if (list.includes(value)) return;           // 不重複
   const next = [...list, value];
   await updateDoc(doc(db, "settings", "options"), { [key]: next });
+}
+
+// 把選項從 from 位置移到 to 位置,寫回 Firestore
+async function reorderOption(key, from, to) {
+  if (!db) return;
+  const list = (options[key] || []).slice();
+  if (from === to || from < 0 || to < 0 || from >= list.length || to >= list.length) return;
+  const [moved] = list.splice(from, 1);
+  list.splice(to, 0, moved);
+  try {
+    await updateDoc(doc(db, "settings", "options"), { [key]: list });
+    showToast(`已調整順序:「${moved}」`);
+  } catch (err) { showToast("排序失敗:" + err.message, true); }
+}
+
+// ---------- chip 拖曳排序(Pointer Events,手機 / 桌面通用)----------
+// 做法:被拖的 chip 改為 fixed 浮層、即時跟隨游標;原位留一個等高的佔位框;
+// 其他 chip 依游標位置即時讓位(insertBefore 佔位框)。放開才寫回 Firestore。
+function setupChipDrag(listEl) {
+  const key = listEl.dataset.list;
+  const THRESHOLD = 6;        // 移動超過幾 px 才算拖曳(否則視為單純點擊)
+  let pending = null;         // 已按下、尚未確定是否拖曳的 chip
+  let dragging = false;       // 是否已進入拖曳模式
+  let dragEl = null;          // 被拖的 chip(浮層)
+  let placeholder = null;     // 佔位框
+  let startIdx = -1;
+  let pointerId = null;
+  let startX = 0, startY = 0; // 按下時的座標
+  let offX = 0, offY = 0;     // 游標相對 chip 左上角的偏移
+  let w = 0, h = 0;
+
+  const onDown = (e) => {
+    // 整個 chip 都可發起拖曳,但排除刪除鈕(× 仍是點擊刪除)
+    if (e.target.closest(".chip-del")) return;
+    const chip = e.target.closest(".chip");
+    if (!chip || chip.parentElement !== listEl) return;
+    pending = chip;
+    dragging = false;
+    pointerId = e.pointerId;
+    startIdx = Number(chip.dataset.idx);
+    startX = e.clientX; startY = e.clientY;
+
+    const rect = chip.getBoundingClientRect();
+    w = rect.width; h = rect.height;
+    offX = e.clientX - rect.left;
+    offY = e.clientY - rect.top;
+
+    listEl.setPointerCapture(pointerId);
+    listEl.addEventListener("pointermove", onMove);
+    listEl.addEventListener("pointerup", onUp);
+    listEl.addEventListener("pointercancel", onUp);
+  };
+
+  // 真正進入拖曳:生成佔位框 + 把 chip 變浮層
+  const beginDrag = (x, y) => {
+    dragging = true;
+    dragEl = pending;
+
+    placeholder = document.createElement("span");
+    placeholder.className = "chip-placeholder";
+    placeholder.style.width = w + "px";
+    placeholder.style.height = h + "px";
+    listEl.insertBefore(placeholder, dragEl);
+
+    dragEl.classList.add("dragging");
+    dragEl.style.width = w + "px";
+    dragEl.style.height = h + "px";
+    moveTo(x, y);
+  };
+
+  const moveTo = (x, y) => {
+    dragEl.style.left = (x - offX) + "px";
+    dragEl.style.top = (y - offY) + "px";
+  };
+
+  const onMove = (e) => {
+    if (!pending) return;
+    // 還沒進入拖曳:先看是否超過門檻
+    if (!dragging) {
+      if (Math.abs(e.clientX - startX) < THRESHOLD && Math.abs(e.clientY - startY) < THRESHOLD) return;
+      beginDrag(e.clientX, e.clientY);
+    }
+    e.preventDefault();
+    moveTo(e.clientX, e.clientY);
+    // 找游標下方、同列表內、非浮層的 chip,決定佔位框插在它前或後
+    const others = Array.from(listEl.querySelectorAll(".chip:not(.dragging)"));
+    let target = null;
+    for (const c of others) {
+      const r = c.getBoundingClientRect();
+      if (e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom) {
+        target = { el: c, after: e.clientX > r.left + r.width / 2 };
+        break;
+      }
+    }
+    if (target) {
+      listEl.insertBefore(placeholder, target.after ? target.el.nextSibling : target.el);
+    }
+  };
+
+  const onUp = () => {
+    listEl.removeEventListener("pointermove", onMove);
+    listEl.removeEventListener("pointerup", onUp);
+    listEl.removeEventListener("pointercancel", onUp);
+
+    if (!dragging) { pending = null; return; }   // 沒超過門檻 = 單純點擊,不動作
+
+    // 新位置 = 佔位框在「所有 chip + 佔位框」序列中的索引
+    const seq = Array.from(listEl.children).filter(
+      (n) => n.classList.contains("chip") || n === placeholder
+    );
+    const newIdx = seq.indexOf(placeholder);
+
+    dragEl.classList.remove("dragging");
+    dragEl.removeAttribute("style");
+    placeholder.remove();
+    dragEl = null; placeholder = null; pending = null; dragging = false;
+
+    if (newIdx !== -1 && newIdx !== startIdx) {
+      reorderOption(key, startIdx, newIdx);    // 寫回 Firestore(成功 toast);onSnapshot 重渲染
+    } else {
+      renderSettings();                        // 沒移動也重渲染,還原索引
+    }
+  };
+
+  listEl.addEventListener("pointerdown", onDown);
 }
 
 async function removeOption(key, idx) {
