@@ -202,6 +202,15 @@ td.num, th.num { text-align: right; }
 tr.total td { font-weight: 800; background: var(--total-bg); border-top: 2px solid var(--primary); }
 .stats-title { font-weight: 700; margin: 18px 0 6px; }
 
+/* ---------- 統計:群組視角下拉 ---------- */
+.stats-tag-label {
+  display: block;
+  font-weight: 600;
+  font-size: 0.9rem;
+  margin: 0 0 14px;
+  color: var(--text);
+}
+
 /* ---------- 區間篩選 ---------- */
 .quick-range { display: flex; flex-wrap: wrap; gap: 8px; }
 .chip-btn {
@@ -316,6 +325,38 @@ tr.total td { font-weight: 800; background: var(--total-bg); border-top: 2px sol
 .add-row { display: flex; gap: 8px; align-items: stretch; }
 .add-row input { flex: 1 1 auto; min-width: 0; margin-top: 0; }
 .add-row button { flex: 0 0 auto; width: auto; white-space: nowrap; padding: 0 18px; }
+
+/* ---------- 池塘分類 ---------- */
+.pondtag-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+.pondtag-row:first-of-type { border-top: none; }
+.pondtag-name {
+  flex: 0 0 auto;
+  min-width: 56px;
+  font-weight: 700;
+  padding-top: 5px;
+}
+.pondtag-chips { flex: 1 1 auto; display: flex; flex-wrap: wrap; gap: 6px; }
+.tag-pick {
+  border: 1px solid var(--border);
+  background: var(--field);
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.tag-pick.on {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+  font-weight: 700;
+}
 
 /* ---------- Tabbar ---------- */
 .tabbar {

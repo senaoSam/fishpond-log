@@ -82,6 +82,10 @@
           <input id="listMonth" type="month" />
         </label>
         <label>
+          群組
+          <select id="listTagFilter"><option value="">全部</option></select>
+        </label>
+        <label>
           池塘
           <select id="listPondFilter"><option value="">全部</option></select>
         </label>
@@ -98,6 +102,18 @@
       <div class="seg" id="statsModeSeg">
         <button type="button" class="seg-btn active" data-mode="overview">📅 月份總覽</button>
         <button type="button" class="seg-btn" data-mode="single">🔍 單月詳細</button>
+      </div>
+
+      <!-- 群組(標籤)/ 池塘 視角:可疊加篩選 -->
+      <div class="card filters">
+        <label>
+          群組
+          <select id="statsTagFilter"><option value="">全部</option></select>
+        </label>
+        <label>
+          池塘
+          <select id="statsPondFilter"><option value="">全部</option></select>
+        </label>
       </div>
 
       <!-- 總覽模式才顯示的區間篩選 -->
