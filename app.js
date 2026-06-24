@@ -36,6 +36,75 @@ let options = { ...DEFAULT_OPTIONS };
 let editingId = null;       // 目前正在編輯的紀錄 id(null = 新增模式)
 let currentPeriod = "morning";
 
+// ---------- 假資料模式 ----------
+const DEMO_KEY = "yutun-demo-mode";          // localStorage:'1' = 假資料模式
+let demoMode = false;
+let unsubscribers = [];                       // Firestore 訂閱取消函式(切換時要解除)
+
+// 產生一組示範資料(純前端,不碰 Firestore)。城市=群組,池子各屬其城市,魚種隨機。
+function buildDemoData() {
+  const cities = {
+    "高雄": ["左營", "楠梓", "岡山"],
+    "台南": ["永康", "安平", "新營"],
+    "嘉義": ["太保", "朴子", "民雄"]
+  };
+  const fishTags = ["鱸魚", "鮪魚", "吳郭魚", "鮭魚"];
+  const feedNos = DEFAULT_OPTIONS.feedNos;
+  const mixes = DEFAULT_OPTIONS.mixes;
+  const disinfectants = DEFAULT_OPTIONS.disinfectants;
+
+  // 用固定種子的偽隨機,讓每次產生的假資料一致(可重現)
+  let seed = 20260501;
+  const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
+  const pick = (arr) => arr[Math.floor(rnd() * arr.length)];
+
+  const ponds = [];
+  const pondTags = {};
+  for (const [city, areas] of Object.entries(cities)) {
+    for (const area of areas) {
+      ponds.push(area);
+      pondTags[area] = [city, pick(fishTags)];   // 自己城市 + 隨機魚種
+    }
+  }
+
+  const demoOptions = {
+    ponds,
+    feedNos: [...feedNos],
+    mixes: [...mixes],
+    disinfectants: [...disinfectants],
+    tags: ["高雄", "台南", "嘉義", ...fishTags],
+    pondTags
+  };
+
+  // 5、6 兩個月,每個池子每月隨機記幾筆
+  const records = [];
+  let idn = 1;
+  const z = (n) => String(n).padStart(2, "0");
+  for (const month of [5, 6]) {
+    const daysInMonth = month === 5 ? 31 : 30;
+    for (const pond of ponds) {
+      const count = 3 + Math.floor(rnd() * 4);   // 每池每月 3~6 筆
+      for (let k = 0; k < count; k++) {
+        const day = 1 + Math.floor(rnd() * daysInMonth);
+        records.push({
+          id: `demo-${idn++}`,
+          pond,
+          date: `2026-${z(month)}-${z(day)}`,
+          period: rnd() < 0.5 ? "morning" : "afternoon",
+          bags: Math.round((1 + rnd() * 5) * 2) / 2,   // 1~6,0.5 為單位
+          feedNo: pick(feedNos),
+          mix: rnd() < 0.5 ? pick(mixes) : "",
+          disinfectant: rnd() < 0.4 ? pick(disinfectants) : "",
+          note: ""
+        });
+      }
+    }
+  }
+  // 依日期新→舊排序(與真實訂閱一致)
+  records.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+  return { demoOptions, records };
+}
+
 // ---------- 小工具 ----------
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
@@ -206,7 +275,7 @@ function showConfigHint() {
 function subscribeData() {
   // 1) 選項設定
   const optRef = doc(db, "settings", "options");
-  onSnapshot(optRef, async (snap) => {
+  unsubscribers.push(onSnapshot(optRef, async (snap) => {
     if (!snap.exists()) {
       // 首次:寫入預設值
       await setDoc(optRef, DEFAULT_OPTIONS);
@@ -220,11 +289,11 @@ function subscribeData() {
     renderSettings();
     renderPondFilter();
     renderRecordTags();
-  }, (err) => { console.error(err); setSync("err", "讀取設定失敗"); });
+  }, (err) => { console.error(err); setSync("err", "讀取設定失敗"); }));
 
   // 2) 紀錄
   const q = query(collection(db, "records"), orderBy("date", "desc"));
-  onSnapshot(q, { includeMetadataChanges: true }, (snap) => {
+  unsubscribers.push(onSnapshot(q, { includeMetadataChanges: true }, (snap) => {
     allRecords = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     // fromCache=true 代表尚未與雲端同步(離線或同步中);hasPendingWrites=有本地未上傳的寫入
     cloudSynced = !snap.metadata.fromCache;
@@ -234,7 +303,52 @@ function subscribeData() {
     renderStatsView();
     renderPondFilter();
     renderTodayList();
-  }, (err) => { console.error(err); cloudSynced = false; setSync("err", "讀取紀錄失敗"); });
+  }, (err) => { console.error(err); cloudSynced = false; setSync("err", "讀取紀錄失敗"); }));
+}
+
+// 解除所有 Firestore 訂閱
+function unsubscribeData() {
+  unsubscribers.forEach((fn) => { try { fn(); } catch (e) {} });
+  unsubscribers = [];
+}
+
+// ---------- 模式切換:DB / 假資料 ----------
+function applyMode(demo) {
+  demoMode = demo;
+  localStorage.setItem(DEMO_KEY, demo ? "1" : "0");
+  document.body.classList.toggle("demo-mode", demo);
+  updateModeToggle();
+
+  if (demo) {
+    unsubscribeData();                 // 停掉真實訂閱,避免覆蓋畫面
+    const { demoOptions, records } = buildDemoData();
+    options = demoOptions;
+    allRecords = records;
+    setSync("demo", "假資料模式");
+    // 全面重渲染
+    renderOptionSelects(); renderSettings(); renderPondFilter();
+    renderRecordTags(); renderList(); renderStatsView(); renderTodayList();
+  } else {
+    // 回 DB 模式:重新訂閱(會覆蓋掉假資料)
+    if (db) { setSync("", "連線中…"); subscribeData(); }
+  }
+}
+
+function updateModeToggle() {
+  $$("#modeSwitch .mode-opt").forEach((b) =>
+    b.classList.toggle("active", (b.dataset.mode === "demo") === demoMode));
+}
+
+function setupModeToggle() {
+  applyMode(localStorage.getItem(DEMO_KEY) === "1");   // 還原上次模式
+  $$("#modeSwitch .mode-opt").forEach((b) =>
+    b.addEventListener("click", () => applyMode(b.dataset.mode === "demo")));
+}
+
+// 假資料模式為唯讀:攔截所有寫入,回 true 表示「已攔截,不要繼續」
+function blockIfDemo() {
+  if (demoMode) { showToast("假資料模式為唯讀,切回 DB 模式才能編輯", true); return true; }
+  return false;
 }
 
 // ============================================================
@@ -431,6 +545,7 @@ function renderTodayList() {
 
 async function onSaveRecord(e) {
   e.preventDefault();
+  if (blockIfDemo()) return;
   if (!db) { showMsg("尚未設定 Firebase,無法儲存", true); return; }
 
   const pond = getPondValue();
@@ -609,6 +724,7 @@ function renderList() {
 }
 
 async function onDelete(id) {
+  if (blockIfDemo()) return;
   const r = allRecords.find((x) => x.id === id);
   const ok = await showConfirm(
     `確定刪除這筆紀錄?\n${r?.date} ${periodLabel(r?.period)} ${r ? pondLabel(r.pond) : ""}`,
@@ -1082,6 +1198,7 @@ function renderPondTagsSection() {
 
 // 切換某池對某標籤的歸屬
 async function togglePondTag(pond, tag) {
+  if (blockIfDemo()) return;
   if (!db) return;
   const pondTags = { ...(options.pondTags || {}) };
   const list = new Set(pondTags[pond] || []);
@@ -1094,6 +1211,7 @@ async function togglePondTag(pond, tag) {
 }
 
 async function addOption(key, value) {
+  if (blockIfDemo()) return;
   if (!db) return;
   const list = options[key] || [];
   if (list.includes(value)) return;           // 不重複
@@ -1103,6 +1221,7 @@ async function addOption(key, value) {
 
 // 把選項從 from 位置移到 to 位置,寫回 Firestore
 async function reorderOption(key, from, to) {
+  if (blockIfDemo()) return;
   if (!db) return;
   const list = (options[key] || []).slice();
   if (from === to || from < 0 || to < 0 || from >= list.length || to >= list.length) return;
@@ -1227,6 +1346,7 @@ function setupChipDrag(listEl) {
 }
 
 async function removeOption(key, idx) {
+  if (blockIfDemo()) return;
   if (!db) return;
   const list = (options[key] || []).slice();
   const removed = list[idx];
@@ -1285,10 +1405,9 @@ function main() {
   renderOptionSelects();
   renderSettings();
 
-  if (initFirebase()) {
-    setSync("", "連線中…");
-    subscribeData();
-  }
+  initFirebase();
+  // 還原上次模式:applyMode 內部會處理(假資料→灌假資料;DB→訂閱 Firestore)
+  setupModeToggle();
 
   // 註冊 service worker(PWA)
   if ("serviceWorker" in navigator) {

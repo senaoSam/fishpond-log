@@ -60,10 +60,41 @@ html, body {
   background: var(--header);
   color: #fff;
 }
+/* 切換鈕絕對置中,不受左右元素寬度影響(header 為 sticky,可當定位基準) */
+.app-header .mode-switch {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  margin-top: calc(env(safe-area-inset-top) / 2);
+}
 .sync-status { font-size: 0.72rem; opacity: 0.9; }
 .sync-status.ok::before { content: "● "; color: #b2f2bb; }
 .sync-status.err::before { content: "● "; color: #ffc9c9; }
 .sync-status.pending::before { content: "● "; color: #ffd8a8; }
+.sync-status.demo::before { content: "● "; color: #ffe066; }
+/* 模式切換:左右兩段的 segmented switch */
+.mode-switch {
+  display: inline-flex;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.1);
+}
+.mode-opt {
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1;
+  padding: 5px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.mode-opt.active { color: #fff; }
+.mode-opt[data-mode="db"].active { background: rgba(255, 255, 255, 0.28); }      /* DB 選中:白底 */
+.mode-opt[data-mode="demo"].active { background: #f59f00; color: #fff; }          /* 假資料選中:橘底 */
 .theme-toggle {
   border: none;
   background: rgba(255, 255, 255, 0.15);
@@ -79,6 +110,11 @@ html, body {
   justify-content: center;
 }
 .theme-toggle:active { background: rgba(255, 255, 255, 0.3); }
+
+/* 假資料模式:整體加橘色提示邊框 + 隱藏儲存列(唯讀) */
+body.demo-mode { box-shadow: inset 0 0 0 3px #f59f00; }
+body.demo-mode .app-header { background: #b56c00; }
+body.demo-mode #saveBar { display: none !important; }
 
 /* ---------- Layout ---------- */
 #main {
