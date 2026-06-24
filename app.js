@@ -749,6 +749,7 @@ function setupStats() {
   $("#statsPondFilter").addEventListener("change", renderStatsView);
   $("#exportBtn").addEventListener("click", exportExcel);
   $("#exportRangeBtn").addEventListener("click", exportRange);
+  setupChartTooltip();
 
   // 總覽 / 單月 切換
   $$("#statsModeSeg .seg-btn").forEach((btn) => {
@@ -878,7 +879,11 @@ function renderOverview() {
       </div>`;
   }).join("");
 
+  // 分組堆疊橫條圖:每月一區,區內每池一條,柱內依飼料編號堆疊
+  const groupedCard = renderMonthlyGroupedChart(months, rangeText);
+
   c.innerHTML = `
+    ${groupedCard}
     <div class="card ov-card">
       <div class="stats-title">📅 月份總覽(${months.length} 個月・${rangeText})</div>
       ${rows}
@@ -891,6 +896,118 @@ function renderOverview() {
     el.addEventListener("click", go);
     el.addEventListener("keydown", (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); go(); } });
   });
+  // 點分組圖的某月區塊 → 跳單月詳細
+  c.querySelectorAll("[data-gmonth]").forEach((el) =>
+    el.addEventListener("click", () => openSingleMonth(el.dataset.gmonth)));
+}
+
+// 跟隨滑鼠的圖表 tooltip(委派在統計容器上,hover [data-tip] 顯示)
+function setupChartTooltip() {
+  const tip = $("#chartTip");
+  const containers = ["#statsOverview", "#statsContainer"].map($);
+
+  const show = (text, x, y) => {
+    tip.innerHTML = text.split("|").map((line, i) =>
+      i === 0 ? `<b>${escapeHtml(line)}</b>` : escapeHtml(line)).join("<br>");
+    tip.hidden = false;
+    move(x, y);
+  };
+  const move = (x, y) => {
+    // 預設在滑鼠右下,靠近右/下邊界時翻向左/上,避免超出視窗
+    const pad = 14;
+    const w = tip.offsetWidth, h = tip.offsetHeight;
+    let left = x + pad, top = y + pad;
+    if (left + w > window.innerWidth - 8) left = x - w - pad;
+    if (top + h > window.innerHeight - 8) top = y - h - pad;
+    tip.style.left = left + "px";
+    tip.style.top = top + "px";
+  };
+  const hide = () => { tip.hidden = true; };
+
+  for (const c of containers) {
+    if (!c) continue;
+    c.addEventListener("pointermove", (e) => {
+      const row = e.target.closest("[data-tip]");
+      if (row) show(row.dataset.tip, e.clientX, e.clientY);
+      else hide();
+    });
+    c.addEventListener("pointerleave", hide);
+  }
+}
+
+// 分組堆疊橫條圖:每月一區,區內每池一條,柱長=該池總包數,柱內依飼料編號堆疊色塊。
+// months: 月份陣列(新→舊);用全域過濾後的紀錄重新彙整到「月→池→飼料」。
+function renderMonthlyGroupedChart(months, rangeText) {
+  if (!months.length) return "";
+  // 月→池→{ total, feeds:{飼料:包數} }
+  const data = {};
+  let maxPond = 1;                       // 全部池條的最大總量(統一比例尺,跨月可比)
+  const filtered = statsTagFiltered(allRecords).filter((r) => months.includes((r.date || "").slice(0, 7)));
+  for (const r of filtered) {
+    const m = (r.date || "").slice(0, 7);
+    const b = Number(r.bags) || 0;
+    const mo = (data[m] ||= {});
+    const po = (mo[r.pond] ||= { total: 0, feeds: {} });
+    const fk = r.feedNo || "(未填)";
+    po.total += b;
+    po.feeds[fk] = (po.feeds[fk] || 0) + b;
+    if (po.total > maxPond) maxPond = po.total;
+  }
+  const feedColor = buildFeedColorMap(filtered);
+
+  const monthBlocks = [...months].reverse().map((m) => {   // 舊→新
+    const ponds = Object.entries(data[m] || {}).sort((a, b) => b[1].total - a[1].total);
+    const monthTotal = ponds.reduce((s, [, info]) => s + info.total, 0);
+    return `
+      <div class="gmonth" data-gmonth="${m}" role="button" tabindex="0">
+        <div class="gmonth-head">${escapeHtml(m)} <span class="gmonth-total">(共 ${fmt(monthTotal)} 包)</span></div>
+        ${stackedPondRows(ponds, maxPond, feedColor)}
+      </div>`;
+  }).join("");
+
+  // 飼料圖例
+  const legend = Object.keys(feedColor).map((f) =>
+    `<span class="g-leg"><span class="pie-dot" style="background:${feedColor[f]}"></span>${escapeHtml(f)}</span>`).join("");
+
+  return `
+    <div class="card">
+      <div class="stats-title">📊 各月 × 各池包數(依飼料堆疊)</div>
+      <div class="g-legend">${legend}</div>
+      <div class="grouped-chart">${monthBlocks}</div>
+      <p class="hint">每月一區,每條為一個池;柱內顏色=飼料編號。點月份可看詳細。</p>
+    </div>`;
+}
+
+// 產生堆疊橫條列(共用於月份總覽與單月詳細)。
+// pondsEntries: [[pond, {total, feeds:{料號:包數}}], ...](已排序);maxVal: 比例尺;feedColor: 料號→色。
+function stackedPondRows(pondsEntries, maxVal, feedColor) {
+  return pondsEntries.map(([pond, info]) => {
+    const widthPct = Math.max(2, Math.round((info.total / maxVal) * 100));
+    const sortedFeeds = Object.entries(info.feeds).sort((a, b) => b[1] - a[1]);
+    const segs = sortedFeeds.map(([f, v]) => {
+      const segPct = Math.round((v / info.total) * 100);
+      return `<span class="gseg" style="width:${segPct}%;background:${feedColor[f]}"><span class="gseg-txt">${escapeHtml(f)} ${fmt(v)}包</span></span>`;
+    }).join("");
+    const tip = `${pondLabel(pond)}(共 ${fmt(info.total)} 包)|` +
+      sortedFeeds.map(([f, v]) => `${f}: ${fmt(v)} 包`).join("|");
+    return `
+      <div class="gp-row" data-tip="${escapeHtml(tip)}">
+        <span class="gp-name">${escapeHtml(pondLabel(pond))}</span>
+        <span class="gp-track"><span class="gp-bar" style="width:${widthPct}%">${segs}</span></span>
+        <span class="gp-val">${fmt(info.total)}包</span>
+      </div>`;
+  }).join("");
+}
+
+// 依一組紀錄建「料號→顏色」對應(用設定的料號順序,讓配色穩定一致)
+function buildFeedColorMap(recs) {
+  const present = new Set(recs.map((r) => r.feedNo || "(未填)"));
+  const ordered = [...(options.feedNos || []), "(未填)"].filter((f) => present.has(f));
+  // 補上不在設定清單裡的(保險)
+  for (const f of present) if (!ordered.includes(f)) ordered.push(f);
+  const map = {};
+  ordered.forEach((f, i) => { map[f] = CHART_COLORS[i % CHART_COLORS.length]; });
+  return map;
 }
 
 // 從總覽點某月,切換到單月詳細並定位到該月
@@ -953,7 +1070,61 @@ function renderStats() {
       <p class="hint">每個群組獨立計算(該群組所有池的加總);不同群組不應相加。</p>
     </div>` : "";
 
+  // ---- 圖形化 ----
+  // 每池→料號→包數(供堆疊橫條圖)
+  const pondFeeds = {};   // { pond: { total, feeds:{料號:包數} } }
+  for (const r of recs) {
+    const b = Number(r.bags) || 0;
+    const e = (pondFeeds[r.pond] ||= { total: 0, feeds: {} });
+    const fk = r.feedNo || "(未填)";
+    e.total += b;
+    e.feeds[fk] = (e.feeds[fk] || 0) + b;
+  }
+  const pondEntries = Object.entries(pondFeeds).sort((a, b) => b[1].total - a[1].total);
+  const maxPondVal = Math.max(...pondEntries.map(([, e]) => e.total), 1);
+  const feedColorMap = buildFeedColorMap(recs);
+  const feedLegend = Object.keys(feedColorMap)
+    .map((f) => `<span class="g-leg"><span class="pie-dot" style="background:${feedColorMap[f]}"></span>${escapeHtml(f)}</span>`).join("");
+
+  // 各池塘(依料號堆疊)
+  const barCard = pondEntries.length ? `
+    <div class="card">
+      <div class="stats-title">📊 各池塘包數(依料號堆疊)</div>
+      <div class="g-legend">${feedLegend}</div>
+      <div class="grouped-chart">${stackedPondRows(pondEntries, maxPondVal, feedColorMap)}</div>
+    </div>` : "";
+
+  // 各料號總量(不分池,用料號色)
+  const feedData = Object.entries(byFeed).sort((a, b) => b[1] - a[1])
+    .map(([f, v]) => ({ label: f, value: v, color: feedColorMap[f] }));
+  const feedBarCard = feedData.length ? `
+    <div class="card">
+      <div class="stats-title">🥡 各料號總量</div>
+      ${simpleBar(feedData)}
+    </div>` : "";
+
+  // 各群組總量(用調色盤色)
+  const groupData = Object.entries(byTag).sort((a, b) => b[1].total - a[1].total)
+    .map(([t, e], i) => ({ label: t, value: e.total, color: CHART_COLORS[i % CHART_COLORS.length] }));
+  const groupBarCard = groupData.length ? `
+    <div class="card">
+      <div class="stats-title">🏷️ 各群組總量</div>
+      ${simpleBar(groupData)}
+      <p class="hint">每個群組獨立計算,不同群組不應相加。</p>
+    </div>` : "";
+
+  // 當月日曆熱力圖
+  const heatCard = `
+    <div class="card">
+      <div class="stats-title">🗓️ 當月每日包數</div>
+      ${calendarHeatmap(recs, $("#statsMonth").value)}
+    </div>`;
+
   c.innerHTML = `
+    ${barCard}
+    ${feedBarCard}
+    ${groupBarCard}
+    ${heatCard}
     ${tagCard}
     <div class="card">
       <div class="stats-title">🏊 各池塘總包數</div>
@@ -982,6 +1153,64 @@ function renderStats() {
 function fmt(n) {
   // 去掉多餘小數(3.0 → 3,3.5 → 3.5)
   return Number.isInteger(n) ? String(n) : String(Math.round(n * 100) / 100);
+}
+
+// ============================================================
+//  圖形化統計(純 CSS/SVG,不依賴圖表庫)
+// ============================================================
+const CHART_COLORS = ["#0b7285", "#1971c2", "#2f9e44", "#e8590c", "#9c36b5", "#c2255c", "#5c940d", "#1098ad", "#f08c00", "#495057"];
+
+// 簡單橫條圖(單色)。data = [{label, value, color}],已排序傳入。
+function simpleBar(data) {
+  if (!data.length) return "";
+  const max = Math.max(...data.map((d) => d.value), 1);
+  return `<div class="grouped-chart">` + data.map((d) => {
+    const pct = Math.max(2, Math.round((d.value / max) * 100));
+    return `
+      <div class="gp-row" data-tip="${escapeHtml(`${d.label}: ${fmt(d.value)} 包`)}">
+        <span class="gp-name">${escapeHtml(d.label)}</span>
+        <span class="gp-track"><span class="gp-bar" style="width:${pct}%;background:${d.color || "var(--primary)"}"></span></span>
+        <span class="gp-val">${fmt(d.value)}包</span>
+      </div>`;
+  }).join("") + `</div>`;
+}
+
+// 當月日曆熱力圖:格子=當月每一天,顏色深淺=當天總包數。recs=當月紀錄,month='YYYY-MM'。
+function calendarHeatmap(recs, month) {
+  if (!month) return "";
+  const [y, m] = month.split("-").map(Number);
+  const days = new Date(y, m, 0).getDate();              // 當月天數
+  const firstDow = new Date(y, m - 1, 1).getDay();        // 1 號是星期幾(0=日)
+  // 每日:總包數 + 明細紀錄(供 tooltip)
+  const byDay = {};      // d -> { total, lines:[每筆字串] }
+  let maxDay = 0;
+  for (const r of recs) {
+    const d = Number((r.date || "").slice(8, 10));
+    if (!d) continue;
+    const b = Number(r.bags) || 0;
+    const e = (byDay[d] ||= { total: 0, lines: [] });
+    e.total += b;
+    // 每筆:池 時段 料號 N包(拌料/消毒若有附後)
+    const extra = [r.mix, r.disinfectant].filter(Boolean).join("·");
+    e.lines.push(`${pondLabel(r.pond)} ${periodLabel(r.period)} ${r.feedNo || "(未填)"} ${fmt(b)}包${extra ? " " + extra : ""}`);
+    if (e.total > maxDay) maxDay = e.total;
+  }
+  const cells = [];
+  for (let i = 0; i < firstDow; i++) cells.push(`<div class="cal-cell cal-empty"></div>`);
+  for (let d = 1; d <= days; d++) {
+    const e = byDay[d];
+    const v = e ? e.total : 0;
+    const dateStr = `${month}-${String(d).padStart(2, "0")}`;
+    // 0=無色,有值依比例上色(4 階)
+    const level = v === 0 ? 0 : Math.min(4, Math.ceil((v / maxDay) * 4));
+    // tooltip:第一行日期+總數,後面每筆明細
+    const tip = v > 0
+      ? [`${dateStr}(共 ${fmt(v)} 包・${e.lines.length} 筆)`, ...e.lines].join("|")
+      : `${dateStr}|無紀錄`;
+    cells.push(`<div class="cal-cell cal-l${level}" data-tip="${escapeHtml(tip)}"><span class="cal-d">${d}</span>${v > 0 ? `<span class="cal-v">${fmt(v)}</span>` : ""}</div>`);
+  }
+  const heads = ["日", "一", "二", "三", "四", "五", "六"].map((w) => `<div class="cal-head">${w}</div>`).join("");
+  return `<div class="cal-grid">${heads}${cells.join("")}</div>`;
 }
 
 // ============================================================
@@ -1385,6 +1614,7 @@ function switchPage(name) {
   const onRecord = name === "record";
   $("#saveBar").hidden = !onRecord;            // 儲存列只在記錄頁顯示
   document.body.classList.toggle("on-record", onRecord);  // 控制底部留白
+  document.body.classList.toggle("on-stats", name === "stats");  // 統計頁全寬
   window.scrollTo({ top: 0 });
 }
 function setupTabs() {

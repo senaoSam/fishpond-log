@@ -122,6 +122,8 @@ body.demo-mode #saveBar { display: none !important; }
   margin: 0 auto;
   padding: 16px 16px 96px;
 }
+/* 統計頁全寬(跟著視窗),圖表才有空間;其他頁維持手機寬度 */
+body.on-stats #main { max-width: 100%; }
 .page { display: none; }
 .page.active { display: block; }
 .page h2 { font-size: 1.25rem; margin: 4px 0 16px; }
@@ -283,6 +285,72 @@ tr.total td { font-weight: 800; background: var(--total-bg); border-top: 2px sol
 .stats-title { font-weight: 700; margin: 18px 0 6px; }
 /* 各群組統計:標籤後面附涵蓋的池塘 */
 .tag-ponds { display: block; font-size: 0.78rem; color: var(--muted); font-weight: 400; margin-top: 2px; }
+
+/* ---------- 堆疊橫條圖(每月×每池 / 單月各池,依料號堆疊) ---------- */
+.g-legend { display: flex; flex-wrap: wrap; gap: 12px; margin: 6px 0 14px; font-size: 0.85rem; }
+.g-leg { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
+.grouped-chart { display: flex; flex-direction: column; gap: 16px; }
+.gmonth { cursor: pointer; border-left: 3px solid var(--primary); padding-left: 12px; }
+.gmonth:active { background: var(--th-bg); }
+.gmonth-head { font-weight: 700; font-size: 1rem; margin-bottom: 8px; }
+.gmonth-total { font-weight: 400; font-size: 0.85rem; color: var(--muted); }
+.gp-row { display: flex; align-items: center; gap: 10px; font-size: 0.9rem; margin-bottom: 7px; padding: 2px 4px; border-radius: 6px; transition: background 0.1s; }
+/* hover 該條:整列底色 + 名字加粗 + 柱子描邊,清楚標示游標在哪一條 */
+.gp-row:hover { background: var(--th-bg); }
+.gp-row:hover .gp-name { font-weight: 700; color: var(--primary); }
+.gp-row:hover .gp-bar { outline: 2px solid var(--primary); outline-offset: 1px; }
+.gp-name { flex: 0 0 160px; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gp-track { flex: 1 1 auto; min-width: 0; height: 22px; background: var(--th-bg); border-radius: 4px; }
+.gp-bar { display: flex; height: 100%; border-radius: 4px; overflow: hidden; min-width: 2px; }
+.gp-seg, .gseg {
+  display: flex; align-items: center; justify-content: center;
+  height: 100%; min-width: 0; overflow: hidden;
+}
+/* 色塊內的「料號 包數」文字,太窄自動裁掉不外溢 */
+.gseg-txt {
+  font-size: 0.72rem; color: #fff; font-weight: 700;
+  white-space: nowrap; overflow: hidden; padding: 0 2px;
+  text-shadow: 0 0 2px rgba(0, 0, 0, 0.35);
+}
+.gp-val { flex: 0 0 64px; text-align: right; font-weight: 700; color: var(--muted); }
+
+/* ---------- 跟隨滑鼠的圖表 tooltip ---------- */
+.chart-tip {
+  position: fixed;
+  z-index: 300;
+  pointer-events: none;
+  max-width: 90vw;
+  white-space: nowrap;
+  background: rgba(20, 25, 30, 0.95);
+  color: #fff;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  padding: 8px 12px;
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+}
+
+.pie-dot { width: 12px; height: 12px; border-radius: 3px; flex: 0 0 auto; }
+
+/* ---------- 當月日曆熱力圖 ---------- */
+.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; margin-top: 8px; max-width: 560px; }
+.cal-head { text-align: center; font-size: 0.75rem; color: var(--muted); font-weight: 700; padding-bottom: 2px; }
+.cal-cell {
+  height: 46px; border-radius: 6px; background: var(--th-bg);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 1px; font-size: 0.72rem; cursor: default;
+}
+.cal-empty { background: transparent; }
+.cal-d { color: var(--muted); font-size: 0.68rem; line-height: 1; }
+.cal-v { font-weight: 700; font-size: 0.78rem; line-height: 1; }
+/* 4 階深淺(用 primary 疊不同透明度);有值的格子文字轉白 */
+.cal-l1 { background: color-mix(in srgb, var(--primary) 28%, var(--th-bg)); }
+.cal-l2 { background: color-mix(in srgb, var(--primary) 50%, var(--th-bg)); }
+.cal-l3 { background: color-mix(in srgb, var(--primary) 72%, var(--th-bg)); }
+.cal-l4 { background: var(--primary); }
+.cal-l2 .cal-d, .cal-l3 .cal-d, .cal-l4 .cal-d,
+.cal-l2 .cal-v, .cal-l3 .cal-v, .cal-l4 .cal-v { color: #fff; }
+.cal-l3, .cal-l4, .cal-l2, .cal-l1 { cursor: pointer; }
 
 /* ---------- 統計:群組視角下拉 ---------- */
 .stats-tag-label {
