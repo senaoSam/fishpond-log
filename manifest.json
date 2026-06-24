@@ -2,7 +2,7 @@
   "name": "魚塭紀錄",
   "short_name": "魚塭紀錄",
   "description": "魚塭餵食與用藥紀錄",
-  "start_url": "./index.html",
+  "start_url": ".",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
@@ -14,13 +14,25 @@
       "src": "icons/icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
     },
     {
       "src": "icons/icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ]
 }
