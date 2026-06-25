@@ -231,6 +231,46 @@ function showConfirm(message, { okText = "確定", danger = false } = {}) {
   });
 }
 
+// 文字輸入對話框(取代 prompt)。回傳輸入字串;取消回傳 null。
+function showPrompt(message, defaultValue = "", { okText = "儲存" } = {}) {
+  return new Promise((resolve) => {
+    const overlay = $("#modalOverlay");
+    const okBtn = $("#modalOk");
+    const cancelBtn = $("#modalCancel");
+    const input = $("#modalInput");
+    $("#modalText").textContent = message;
+    okBtn.textContent = okText;
+    okBtn.classList.remove("btn-danger");
+    input.hidden = false;
+    input.value = defaultValue;
+
+    const close = (result) => {
+      overlay.hidden = true;
+      input.hidden = true;
+      okBtn.removeEventListener("click", onOk);
+      cancelBtn.removeEventListener("click", onCancel);
+      overlay.removeEventListener("click", onBackdrop);
+      document.removeEventListener("keydown", onKey);
+      resolve(result);
+    };
+    const onOk = () => close(input.value.trim());
+    const onCancel = () => close(null);
+    const onBackdrop = (e) => { if (e.target === overlay) close(null); };
+    const onKey = (e) => {
+      if (e.key === "Escape") close(null);
+      if (e.key === "Enter") { e.preventDefault(); close(input.value.trim()); }
+    };
+
+    okBtn.addEventListener("click", onOk);
+    cancelBtn.addEventListener("click", onCancel);
+    overlay.addEventListener("click", onBackdrop);
+    document.addEventListener("keydown", onKey);
+    overlay.hidden = false;
+    input.focus();
+    input.select();
+  });
+}
+
 // 短訊提示(取代資訊型 alert)。isErr=true 顯示紅底。
 let toastTimer = null;
 function showToast(message, isErr = false) {
@@ -1330,7 +1370,7 @@ function renderOptionGroup(key) {
       <span class="chip-label">${escapeHtml(it)}</span>
       <button class="chip-del" title="刪除" data-rmkey="${key}" data-rmidx="${i}">×</button>
     </span>`).join("") || '<span class="hint">尚無選項</span>';
-  const hint = items.length > 1 ? ' <span class="reorder-hint">↕ 可拖曳排序</span>' : "";
+  const hint = items.length ? ' <span class="reorder-hint">點字編輯・拖曳排序・✕ 刪除</span>' : "";
   return `
     <details class="card opt-group" open>
       <summary>${heading}(${items.length})${hint}</summary>
@@ -1442,6 +1482,41 @@ async function reorderOption(key, from, to) {
   } catch (err) { showToast("排序失敗:" + err.message, true); }
 }
 
+// 重新命名選項:單點 chip 觸發。連帶更新 pondTags 內的引用(改池塘名 / 改標籤名)。
+async function renameOption(key, idx) {
+  if (blockIfDemo()) return;
+  if (!db) return;
+  const list = (options[key] || []).slice();
+  const old = list[idx];
+  if (old == null) return;
+
+  const next = await showPrompt(`編輯「${OPTION_LABELS[key]}」`, old);
+  if (next == null) return;                 // 取消
+  if (next === "" || next === old) return;  // 空白或沒改,不動作
+  if (list.includes(next)) { showToast(`「${next}」已存在`, true); return; }
+
+  list[idx] = next;
+  const patch = { [key]: list };
+
+  // 連帶更新 pondTags,讓引用跟著改名
+  if (key === "tags") {
+    const pondTags = {};
+    for (const [p, ts] of Object.entries(options.pondTags || {})) {
+      pondTags[p] = (ts || []).map((t) => (t === old ? next : t));
+    }
+    patch.pondTags = pondTags;
+  } else if (key === "ponds") {
+    const pondTags = { ...(options.pondTags || {}) };
+    if (old in pondTags) { pondTags[next] = pondTags[old]; delete pondTags[old]; }
+    patch.pondTags = pondTags;
+  }
+
+  try {
+    await updateDoc(doc(db, "settings", "options"), patch);
+    showToast(`已改名:「${old}」→「${next}」`);
+  } catch (err) { showToast("改名失敗:" + err.message, true); }
+}
+
 // ---------- chip 拖曳排序(Pointer Events,手機 / 桌面通用)----------
 // 做法:被拖的 chip 改為 fixed 浮層、即時跟隨游標;原位留一個等高的佔位框;
 // 其他 chip 依游標位置即時讓位(insertBefore 佔位框)。放開才寫回 Firestore。
@@ -1530,8 +1605,14 @@ function setupChipDrag(listEl) {
     listEl.removeEventListener("pointermove", onMove);
     listEl.removeEventListener("pointerup", onUp);
     listEl.removeEventListener("pointercancel", onUp);
+    if (pointerId != null && listEl.hasPointerCapture?.(pointerId)) listEl.releasePointerCapture(pointerId);
 
-    if (!dragging) { pending = null; return; }   // 沒超過門檻 = 單純點擊,不動作
+    if (!dragging) {                             // 沒超過門檻 = 單純點擊 → 編輯該項
+      const idx = startIdx;
+      pending = null;
+      if (idx >= 0) renameOption(key, idx);
+      return;
+    }
 
     // 新位置 = 佔位框在「所有 chip + 佔位框」序列中的索引
     const seq = Array.from(listEl.children).filter(
@@ -1560,7 +1641,7 @@ async function removeOption(key, idx) {
   const list = (options[key] || []).slice();
   const removed = list[idx];
   const ok = await showConfirm(
-    `確定刪除「${removed}」?\n(已存在的舊紀錄不受影響)`,
+    `確定刪除「${removed}」?\n(只是不再出現在選單,過去的紀錄照常保留)`,
     { okText: "刪除", danger: true }
   );
   if (!ok) return;

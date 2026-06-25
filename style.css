@@ -448,7 +448,7 @@ tr.total td { font-weight: 800; background: var(--total-bg); border-top: 2px sol
 }
 /* 刪除鈕維持一般指標,提示它是點擊不是拖曳 */
 .chip .chip-del { cursor: pointer; }
-.chip-label { margin-right: 2px; }
+.chip-label { margin-right: 2px; cursor: pointer; }   /* 單點 = 編輯 */
 .chip.dragging {
   position: fixed;
   margin: 0;
@@ -614,6 +614,13 @@ body.on-record #main { padding-bottom: 172px; }
   animation: pop-in 0.15s ease;
 }
 .modal-text { margin: 0 0 18px; font-size: 1rem; line-height: 1.6; white-space: pre-line; }
+.modal-input {
+  width: 100%; box-sizing: border-box; margin: 0 0 18px;
+  padding: 10px 12px; font-size: 1rem;
+  background: var(--th-bg); color: var(--text);
+  border: 1px solid var(--border); border-radius: 10px;
+}
+.modal-input:focus { outline: 2px solid var(--primary); border-color: var(--primary); }
 .modal-actions { display: flex; gap: 10px; }
 .modal-actions button { flex: 1; margin-top: 0; }
 
