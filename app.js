@@ -9,6 +9,12 @@ import {
   enableIndexedDbPersistence
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
+// ---------- 部署版本時間戳 ----------
+// header 會顯示「月/日/時」,用來肉眼確認線上載入的是新版而非 cache。
+// 此值在 GitHub Actions 部署時會被自動覆寫成「當下台灣時間」(見 .github/workflows/deploy.yml),
+// 不需手動維護;這裡只是本地開發用的佔位值。格式:YYYY-MM-DD HH:mm
+const BUILD_TIME = "2026-06-25 23:50";
+
 // ---------- 預設固定選項(首次使用會寫進 Firestore) ----------
 const DEFAULT_OPTIONS = {
   ponds: [],
@@ -1877,7 +1883,17 @@ function setupTabs() {
 // ============================================================
 //  啟動
 // ============================================================
+// header 顯示建置時間(月/日/時),確認線上非 cache。格式來源:BUILD_TIME = "YYYY-MM-DD HH:mm"
+function renderBuildStamp() {
+  const el = $("#buildStamp");
+  if (!el) return;
+  const m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2})/.exec(BUILD_TIME);
+  el.textContent = m ? `${Number(m[2])}/${Number(m[3])} ${m[4]}時` : BUILD_TIME;
+  el.title = `此版本建置:${BUILD_TIME}(用來確認非 cache)`;
+}
+
 function main() {
+  renderBuildStamp();
   setupTheme();
   setupTabs();
   setupRecordForm();

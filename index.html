@@ -7,7 +7,7 @@
   <title>魚塭紀錄</title>
   <link rel="manifest" href="manifest.json" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
-  <link rel="stylesheet" href="style.css?v=14" />
+  <link rel="stylesheet" href="style.css?v=16" />
 </head>
 <body>
   <header class="app-header">
@@ -16,7 +16,10 @@
       <button type="button" class="mode-opt" data-mode="db">☁️ DB</button>
       <button type="button" class="mode-opt" data-mode="demo">🧪 假資料</button>
     </div>
-    <button id="themeToggle" class="theme-toggle" type="button" aria-label="切換深色模式" title="切換深色 / 淺色模式">🌙</button>
+    <div class="header-right">
+      <span id="buildStamp" class="build-stamp" title="此版本建置時間,用來確認非 cache"></span>
+      <button id="themeToggle" class="theme-toggle" type="button" aria-label="切換深色模式" title="切換深色 / 淺色模式">🌙</button>
+    </div>
   </header>
 
   <main id="main">
@@ -219,6 +222,6 @@
   <!-- SheetJS for Excel export -->
   <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
   <!-- App config + logic (ES module) -->
-  <script type="module" src="app.js?v=13"></script>
+  <script type="module" src="app.js?v=15"></script>
 </body>
 </html>

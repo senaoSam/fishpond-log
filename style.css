@@ -69,6 +69,14 @@ html, body {
   margin-top: calc(env(safe-area-inset-top) / 2);
 }
 .sync-status { font-size: 0.72rem; opacity: 0.9; }
+/* header 右側:時間戳 + 主題切換 */
+.header-right { display: flex; align-items: center; gap: 8px; }
+/* 建置時間戳:低調顯示在主題鈕左邊,用來確認線上非 cache */
+.build-stamp {
+  font-size: 0.7rem; opacity: 0.8; font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.build-stamp::before { content: "🕒"; margin-right: 2px; }
 .sync-status.ok::before { content: "● "; color: #b2f2bb; }
 .sync-status.err::before { content: "● "; color: #ffc9c9; }
 .sync-status.pending::before { content: "● "; color: #ffd8a8; }

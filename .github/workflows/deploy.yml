@@ -27,6 +27,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
+      # 把部署當下時間(台灣 UTC+8)寫進程式碼:
+      #   - app.js 的 BUILD_TIME → header 顯示「月/日/時」,肉眼確認非 cache
+      #   - service-worker.js 的 __BUILD_TIME__ → 快取版本名,每次部署自動失效舊快取
+      # 只改上傳用的副本,不 commit 回 repo,免手動維護。
+      - name: Stamp build time
+        run: |
+          STAMP=$(TZ='Asia/Taipei' date '+%Y-%m-%d %H:%M')
+          SW_STAMP=$(TZ='Asia/Taipei' date '+%Y%m%d-%H%M%S')
+          sed -i -E "s/^const BUILD_TIME = \".*\";/const BUILD_TIME = \"$STAMP\";/" app.js
+          sed -i "s/__BUILD_TIME__/$SW_STAMP/" service-worker.js
+          echo "Stamped BUILD_TIME = $STAMP / SW = $SW_STAMP"
+          grep -n 'const BUILD_TIME' app.js
+          grep -n 'const BUILD' service-worker.js
+
       # 純前端、無 build。直接把整個專案當成靜態網站上傳。
       - name: Setup Pages
         uses: actions/configure-pages@v5
