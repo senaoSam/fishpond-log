@@ -1233,7 +1233,7 @@ function calendarHeatmap(recs, month) {
     const tip = v > 0
       ? [`${dateStr}(共 ${fmt(v)} 包・${e.lines.length} 筆)`, ...e.lines].join("|")
       : `${dateStr}|無紀錄`;
-    cells.push(`<div class="cal-cell cal-l${level}" data-tip="${escapeHtml(tip)}"><span class="cal-d">${d}</span>${v > 0 ? `<span class="cal-v">${fmt(v)}</span>` : ""}</div>`);
+    cells.push(`<div class="cal-cell cal-l${level}" data-tip="${escapeHtml(tip)}"><span class="cal-d">${d}</span>${v > 0 ? `<span class="cal-v">${fmt(v)}<span class="cal-u">包</span></span>` : ""}</div>`);
   }
   const heads = ["日", "一", "二", "三", "四", "五", "六"].map((w) => `<div class="cal-head">${w}</div>`).join("");
   return `<div class="cal-grid">${heads}${cells.join("")}</div>`;

@@ -338,13 +338,16 @@ tr.total td { font-weight: 800; background: var(--total-bg); border-top: 2px sol
 .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; margin-top: 8px; max-width: 560px; }
 .cal-head { text-align: center; font-size: 0.75rem; color: var(--muted); font-weight: 700; padding-bottom: 2px; }
 .cal-cell {
+  position: relative;
   height: 46px; border-radius: 6px; background: var(--th-bg);
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 1px; font-size: 0.72rem; cursor: default;
 }
 .cal-empty { background: transparent; }
-.cal-d { color: var(--muted); font-size: 0.68rem; line-height: 1; }
-.cal-v { font-weight: 700; font-size: 0.78rem; line-height: 1; }
+/* 日期放左上角,包數放大置中 */
+.cal-d { position: absolute; top: 4px; left: 5px; color: var(--muted); font-size: 0.62rem; line-height: 1; }
+.cal-v { font-weight: 700; font-size: 1rem; line-height: 1; }
+.cal-u { font-size: 0.66rem; font-weight: 600; margin-left: 1px; }   /* 「包」字小一號,與數字區隔 */
 /* 4 階深淺(用 primary 疊不同透明度);有值的格子文字轉白 */
 .cal-l1 { background: color-mix(in srgb, var(--primary) 28%, var(--th-bg)); }
 .cal-l2 { background: color-mix(in srgb, var(--primary) 50%, var(--th-bg)); }
