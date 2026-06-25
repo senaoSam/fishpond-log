@@ -156,10 +156,9 @@ input, select {
 }
 input:focus, select:focus { outline: 2px solid var(--primary); border-color: var(--primary); }
 
-/* ---------- 包數:整數 . 小數,各帶 +/− ---------- */
+/* ---------- 包數:整數,帶 +/− ---------- */
 .bags-row { display: flex; align-items: center; gap: 6px; margin: 6px 0 14px; }
-.bags-dot { font-size: 1.4rem; font-weight: 700; color: var(--muted); }
-.stepper { display: flex; align-items: stretch; flex: 1 1 0; min-width: 0; }   /* 整數/小數兩組等寬 */
+.stepper { display: flex; align-items: stretch; flex: 1 1 0; min-width: 0; }
 .step-btn {
   flex: 0 0 auto;
   width: 44px;

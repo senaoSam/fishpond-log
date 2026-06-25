@@ -55,18 +55,12 @@
           <select id="feedNoSelect" class="opt-select" data-key="feedNos"></select>
         </label>
 
-        <label>輸入幾包(前整數・後小數)</label>
+        <label>輸入幾包</label>
         <div class="bags-row">
           <div class="stepper">
-            <button type="button" class="step-btn" data-step="int" data-dir="-1" aria-label="整數減一">−</button>
-            <input id="bagsInt" type="number" inputmode="numeric" min="0" step="1" value="2" aria-label="包數整數" />
-            <button type="button" class="step-btn" data-step="int" data-dir="1" aria-label="整數加一">＋</button>
-          </div>
-          <span class="bags-dot">.</span>
-          <div class="stepper">
-            <button type="button" class="step-btn" data-step="dec" data-dir="-1" aria-label="小數減一">−</button>
-            <input id="bagsDec" type="number" inputmode="numeric" min="0" max="9" step="1" value="0" aria-label="包數小數" />
-            <button type="button" class="step-btn" data-step="dec" data-dir="1" aria-label="小數加一">＋</button>
+            <button type="button" class="step-btn" data-step="int" data-dir="-1" aria-label="包數減一">−</button>
+            <input id="bagsInt" type="number" inputmode="numeric" min="0" step="1" value="2" aria-label="包數" />
+            <button type="button" class="step-btn" data-step="int" data-dir="1" aria-label="包數加一">＋</button>
           </div>
         </div>
 

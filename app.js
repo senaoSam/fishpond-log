@@ -91,7 +91,7 @@ function buildDemoData() {
           pond,
           date: `2026-${z(month)}-${z(day)}`,
           period: rnd() < 0.5 ? "morning" : "afternoon",
-          bags: Math.round((1 + rnd() * 5) * 2) / 2,   // 1~6,0.5 為單位
+          bags: Math.round(1 + rnd() * 5),   // 1~6 整數
           feedNo: pick(feedNos),
           mix: rnd() < 0.5 ? pick(mixes) : "",
           disinfectant: rnd() < 0.4 ? pick(disinfectants) : "",
@@ -430,17 +430,12 @@ function setupRecordForm() {
   $$(".step-btn").forEach((btn) =>
     btn.addEventListener("click", () => stepBags(btn.dataset.step, Number(btn.dataset.dir))));
 
-  // 打字輸入時即時修正:整數只留數字、小數只留個位(0~9)
+  // 打字輸入時即時修正:只留數字
   $("#bagsInt").addEventListener("input", (e) => {
     e.target.value = e.target.value.replace(/\D/g, "");      // 只留數字
   });
-  $("#bagsDec").addEventListener("input", (e) => {
-    const d = e.target.value.replace(/\D/g, "");
-    e.target.value = d === "" ? "" : d.slice(-1);             // 只留最後一位(0~9)
-  });
   // 失焦時若留空,補回 0,避免空白
   $("#bagsInt").addEventListener("blur", (e) => { if (e.target.value === "") e.target.value = "0"; });
-  $("#bagsDec").addEventListener("blur", (e) => { if (e.target.value === "") e.target.value = "0"; });
 
   $("#recordForm").addEventListener("submit", onSaveRecord);
   $("#cancelEditBtn").addEventListener("click", resetForm);
@@ -462,28 +457,16 @@ function getPondValue() {
   return typed;
 }
 
-// 讀取包數 = 整數 + 小數(小數框存 0~9,代表第一位小數)
+// 讀取包數(整數)
 function getBagsValue() {
   const i = parseInt($("#bagsInt").value, 10);
-  const d = parseInt($("#bagsDec").value, 10);
-  const intPart = isNaN(i) ? 0 : Math.max(0, i);
-  const decPart = isNaN(d) ? 0 : Math.min(9, Math.max(0, d));
-  return intPart + decPart / 10;
+  return isNaN(i) ? 0 : Math.max(0, i);
 }
 
-// +/− 按鈕:which='int' 整數±1(不低於0);which='dec' 小數±1 在 0~9 循環
+// +/− 按鈕:整數±1(不低於0)
 function stepBags(which, dir) {
-  if (which === "int") {
-    const el = $("#bagsInt");
-    const v = Math.max(0, (parseInt(el.value, 10) || 0) + dir);
-    el.value = v;
-  } else {
-    const el = $("#bagsDec");
-    let v = (parseInt(el.value, 10) || 0) + dir;
-    if (v > 9) v = 0;          // 0.9 再 + 回到 0.0
-    if (v < 0) v = 9;          // 0.0 再 − 回到 0.9
-    el.value = v;
-  }
+  const el = $("#bagsInt");
+  el.value = Math.max(0, (parseInt(el.value, 10) || 0) + dir);
 }
 
 // 記錄頁:依目前選定的池塘,顯示可勾選的標籤(分類)。無池塘或無標籤則隱藏。
@@ -620,7 +603,6 @@ function resetForm(opts = {}) {
   $("#noteInput").value = "";
   if (!keep) {
     $("#bagsInt").value = "2";       // 預設 2 包
-    $("#bagsDec").value = "0";
     $("#feedNoSelect").selectedIndex = 0;
     $("#dateInput").value = todayStr();
     $("#pondSelect").value = "";
@@ -646,9 +628,7 @@ function startEdit(id) {
   syncPondInputVisibility();
   renderRecordTags();
   renderTodayList();           // 日期可能改變,更新當日清單
-  const bags = Number(r.bags) || 0;
-  $("#bagsInt").value = Math.floor(bags);
-  $("#bagsDec").value = Math.round((bags - Math.floor(bags)) * 10);  // 第一位小數
+  $("#bagsInt").value = Math.round(Number(r.bags) || 0);
   $("#feedNoSelect").value = r.feedNo || "";
   $("#mixSelect").value = r.mix || "";
   $("#disinfectantSelect").value = r.disinfectant || "";
