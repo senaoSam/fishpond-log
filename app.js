@@ -769,6 +769,8 @@ function setupStats() {
   $("#statsPondFilter").addEventListener("change", renderStatsView);
   $("#exportBtn").addEventListener("click", exportExcel);
   $("#exportRangeBtn").addEventListener("click", exportRange);
+  $("#previewBtn").addEventListener("click", previewExcel);
+  $("#previewRangeBtn").addEventListener("click", previewRange);
   setupChartTooltip();
 
   // 總覽 / 單月 切換
@@ -1004,9 +1006,13 @@ function stackedPondRows(pondsEntries, maxVal, feedColor) {
   return pondsEntries.map(([pond, info]) => {
     const widthPct = Math.max(2, Math.round((info.total / maxVal) * 100));
     const sortedFeeds = Object.entries(info.feeds).sort((a, b) => b[1] - a[1]);
-    const segs = sortedFeeds.map(([f, v]) => {
-      const segPct = Math.round((v / info.total) * 100);
-      return `<span class="gseg" style="width:${segPct}%;background:${feedColor[f]}"><span class="gseg-txt">${escapeHtml(f)} ${fmt(v)}包</span></span>`;
+    const lastIdx = sortedFeeds.length - 1;
+    const segs = sortedFeeds.map(([f, v], i) => {
+      // 最後一段用 flex:1 吃掉剩餘,避免各段 round 後加總 ≠ 100% 在末端露出底色
+      const style = i === lastIdx
+        ? `flex:1 1 auto;background:${feedColor[f]}`
+        : `flex:0 0 ${(v / info.total) * 100}%;background:${feedColor[f]}`;
+      return `<span class="gseg" style="${style}"><span class="gseg-txt">${escapeHtml(f)} ${fmt(v)}包</span></span>`;
     }).join("");
     const tip = `${pondLabel(pond)}(共 ${fmt(info.total)} 包)|` +
       sortedFeeds.map(([f, v]) => `${f}: ${fmt(v)} 包`).join("|");
@@ -1236,19 +1242,19 @@ function calendarHeatmap(recs, month) {
 // ============================================================
 //  匯出 Excel (SheetJS)
 // ============================================================
-// 單月匯出(單月詳細頁的按鈕)
-function exportExcel() {
+// 單月:依目前月份 + 篩選,收集要輸出的紀錄與檔名標籤。null=無月份。
+function collectMonth() {
   const month = $("#statsMonth").value;
-  if (!month) { showToast("請先選擇月份", true); return; }
+  if (!month) { showToast("請先選擇月份", true); return null; }
   const recs = statsRecords();              // 已含群組/池塘篩選
   const tag = $("#statsTagFilter").value;
   const pond = $("#statsPondFilter").value;
   const label = [month, tag, pond].filter(Boolean).join("_");
-  exportToExcel(recs, label, { byMonth: false });
+  return { recs, label };
 }
 
-// 區間匯出(總覽頁的按鈕);依區間 + 群組/池塘篩選過濾,並附月分總覽表
-function exportRange() {
+// 區間:依區間 + 群組/池塘篩選,收集紀錄與檔名標籤。
+function collectRange() {
   const from = $("#rangeFrom").value;
   const to = $("#rangeTo").value;
   let recs = allRecords.filter((r) => {
@@ -1264,18 +1270,38 @@ function exportRange() {
   const pond = $("#statsPondFilter").value;
   const range = (from || to) ? `${from || "最早"}_${to || "最新"}` : "全部";
   const label = [range, tag, pond].filter(Boolean).join("_");
-  exportToExcel(recs, label, { byMonth: true });
+  return { recs, label };
 }
 
-// 通用匯出:recs=要匯的紀錄,label=檔名標籤,withByMonth=是否附「月分總覽」表
-function exportToExcel(records, label, { byMonth = false } = {}) {
-  if (typeof XLSX === "undefined") { showToast("Excel 函式庫尚未載入,請檢查網路後重試", true); return; }
+// 單月詳細頁:匯出 / 預覽
+function exportExcel() {
+  const c = collectMonth(); if (!c) return;
+  exportToExcel(c.recs, c.label, { byMonth: false });
+}
+function previewExcel() {
+  const c = collectMonth(); if (!c) return;
+  previewExport(c.recs, c.label, { byMonth: false });
+}
+
+// 總覽頁:匯出 / 預覽(附月分總覽表)
+function exportRange() {
+  const c = collectRange();
+  exportToExcel(c.recs, c.label, { byMonth: true });
+}
+function previewRange() {
+  const c = collectRange();
+  previewExport(c.recs, c.label, { byMonth: true });
+}
+
+// 組出各工作表的資料(明細 / 統計 / 群組統計 / 月分總覽),供匯出與預覽共用。
+// 回傳 null 代表沒有資料。
+function buildExportData(records, { byMonth = false } = {}) {
   const recs = records.slice().sort((a, b) => {
     if (a.date !== b.date) return a.date < b.date ? -1 : 1;
     const pa = a.period === "morning" ? 0 : 1, pb = b.period === "morning" ? 0 : 1;
     return pa - pb;
   });
-  if (!recs.length) { showToast("這個範圍沒有資料可匯出", true); return; }
+  if (!recs.length) return null;
 
   // 工作表 1:明細
   const detail = recs.map((r) => ({
@@ -1319,6 +1345,33 @@ function exportToExcel(records, label, { byMonth = false } = {}) {
   (options.tags || []).forEach((t) => { if (byTag[t] != null) tagSummary.push({ A: t, B: byTag[t] }); });
   if (!tagSummary.length) tagSummary.push({ A: "(尚無群組資料)", B: "" });
 
+  // 月分總覽(區間匯出才有)
+  let monthRows = null;
+  if (byMonth) {
+    const m = {};   // { 'YYYY-MM': { total, count } }
+    for (const r of recs) {
+      const ym = (r.date || "").slice(0, 7);
+      if (!ym) continue;
+      const e = (m[ym] ||= { total: 0, count: 0 });
+      e.total += Number(r.bags) || 0;
+      e.count += 1;
+    }
+    monthRows = Object.keys(m).sort().map((ym) => ({
+      "月份": ym, "總包數": m[ym].total, "筆數": m[ym].count
+    }));
+    monthRows.push({ "月份": "合計", "總包數": total, "筆數": recs.length });
+  }
+
+  return { detail, summary, tagSummary, monthRows };
+}
+
+// 通用匯出:records=要匯的紀錄,label=檔名標籤,byMonth=是否附「月分總覽」表
+function exportToExcel(records, label, { byMonth = false } = {}) {
+  if (typeof XLSX === "undefined") { showToast("Excel 函式庫尚未載入,請檢查網路後重試", true); return; }
+  const data = buildExportData(records, { byMonth });
+  if (!data) { showToast("這個範圍沒有資料可匯出", true); return; }
+  const { detail, summary, tagSummary, monthRows } = data;
+
   const wb = XLSX.utils.book_new();
   const wsDetail = XLSX.utils.json_to_sheet(detail);
   wsDetail["!cols"] = [{ wch: 12 }, { wch: 6 }, { wch: 12 }, { wch: 14 }, { wch: 6 }, { wch: 10 }, { wch: 10 }, { wch: 12 }, { wch: 16 }];
@@ -1332,26 +1385,165 @@ function exportToExcel(records, label, { byMonth = false } = {}) {
   wsTag["!cols"] = [{ wch: 18 }, { wch: 10 }];
   XLSX.utils.book_append_sheet(wb, wsTag, "群組統計");
 
-  // 工作表 3(區間匯出才有):月分總覽
-  if (byMonth) {
-    const m = {};   // { 'YYYY-MM': { total, count } }
-    for (const r of recs) {
-      const ym = (r.date || "").slice(0, 7);
-      if (!ym) continue;
-      const e = (m[ym] ||= { total: 0, count: 0 });
-      e.total += Number(r.bags) || 0;
-      e.count += 1;
-    }
-    const monthRows = Object.keys(m).sort().map((ym) => ({
-      "月份": ym, "總包數": m[ym].total, "筆數": m[ym].count
-    }));
-    monthRows.push({ "月份": "合計", "總包數": total, "筆數": recs.length });
+  if (monthRows) {
     const wsMonth = XLSX.utils.json_to_sheet(monthRows);
     wsMonth["!cols"] = [{ wch: 12 }, { wch: 10 }, { wch: 8 }];
     XLSX.utils.book_append_sheet(wb, wsMonth, "月分總覽");
   }
 
   XLSX.writeFile(wb, `魚塭紀錄_${label}.xlsx`);
+}
+
+// 預覽:用與匯出相同的資料,在網頁 modal 以表格呈現(不下載)。
+function previewExport(records, label, { byMonth = false } = {}) {
+  const data = buildExportData(records, { byMonth });
+  if (!data) { showToast("這個範圍沒有資料可預覽", true); return; }
+  openExportPreview(data, records, label, { byMonth });
+}
+
+// 把一組 rows(物件陣列)轉成 HTML 表格。
+// headerKeys=null 時用第一筆的 key 當表頭;否則視為無表頭(統計表那種 A/B 兩欄)。
+function rowsToTable(rows, { headerless = false, rowClass = null } = {}) {
+  if (!rows || !rows.length) return '<p class="hint">(無資料)</p>';
+  const cols = Object.keys(rows[0]);
+  const head = headerless ? "" :
+    `<thead><tr>${cols.map((c) => `<th>${escapeHtml(c)}</th>`).join("")}</tr></thead>`;
+  const body = rows.map((r) => {
+    const cls = rowClass ? rowClass(r) : "";
+    const tr = cls ? `<tr class="${cls}">` : "<tr>";
+    return `${tr}${cols.map((c) => `<td>${escapeHtml(String(r[c] ?? ""))}</td>`).join("")}</tr>`;
+  }).join("");
+  return `<table class="preview-table">${head}<tbody>${body}</tbody></table>`;
+}
+
+// 統計表的列分類:分類標題(只有 A 有值、B 空) / 合計 / 一般
+function summaryRowClass(r) {
+  if (r.A === "合計") return "row-total";
+  if (r.A === "" && r.B === "") return "row-spacer";
+  if (r.B === "" || r.B == null) return "row-section";   // 分類標題列
+  return "";
+}
+
+// 明細篩選欄位定義:key=畫面群組名;getVals(r)=該筆記錄在此欄位的值(可多個,用於群組)
+const PREVIEW_FILTERS = [
+  { key: "feedNo",       label: "料號", getVals: (r) => [r.feedNo || ""] },
+  { key: "mix",          label: "拌料", getVals: (r) => [r.mix || ""] },
+  { key: "disinfectant", label: "消毒劑", getVals: (r) => [r.disinfectant || ""] },
+  { key: "tag",          label: "群組", getVals: (r) => ((options.pondTags || {})[r.pond] || []) },
+  { key: "pond",         label: "池塘", getVals: (r) => [r.pond || ""] },
+  { key: "period",       label: "時段", getVals: (r) => [periodLabel(r.period)] },
+];
+
+// 依目前勾選的條件(sel: {key: Set(選中的值)})過濾原始紀錄。空集合=該欄位不限。
+function applyPreviewFilters(records, sel) {
+  return records.filter((r) =>
+    PREVIEW_FILTERS.every((f) => {
+      const chosen = sel[f.key];
+      if (!chosen || chosen.size === 0) return true;          // 此欄位未篩選
+      return f.getVals(r).some((v) => chosen.has(v));         // 任一值命中
+    })
+  );
+}
+
+// 開啟匯出預覽 modal,分頁顯示各工作表;可篩選明細並分別下載。
+function openExportPreview(data, records, label, { byMonth = false } = {}) {
+  const overlay = $("#previewOverlay");
+  const tabsEl = $("#previewTabs");
+  const bodyEl = $("#previewBody");
+  const filtersEl = $("#previewFilters");
+
+  // 每欄位收集出現過的值(空字串排除),供篩選下拉用
+  const fieldValues = {};
+  for (const f of PREVIEW_FILTERS) {
+    const set = new Set();
+    for (const r of records) for (const v of f.getVals(r)) if (v) set.add(v);
+    fieldValues[f.key] = Array.from(set);
+  }
+  const sel = {};                       // { key: Set(選中值) }
+  PREVIEW_FILTERS.forEach((f) => (sel[f.key] = new Set()));
+
+  let activeSheet = 0;
+
+  // 其他分頁固定用全部資料(只重算一次)
+  const staticSheets = {
+    "統計": rowsToTable(data.summary, { headerless: true, rowClass: summaryRowClass }),
+    "群組統計": rowsToTable(data.tagSummary, { headerless: true, rowClass: summaryRowClass }),
+    "月分總覽": data.monthRows
+      ? rowsToTable(data.monthRows, { rowClass: (r) => (r["月份"] === "合計" ? "row-total" : "") })
+      : null,
+  };
+  const sheetNames = ["明細", "統計", "群組統計"].concat(data.monthRows ? ["月分總覽"] : []);
+
+  // 取得篩選後的紀錄與明細表 HTML
+  const filteredRecords = () => applyPreviewFilters(records, sel);
+  const detailHtml = () => {
+    const recs = filteredRecords();
+    const d = buildExportData(recs, { byMonth });
+    return d ? rowsToTable(d.detail) : '<p class="hint">(無符合篩選的資料)</p>';
+  };
+
+  const renderBody = () => {
+    const name = sheetNames[activeSheet];
+    const isDetail = name === "明細";
+    bodyEl.innerHTML = isDetail ? detailHtml() : staticSheets[name];
+    // 篩選器與「下載篩選結果」只在明細分頁出現(篩選只影響明細)
+    filtersEl.hidden = !isDetail;
+    $("#previewDownloadFiltered").hidden = !isDetail;
+  };
+
+  // 分頁
+  tabsEl.innerHTML = sheetNames.map((n, i) =>
+    `<button type="button" class="preview-tab ${i === 0 ? "active" : ""}" data-sheet="${i}">${escapeHtml(n)}</button>`
+  ).join("");
+  tabsEl.querySelectorAll(".preview-tab").forEach((b) =>
+    b.addEventListener("click", () => {
+      activeSheet = Number(b.dataset.sheet);
+      tabsEl.querySelectorAll(".preview-tab").forEach((x, j) => x.classList.toggle("active", j === activeSheet));
+      renderBody();
+    }));
+
+  // 篩選器:每欄位一組(可勾選的小籌碼);無值的欄位不顯示
+  filtersEl.innerHTML = PREVIEW_FILTERS.filter((f) => fieldValues[f.key].length).map((f) => `
+    <div class="pf-group" data-field="${f.key}">
+      <span class="pf-label">${escapeHtml(f.label)}</span>
+      <div class="pf-opts">
+        ${fieldValues[f.key].map((v) =>
+          `<button type="button" class="pf-opt" data-field="${f.key}" data-val="${escapeHtml(v)}">${escapeHtml(v)}</button>`
+        ).join("")}
+      </div>
+    </div>`).join("");
+  filtersEl.querySelectorAll(".pf-opt").forEach((b) =>
+    b.addEventListener("click", () => {
+      const set = sel[b.dataset.field];
+      const v = b.dataset.val;
+      if (set.has(v)) set.delete(v); else set.add(v);
+      b.classList.toggle("on");
+      if (activeSheet === 0) renderBody();   // 明細即時更新
+    }));
+
+  $("#previewTitle").textContent = `預覽:${label}`;
+  renderBody();
+
+  const close = () => {
+    overlay.hidden = true;
+    overlay.removeEventListener("click", onBackdrop);
+    document.removeEventListener("keydown", onKey);
+    $("#previewClose").removeEventListener("click", close);
+    $("#previewDownloadAll").removeEventListener("click", onDownloadAll);
+    $("#previewDownloadFiltered").removeEventListener("click", onDownloadFiltered);
+  };
+  const onBackdrop = (e) => { if (e.target === overlay) close(); };
+  const onKey = (e) => { if (e.key === "Escape") close(); };
+  // 下載走完整的 SheetJS 路徑,與直接匯出一致
+  const onDownloadAll = () => { exportToExcel(records, label, { byMonth }); };
+  const onDownloadFiltered = () => { exportToExcel(filteredRecords(), `${label}_篩選`, { byMonth }); };
+
+  overlay.addEventListener("click", onBackdrop);
+  document.addEventListener("keydown", onKey);
+  $("#previewClose").addEventListener("click", close);
+  $("#previewDownloadAll").addEventListener("click", onDownloadAll);
+  $("#previewDownloadFiltered").addEventListener("click", onDownloadFiltered);
+  overlay.hidden = false;
 }
 
 // ============================================================

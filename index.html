@@ -7,7 +7,7 @@
   <title>魚塭紀錄</title>
   <link rel="manifest" href="manifest.json" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
-  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="style.css?v=12" />
 </head>
 <body>
   <header class="app-header">
@@ -137,16 +137,21 @@
           <label>從<input id="rangeFrom" type="month" /></label>
           <label>至<input id="rangeTo" type="month" /></label>
         </div>
-        <button type="button" class="btn-primary" id="exportRangeBtn">📊 匯出區間 Excel</button>
+        <div class="export-actions">
+          <div class="export-cell"><button type="button" class="act-btn act-btn-ghost" id="previewRangeBtn"><span class="act-ic">👁</span>預覽</button></div>
+          <div class="export-cell"><button type="button" class="act-btn act-btn-primary" id="exportRangeBtn"><span class="act-ic">📥</span>匯出 Excel</button></div>
+        </div>
       </div>
 
       <!-- 單月模式才顯示的月份選擇 -->
-      <div class="card filters" id="statsSingleControls" hidden>
-        <label>
-          月份
-          <input id="statsMonth" type="month" />
-        </label>
-        <button type="button" class="btn-primary" id="exportBtn">📊 匯出 Excel</button>
+      <div class="card" id="statsSingleControls" hidden>
+        <div class="export-actions">
+          <div class="export-cell">
+            <label class="month-cell">月份<input id="statsMonth" type="month" /></label>
+          </div>
+          <div class="export-cell"><button type="button" class="act-btn act-btn-ghost" id="previewBtn"><span class="act-ic">👁</span>預覽</button></div>
+          <div class="export-cell"><button type="button" class="act-btn act-btn-primary" id="exportBtn"><span class="act-ic">📥</span>匯出 Excel</button></div>
+        </div>
       </div>
 
       <div id="statsOverview"></div>
@@ -190,12 +195,30 @@
     </div>
   </div>
 
+  <!-- 匯出預覽 modal -->
+  <div id="previewOverlay" class="modal-overlay" hidden>
+    <div class="modal preview-modal" role="dialog" aria-modal="true" aria-labelledby="previewTitle">
+      <div class="preview-head">
+        <h3 id="previewTitle" class="preview-title">預覽</h3>
+        <button type="button" class="preview-x" id="previewClose" aria-label="關閉">×</button>
+      </div>
+      <div id="previewTabs" class="preview-tabs"></div>
+      <!-- 明細篩選(只影響「明細」分頁) -->
+      <div id="previewFilters" class="preview-filters" hidden></div>
+      <div id="previewBody" class="preview-body"></div>
+      <div class="preview-actions">
+        <button type="button" class="act-btn act-btn-ghost" id="previewDownloadAll"><span class="act-ic">📥</span>下載全部</button>
+        <button type="button" class="act-btn act-btn-primary" id="previewDownloadFiltered"><span class="act-ic">📥</span>下載篩選結果</button>
+      </div>
+    </div>
+  </div>
+
   <!-- 短訊提示 -->
   <div id="toast" class="toast" hidden></div>
 
   <!-- SheetJS for Excel export -->
   <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
   <!-- App config + logic (ES module) -->
-  <script type="module" src="app.js"></script>
+  <script type="module" src="app.js?v=11"></script>
 </body>
 </html>

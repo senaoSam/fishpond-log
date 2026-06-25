@@ -305,6 +305,9 @@ tr.total td { font-weight: 800; background: var(--total-bg); border-top: 2px sol
   display: flex; align-items: center; justify-content: center;
   height: 100%; min-width: 0; overflow: hidden;
 }
+/* 相鄰段加一條白色細分隔線:消除不同色交界的同時對比錯覺(看起來像高低沒對齊),
+   也同時蓋掉子像素接縫露出的底色細線 */
+.gp-seg + .gp-seg, .gseg + .gseg { box-shadow: inset 1px 0 0 rgba(255, 255, 255, 0.55); }
 /* 色塊內的「料號 包數」文字,太窄自動裁掉不外溢 */
 .gseg-txt {
   font-size: 0.72rem; color: #fff; font-weight: 700;
@@ -624,6 +627,109 @@ body.on-record #main { padding-bottom: 172px; }
 .modal-actions { display: flex; gap: 10px; }
 .modal-actions button { flex: 1; margin-top: 0; }
 
+/* ============================================================
+   匯出 / 預覽 動作按鈕(統一設計:同尺寸、同字重、icon+文字置中)
+   兩個視覺層級:primary=主要動作(實心)、ghost=次要動作(外框)
+   ============================================================ */
+.act-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  width: 100%; box-sizing: border-box;
+  height: 46px; padding: 0 14px;
+  font-size: 0.95rem; font-weight: 700; line-height: 1;
+  border-radius: 10px; border: 1px solid transparent;
+  cursor: pointer; white-space: nowrap;
+  transition: background-color 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+.act-btn .act-ic { font-size: 1.05em; line-height: 1; }
+.act-btn-primary { background: var(--primary); color: #fff; border-color: var(--primary); }
+.act-btn-ghost { background: var(--field); color: var(--primary); border-color: var(--border); }
+.act-btn-primary:active { background: var(--primary-dark); border-color: var(--primary-dark); }
+.act-btn-ghost:active { background: var(--th-bg); }
+@media (hover: hover) {
+  .act-btn-primary:hover { background: var(--primary-dark); border-color: var(--primary-dark); }
+  .act-btn-ghost:hover { border-color: var(--primary); background: var(--th-bg); }
+}
+
+/* 統計頁:月份 / 預覽 / 匯出 等寬一列(底部對齊,因月份格上方多了 label) */
+.export-actions { display: flex; gap: 12px; margin-top: 12px; align-items: flex-end; }
+.export-cell { flex: 1 1 0; min-width: 0; }
+/* 月份格子:label 在上、input 在下,input 高度與按鈕一致 */
+.month-cell { display: flex; flex-direction: column; gap: 6px; margin: 0; font-weight: 600; font-size: 0.85rem; color: var(--muted); }
+.month-cell input { margin-top: 0; height: 46px; box-sizing: border-box; }
+
+/* 預覽 modal:下載按鈕列(同一套 .act-btn,等寬) */
+.preview-actions { display: flex; gap: 12px; }
+.preview-actions .act-btn { flex: 1 1 0; min-width: 0; }
+
+/* ---------- 匯出預覽 modal ---------- */
+.preview-modal {
+  max-width: 1100px;
+  width: 95vw;
+  display: flex; flex-direction: column;
+  max-height: calc(100vh - 48px);
+  padding: 16px 16px 14px;
+}
+.preview-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.preview-title { margin: 0; font-size: 1.05rem; word-break: break-all; }
+.preview-x {
+  flex: 0 0 auto; border: none; background: var(--th-bg); color: var(--text);
+  width: 30px; height: 30px; border-radius: 50%; font-size: 1.2rem; line-height: 1;
+  cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+}
+.preview-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0 10px; }
+.preview-tab {
+  border: 1px solid var(--border); background: var(--th-bg); color: var(--muted);
+  padding: 6px 12px; border-radius: 999px; font-size: 0.85rem; font-weight: 600; cursor: pointer;
+}
+.preview-tab.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+/* 明細篩選器 */
+.preview-filters {
+  display: flex; flex-direction: column; gap: 8px;
+  flex: 0 0 auto;
+  padding: 10px 12px; margin-bottom: 12px;
+  border: 1px solid var(--border); border-radius: 10px; background: var(--bg);
+}
+.pf-group { display: flex; align-items: baseline; gap: 8px; }
+.pf-label { flex: 0 0 48px; font-size: 0.8rem; font-weight: 700; color: var(--muted); }
+.pf-opts { flex: 1 1 auto; display: flex; flex-wrap: wrap; gap: 6px; }
+.pf-opt {
+  border: 1px solid var(--border); background: var(--field); color: var(--muted);
+  border-radius: 999px; padding: 4px 10px; font-size: 0.8rem; cursor: pointer;
+}
+.pf-opt.on { background: var(--primary); color: #fff; border-color: var(--primary); font-weight: 700; }
+
+.preview-body {
+  flex: 1 1 auto; overflow: auto; -webkit-overflow-scrolling: touch;
+  border: 1px solid var(--border); border-radius: 10px; margin-bottom: 14px;
+}
+.preview-table { border-collapse: collapse; width: 100%; font-size: 0.85rem; }
+.preview-table th, .preview-table td {
+  border: 1px solid var(--border); padding: 6px 10px; text-align: left; white-space: nowrap;
+}
+.preview-table th { background: var(--th-bg); position: sticky; top: 0; z-index: 1; }
+.preview-table tbody tr:nth-child(even) td { background: var(--bg); }
+.preview-body .hint { padding: 16px; }
+
+/* 統計表:分類標題列 / 合計列用特別顏色,蓋過交替底色 */
+.preview-table tbody tr.row-section td {
+  background: var(--primary);
+  color: #fff;
+  font-weight: 700;
+}
+.preview-table tbody tr.row-total td {
+  background: var(--th-bg);
+  color: var(--primary);
+  font-weight: 800;
+  border-top: 2px solid var(--primary);
+}
+/* 分類間的空白列:壓低高度當作分隔 */
+.preview-table tbody tr.row-spacer td {
+  background: transparent;
+  border: none;
+  height: 8px;
+  padding: 0;
+}
+
 /* ---------- 短訊提示 (toast) ---------- */
 .toast {
   position: fixed;
@@ -645,3 +751,60 @@ body.on-record #main { padding-bottom: 172px; }
 
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes pop-in { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+
+/* ============================================================
+   滑鼠 hover 效果(只在有指標裝置生效,避免手機觸控殘留 hover 樣式)
+   涵蓋所有 cursor:pointer 的元素
+   ============================================================ */
+@media (hover: hover) {
+  /* 平滑過渡 */
+  .btn-primary, .btn-ghost, .btn-sm, .seg-btn, .chip-btn, .tag-pick,
+  .step-btn, .mode-opt, .theme-toggle, .tab, .preview-tab, .preview-x,
+  .chip, .chip-del, .ov-row, .today-item, .gmonth, .opt-group summary {
+    transition: background-color 0.12s ease, color 0.12s ease,
+                border-color 0.12s ease, filter 0.12s ease, transform 0.06s ease;
+  }
+
+  /* 主要 / 重點按鈕:加深 */
+  .btn-primary:hover { background: var(--primary-dark); }
+
+  /* 外框型按鈕 / 籌碼 / 分段:邊框與文字轉主色、底色微亮 */
+  .btn-ghost:hover, .btn-sm:hover, .seg-btn:hover, .chip-btn:hover,
+  .tag-pick:hover, .step-btn:hover {
+    border-color: var(--primary);
+    color: var(--primary);
+    background: var(--th-bg);
+  }
+  /* 已選中的分段/籌碼 hover:維持主色,只稍微加深 */
+  .seg-btn.active:hover, .chip-btn.active:hover, .tag-pick.on:hover {
+    background: var(--primary-dark); color: #fff; border-color: var(--primary-dark);
+  }
+
+  /* header 上的圓鈕 / 模式切換 */
+  .theme-toggle:hover { background: rgba(255, 255, 255, 0.3); }
+  .mode-opt:hover { color: #fff; }
+
+  /* 可點的列 / 卡片:底色提示 */
+  .ov-row:hover, .today-item:hover, .gmonth:hover { background: var(--th-bg); }
+  .opt-group summary:hover { color: var(--primary); }
+
+  /* 底部分頁:文字轉主色 */
+  .tab:hover { color: var(--primary); }
+
+  /* 設定頁 chip:整顆微亮;刪除鈕轉紅;標籤文字轉主色 */
+  .chip:hover { border-color: var(--primary); }
+  .chip-del:hover { background: var(--danger); color: #fff; }
+  .chip-label:hover { color: var(--primary); }
+
+  /* 預覽 modal */
+  .preview-tab:hover:not(.active) { border-color: var(--primary); color: var(--primary); }
+  .preview-x:hover { background: var(--danger); color: #fff; }
+  .pf-opt:hover:not(.on) { border-color: var(--primary); color: var(--primary); background: var(--th-bg); }
+  .pf-opt.on:hover { background: var(--primary-dark); border-color: var(--primary-dark); }
+
+  /* 預覽表格列(分類標題/合計/空白列不套 hover) */
+  .preview-table tbody tr:not(.row-section):not(.row-total):not(.row-spacer):hover td { background: var(--th-bg); }
+
+  /* 月份總覽快速範圍(.chip-btn 已涵蓋) / 日曆格 */
+  .cal-l1:hover, .cal-l2:hover, .cal-l3:hover, .cal-l4:hover { outline: 2px solid var(--primary); outline-offset: -2px; }
+}
