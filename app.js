@@ -276,13 +276,16 @@ function showConfirm(message, { okText = "確定", danger = false } = {}) {
 }
 
 // 文字輸入對話框(取代 prompt)。回傳輸入字串;取消回傳 null。
-function showPrompt(message, defaultValue = "", { okText = "儲存" } = {}) {
+// validate(value):選填。回傳非空字串=錯誤訊息,此時不關閉 modal、顯示錯誤、保留輸入;
+// 回傳空/undefined=通過。
+function showPrompt(message, defaultValue = "", { okText = "儲存", validate = null } = {}) {
   return new Promise((resolve) => {
     const overlay = $("#modalOverlay");
     const okBtn = $("#modalOk");
     const cancelBtn = $("#modalCancel");
     const input = $("#modalInput");
-    $("#modalText").textContent = message;
+    const baseMsg = message;
+    $("#modalText").textContent = baseMsg;
     okBtn.textContent = okText;
     okBtn.classList.remove("btn-danger");
     input.hidden = false;
@@ -297,12 +300,21 @@ function showPrompt(message, defaultValue = "", { okText = "儲存" } = {}) {
       document.removeEventListener("keydown", onKey);
       resolve(result);
     };
-    const onOk = () => close(input.value.trim());
+    // 嘗試送出:先過 validate,有錯就留在 modal 顯示錯誤、不關閉
+    const trySubmit = () => {
+      const val = input.value.trim();
+      if (validate) {
+        const err = validate(val);
+        if (err) { $("#modalText").textContent = `${baseMsg}\n⚠️ ${err}`; input.focus(); input.select(); return; }
+      }
+      close(val);
+    };
+    const onOk = () => trySubmit();
     const onCancel = () => close(null);
     const onBackdrop = (e) => { if (e.target === overlay) close(null); };
     const onKey = (e) => {
       if (e.key === "Escape") close(null);
-      if (e.key === "Enter") { e.preventDefault(); close(input.value.trim()); }
+      if (e.key === "Enter") { e.preventDefault(); trySubmit(); }
     };
 
     okBtn.addEventListener("click", onOk);
@@ -1721,18 +1733,19 @@ function renderSettings() {
     b.addEventListener("click", () => removeOption(b.dataset.rmkey, Number(b.dataset.rmidx))));
   c.querySelectorAll("[data-list]").forEach((listEl) => setupChipDrag(listEl));
   c.querySelectorAll("[data-addbtn]").forEach((b) =>
-    b.addEventListener("click", () => {
+    b.addEventListener("click", async () => {
       const key = b.dataset.addbtn;
       const input = c.querySelector(`[data-addkey="${key}"]`);
       const val = input.value.trim();
-      if (val) { addOption(key, val); input.value = ""; }
+      // 成功才清空;撞名等失敗保留輸入,讓使用者改一下就好
+      if (val && await addOption(key, val)) input.value = "";
     }));
   // Enter 也能新增
   c.querySelectorAll("[data-addkey]").forEach((inp) =>
-    inp.addEventListener("keydown", (e) => {
+    inp.addEventListener("keydown", async (e) => {
       if (e.key === "Enter") { e.preventDefault();
         const val = inp.value.trim();
-        if (val) { addOption(inp.dataset.addkey, val); inp.value = ""; }
+        if (val && await addOption(inp.dataset.addkey, val)) inp.value = "";
       }
     }));
 
@@ -1787,16 +1800,21 @@ async function togglePondTag(pondId, tag) {
 
 // 新增選項。四組帶 id 的選項存 {id,name};tags 維持純字串。
 // presetId:給 onSaveRecord 手打新池塘時用(先在本地產 id,確保紀錄能立刻指到)。
+// 回傳 true=已新增、false=未新增(撞名或被擋),讓呼叫端決定要不要清空輸入框。
 async function addOption(key, value, presetId) {
-  if (blockIfDemo()) return;
-  if (!db) return;
+  if (blockIfDemo()) return false;
+  if (!db) return false;
   const list = options[key] || [];
   const isIdKey = ID_KEYS.includes(key);
-  // 不重複(比名稱)
-  if (list.some((it) => optName(it) === value)) return;
+  // 不重複(比名稱);撞名時提示使用者(presetId 來自 onSaveRecord 自動建池塘,不需提示)
+  if (list.some((it) => optName(it) === value)) {
+    if (!presetId) showToast(`「${value}」已存在`, true);
+    return false;
+  }
   const item = isIdKey ? { id: presetId || uid(), name: value } : value;
   const next = [...list, item];
   await updateDoc(doc(db, "settings", "options"), { [key]: next });
+  return true;
 }
 
 // 把選項從 from 位置移到 to 位置,寫回 Firestore
@@ -1824,10 +1842,12 @@ async function renameOption(key, idx) {
   const isIdKey = ID_KEYS.includes(key);
   const old = optName(item);
 
-  const next = await showPrompt(`編輯「${OPTION_LABELS[key]}」`, old);
+  // 撞名在 modal 內就擋下(不關閉、保留輸入,讓使用者改);空白/沒改則放行後面判斷
+  const next = await showPrompt(`編輯「${OPTION_LABELS[key]}」`, old, {
+    validate: (v) => (v && v !== old && list.some((it) => optName(it) === v)) ? `「${v}」已存在` : "",
+  });
   if (next == null) return;                 // 取消
   if (next === "" || next === old) return;  // 空白或沒改,不動作
-  if (list.some((it) => optName(it) === next)) { showToast(`「${next}」已存在`, true); return; }
 
   list[idx] = isIdKey ? { ...item, name: next } : next;
   const patch = { [key]: list };
@@ -1988,8 +2008,15 @@ async function removeOption(key, idx) {
     }
   }
 
+  // 群組(tags):若有池塘貼著它,刪除會一併移除歸屬,先提示池數讓使用者確認
+  let confirmMsg = `確定刪除「${name}」?`;
+  if (key === "tags") {
+    const usedPonds = Object.values(options.pondTags || {}).filter((ts) => (ts || []).includes(name)).length;
+    if (usedPonds > 0) confirmMsg = `「${name}」目前有 ${usedPonds} 個池塘在使用。\n刪除會一併移除這些池塘的此群組歸屬,確定刪除?`;
+  }
+
   const ok = await showConfirm(
-    `確定刪除「${name}」?`,
+    confirmMsg,
     { okText: "刪除", danger: true }
   );
   if (!ok) return;
