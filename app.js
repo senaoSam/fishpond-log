@@ -1058,19 +1058,35 @@ function renderOverview() {
     ? `${from || "最早"} ～ ${to || "最新"}`
     : "全部月份";
 
+  // 飼料配色:用區間內紀錄建一次,跨月一致(月份 bar 依此堆疊)
+  const ovRecs = statsTagFiltered(allRecords).filter((r) => {
+    const m = (r.date || "").slice(0, 7);
+    return m && (!from || m >= from) && (!to || m <= to);
+  });
+  const feedColor = buildFeedColorMap(ovRecs);
+
   const rows = months.map((m) => {
     const e = byMonth[m];
     const pct = Math.max(2, Math.round((e.total / maxTotal) * 100));
-    // 各飼料:依包數大→小,做成小標籤
-    const feedTags = Object.entries(e.feeds).sort((a, b) => b[1] - a[1])
-      .map(([k, v]) => `<span class="feed-tag">${escapeHtml(k)} <b>${fmt(v)}</b></span>`).join("");
+    // 月份 bar:依飼料堆疊色塊(柱長=該月 vs 最大月;段內依飼料佔該月比例)
+    const sortedFeeds = Object.entries(e.feeds).sort((a, b) => b[1] - a[1]);
+    const lastIdx = sortedFeeds.length - 1;
+    const segs = sortedFeeds.map(([f, v], i) => {
+      const style = i === lastIdx
+        ? `flex:1 1 auto;background:${feedColor[f]}`
+        : `flex:0 0 ${(v / e.total) * 100}%;background:${feedColor[f]}`;
+      return `<span class="gseg" style="${style}"><span class="gseg-txt">${escapeHtml(f)} ${fmt(v)}</span></span>`;
+    }).join("");
+    // 各飼料:依包數大→小,做成小標籤(保留)
+    const feedTags = sortedFeeds
+      .map(([k, v]) => `<span class="feed-tag"><span class="feed-dot" style="background:${feedColor[k]}"></span>${escapeHtml(k)} <b>${fmt(v)}</b></span>`).join("");
     return `
       <div class="ov-row" data-month="${m}" role="button" tabindex="0" title="點此查看 ${m} 詳細">
         <div class="ov-head">
           <span class="ov-month">${m}</span>
           <span class="ov-total">${fmt(e.total)} <small>包</small></span>
         </div>
-        <div class="ov-bar"><span style="width:${pct}%"></span></div>
+        <div class="ov-bar"><span class="ov-bar-fill" style="width:${pct}%">${segs}</span></div>
         <div class="ov-meta">
           <span class="ov-count">${e.count} 筆</span>
           <span class="ov-feeds">${feedTags}</span>

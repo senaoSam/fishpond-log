@@ -422,18 +422,21 @@ tr.total td { font-weight: 800; background: var(--total-bg); border-top: 2px sol
 .ov-total { font-weight: 800; font-size: 1.15rem; color: var(--primary); }
 .ov-total small { font-size: 0.72rem; font-weight: 600; color: var(--muted); }
 .ov-bar {
-  height: 8px;
-  border-radius: 999px;
+  height: 22px;
+  border-radius: 6px;
   background: var(--th-bg);
   overflow: hidden;
   margin: 8px 0;
 }
-.ov-bar > span {
-  display: block;
+/* 月份 bar 改依飼料堆疊:fill 是 flex 容器,內含各飼料色塊(段內顯示料號 包數) */
+.ov-bar-fill {
+  display: flex;
   height: 100%;
-  border-radius: 999px;
-  background: var(--primary);
+  border-radius: 6px;
+  overflow: hidden;
+  min-width: 2px;
 }
+.ov-bar-fill .gseg { min-width: 2px; }
 .ov-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .ov-count { color: var(--muted); font-size: 0.82rem; flex: 0 0 auto; }
 .ov-feeds { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -446,6 +449,8 @@ tr.total td { font-weight: 800; background: var(--total-bg); border-top: 2px sol
   padding: 2px 10px;
 }
 .feed-tag b { color: var(--primary); }
+/* 小標籤前的飼料色點,對應 bar 堆疊色 */
+.feed-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
 .ov-grand {
   margin-top: 12px;
   padding-top: 12px;
