@@ -597,20 +597,40 @@ body.on-record #main { padding-bottom: 172px; }
 }
 .tab {
   flex: 1;
+  position: relative;            /* 給頂部指示條定位用 */
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 2px;
-  padding: 8px 0 10px;
+  margin: 6px 4px 8px;           /* 膠囊與相鄰分頁間距 */
+  padding: 6px 0 8px;
   border: none;
+  border-radius: 12px;
   background: none;
   color: var(--muted);
   font-size: 1.3rem;
   cursor: pointer;
+  transition: background 0.15s, color 0.15s;
 }
 .tab span { font-size: 0.7rem; }
-.tab.active { color: var(--primary); }
+/* 選中:整格實心主色膠囊 + 文字/icon 轉白 */
+.tab.active {
+  color: #fff;
+  background: var(--primary);
+}
 .tab.active span { font-weight: 700; }
+/* 頂部指示條:置中於膠囊上緣 */
+.tab.active::before {
+  content: "";
+  position: absolute;
+  top: -6px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 28px;
+  height: 3px;
+  border-radius: 0 0 3px 3px;
+  background: var(--primary);
+}
 
 .empty { text-align: center; color: var(--muted); padding: 32px 0; }
 
@@ -811,8 +831,8 @@ body.on-record #main { padding-bottom: 172px; }
   .ov-row:hover, .today-item:hover, .gmonth:hover { background: var(--th-bg); }
   .opt-group summary:hover { color: var(--primary); }
 
-  /* 底部分頁:文字轉主色 */
-  .tab:hover { color: var(--primary); }
+  /* 底部分頁:未選中的 hover 文字轉主色;選中的維持白字(底為主色)不被覆蓋 */
+  .tab:not(.active):hover { color: var(--primary); }
 
   /* 設定頁 chip:整顆微亮;刪除鈕轉紅;標籤文字轉主色 */
   .chip:hover { border-color: var(--primary); }
