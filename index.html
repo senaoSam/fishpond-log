@@ -89,10 +89,30 @@
     <section id="page-list" class="page">
       <h2>紀錄查詢</h2>
       <div class="card filters">
-        <label>
-          月份
-          <input id="listMonth" type="month" />
-        </label>
+        <div class="seg filter-mode">
+          <button type="button" class="seg-btn active" id="listModeMonth" data-mode="month">月區間</button>
+          <button type="button" class="seg-btn" id="listModeDay" data-mode="day">日區間</button>
+        </div>
+        <div class="range-pair" id="listMonthRange">
+          <label>
+            起月
+            <input id="listMonthFrom" type="month" />
+          </label>
+          <label>
+            迄月
+            <input id="listMonthTo" type="month" />
+          </label>
+        </div>
+        <div class="range-pair" id="listDayRange" hidden>
+          <label>
+            起日
+            <input id="listDayFrom" type="date" />
+          </label>
+          <label>
+            迄日
+            <input id="listDayTo" type="date" />
+          </label>
+        </div>
         <label>
           群組
           <select id="listTagFilter"><option value="">全部</option></select>

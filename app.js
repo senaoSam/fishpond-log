@@ -425,11 +425,13 @@ function renderOptionSelects() {
 }
 
 // 填一個「池塘」篩選下拉:清單 = 設定的池塘 ∪ 紀錄出現過的池塘
-function fillPondFilter(sel) {
+// tag 有值時,只列出屬於該群組的池塘(避免選了群組還能挑到別群組的池子)
+function fillPondFilter(sel, tag) {
   const prev = sel.value;
   const set = new Set(options.ponds);
   allRecords.forEach((r) => r.pond && set.add(r.pond));
-  const ponds = [...set].sort();
+  let ponds = [...set].sort();
+  if (tag) { const inTag = pondsWithTag(tag); ponds = ponds.filter((p) => inTag.has(p)); }
   sel.innerHTML = '<option value="">全部</option>';
   for (const p of ponds) {
     const o = document.createElement("option");
@@ -442,8 +444,8 @@ function fillPondFilter(sel) {
 function renderPondFilter() {
   fillTagFilter($("#listTagFilter"));        // 群組下拉(查詢頁)
   fillTagFilter($("#statsTagFilter"));       // 群組下拉(統計頁)
-  fillPondFilter($("#listPondFilter"));      // 池塘下拉(查詢頁)
-  fillPondFilter($("#statsPondFilter"));     // 池塘下拉(統計頁)
+  fillPondFilter($("#listPondFilter"), $("#listTagFilter").value);    // 池塘下拉(查詢頁)
+  fillPondFilter($("#statsPondFilter"), $("#statsTagFilter").value);  // 池塘下拉(統計頁)
 }
 
 // ============================================================
@@ -688,19 +690,59 @@ function startEdit(id) {
 // ============================================================
 //  列表 / 查詢頁
 // ============================================================
+let listMode = "month";   // 'month'(月區間)| 'day'(日區間)
+
 function setupList() {
-  $("#listMonth").value = thisMonthStr();
-  $("#listMonth").addEventListener("change", renderList);
-  $("#listTagFilter").addEventListener("change", renderList);
-  $("#listPondFilter").addEventListener("change", renderList);
+  // 預設:月模式查當月、日模式查今天
+  $("#listMonthFrom").value = thisMonthStr();
+  $("#listMonthTo").value = thisMonthStr();
+  $("#listDayFrom").value = todayStr();
+  $("#listDayTo").value = todayStr();
+
+  $("#listModeMonth").addEventListener("click", () => setListMode("month"));
+  $("#listModeDay").addEventListener("click", () => setListMode("day"));
+
+  ["#listMonthFrom", "#listMonthTo", "#listDayFrom", "#listDayTo",
+   "#listPondFilter"].forEach((sel) =>
+    $(sel).addEventListener("change", renderList));
+
+  // 切換群組:池塘下拉只留該群組的池塘,再重新查詢
+  $("#listTagFilter").addEventListener("change", () => {
+    fillPondFilter($("#listPondFilter"), $("#listTagFilter").value);
+    renderList();
+  });
+}
+
+function setListMode(mode) {
+  listMode = mode;
+  $("#listModeMonth").classList.toggle("active", mode === "month");
+  $("#listModeDay").classList.toggle("active", mode === "day");
+  $("#listMonthRange").hidden = mode !== "month";
+  $("#listDayRange").hidden = mode !== "day";
+  renderList();
 }
 
 function filteredRecords() {
-  const month = $("#listMonth").value;       // YYYY-MM 或 ""
   const tag = $("#listTagFilter").value;     // 群組(標籤)或 ""
   const pond = $("#listPondFilter").value;
   let recs = allRecords.slice();
-  if (month) recs = recs.filter((r) => (r.date || "").startsWith(month));
+
+  if (listMode === "month") {
+    // 月區間:比較 YYYY-MM;起迄可顛倒、可同月、可只填一邊
+    let from = $("#listMonthFrom").value;
+    let to = $("#listMonthTo").value;
+    if (from && to && from > to) [from, to] = [to, from];
+    if (from) recs = recs.filter((r) => (r.date || "").slice(0, 7) >= from);
+    if (to)   recs = recs.filter((r) => (r.date || "").slice(0, 7) <= to);
+  } else {
+    // 日區間:比較 YYYY-MM-DD;起迄可顛倒、可同日、可只填一邊
+    let from = $("#listDayFrom").value;
+    let to = $("#listDayTo").value;
+    if (from && to && from > to) [from, to] = [to, from];
+    if (from) recs = recs.filter((r) => (r.date || "") >= from);
+    if (to)   recs = recs.filter((r) => (r.date || "") <= to);
+  }
+
   if (tag) { const set = pondsWithTag(tag); recs = recs.filter((r) => set.has(r.pond)); }
   if (pond) recs = recs.filter((r) => r.pond === pond);
   // 排序:日期新→舊,同日早上在前
@@ -771,7 +813,10 @@ let statsMode = "overview";   // 'overview'(月份總覽)| 'single'(單月詳細
 function setupStats() {
   $("#statsMonth").value = thisMonthStr();
   $("#statsMonth").addEventListener("change", renderStats);
-  $("#statsTagFilter").addEventListener("change", renderStatsView);
+  $("#statsTagFilter").addEventListener("change", () => {
+    fillPondFilter($("#statsPondFilter"), $("#statsTagFilter").value);
+    renderStatsView();
+  });
   $("#statsPondFilter").addEventListener("change", renderStatsView);
   $("#exportBtn").addEventListener("click", exportExcel);
   $("#exportRangeBtn").addEventListener("click", exportRange);
