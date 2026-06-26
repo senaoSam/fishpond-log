@@ -507,6 +507,7 @@ tr.total td { font-weight: 800; background: var(--total-bg); border-top: 2px sol
 .today-hint { font-weight: 400; font-size: 0.78rem; color: var(--primary); }
 .today-empty { color: var(--muted); font-size: 0.85rem; margin: 0 2px; }
 .today-item {
+  position: relative;
   display: block;
   width: 100%;
   text-align: left;
@@ -522,6 +523,16 @@ tr.total td { font-weight: 800; background: var(--total-bg); border-top: 2px sol
   cursor: pointer;
 }
 .today-item:active { background: var(--th-bg); }
+/* 左上角建立時間:絕對定位小字。上方留出時間高度,下方收緊不留多餘空白 */
+.today-item.has-time { padding-top: 20px; padding-bottom: 0; }
+.today-time {
+  position: absolute;
+  top: 5px; left: 12px;
+  font-size: 0.72rem;
+  line-height: 1;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
 
 /* ---------- 記錄頁:該池標籤選擇 ---------- */
 .record-tags {

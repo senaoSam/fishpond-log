@@ -154,6 +154,26 @@ function escapeHtml(s) {
 }
 function periodLabel(p) { return p === "afternoon" ? "下午" : "早上"; }
 
+// 由 createdAt 取 Date 物件;Firestore Timestamp 有 toDate(),一般是 ISO 字串。失敗回 null
+function recordDate(r) {
+  const ts = r.createdAt;
+  if (!ts) return null;
+  const d = typeof ts?.toDate === "function" ? ts.toDate() : new Date(ts);
+  return isNaN(d) ? null : d;
+}
+// 由 createdAt 取建立時間 hh:mm:ss(24h);無 createdAt(如假資料)回空字串
+function recordTimeStr(r) {
+  const d = recordDate(r);
+  if (!d) return "";
+  const z = (n) => String(n).padStart(2, "0");
+  return `${z(d.getHours())}:${z(d.getMinutes())}:${z(d.getSeconds())}`;
+}
+// 取建立時間毫秒(供排序);無 createdAt 回 0
+function recordTimeMs(r) {
+  const d = recordDate(r);
+  return d ? d.getTime() : 0;
+}
+
 // ---------- 選項 id → 名稱 解析(找不到時給 fallback,理論上不該發生)----------
 function optNameById(key, id) {
   if (!id) return "";
@@ -605,7 +625,12 @@ function renderTodayList() {
   if (!date) { box.innerHTML = ""; return; }
   const recs = allRecords
     .filter((r) => r.date === date)
-    .sort((a, b) => (a.period === "morning" ? 0 : 1) - (b.period === "morning" ? 0 : 1));
+    // 依建立時間新→舊(剛記的在最上);無 createdAt(假資料)退回用時段排
+    .sort((a, b) => {
+      const ta = recordTimeMs(a), tb = recordTimeMs(b);
+      if (ta !== tb) return tb - ta;
+      return (a.period === "morning" ? 0 : 1) - (b.period === "morning" ? 0 : 1);
+    });
 
   if (!recs.length) {
     box.innerHTML = `<div class="today-head">${escapeHtml(date)}</div><p class="today-empty">這天還沒有紀錄</p>`;
@@ -613,9 +638,11 @@ function renderTodayList() {
   }
   box.innerHTML = `
     <div class="today-head">${escapeHtml(date)} 已記錄 ${recs.length} 筆 <span class="today-hint">(點擊可編輯)</span></div>
-    ${recs.map((r) => `
-      <button type="button" class="today-item" data-edit="${r.id}">${recordSummaryLine(r)}</button>
-    `).join("")}`;
+    ${recs.map((r) => {
+      const t = recordTimeStr(r);
+      const timeTag = t ? `<span class="today-time">${t}</span>` : "";
+      return `<button type="button" class="today-item${t ? " has-time" : ""}" data-edit="${r.id}">${timeTag}${recordSummaryLine(r)}</button>`;
+    }).join("")}`;
   box.querySelectorAll("[data-edit]").forEach((b) =>
     b.addEventListener("click", () => startEdit(b.dataset.edit)));
 }
