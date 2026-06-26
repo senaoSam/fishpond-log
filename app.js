@@ -15,14 +15,31 @@ import {
 // 不需手動維護;這裡只是本地開發用的佔位值。格式:YYYY-MM-DD HH:mm
 const BUILD_TIME = "2026-06-25 23:50";
 
+// ---------- 帶 id 的選項(池塘/飼料/拌料/消毒劑)----------
+// 這四組選項存成 [{ id, name }]:紀錄欄位存 id(r.pondId 等),改名只動 name,
+// 既有紀錄與 pondTags 都用 id 關聯,改名不會讓舊資料變孤兒。
+// tags(群組)維持純字串陣列;pondTags 的 key 用「池塘 id」。
+const ID_KEYS = ["ponds", "feedNos", "mixes", "disinfectants"];
+
+// 產生唯一 id(瀏覽器與 Node 18+ 皆內建 crypto.randomUUID)
+function uid() {
+  return (globalThis.crypto && crypto.randomUUID)
+    ? crypto.randomUUID()
+    : "id-" + Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
+// 取選項顯示名:相容「物件 {id,name}」與「純字串」(tags 用)
+function optName(it) { return it && typeof it === "object" ? it.name : it; }
+// 把一組名稱字串轉成 [{id,name}](給 DEFAULT_OPTIONS / 遷移用)
+function withIds(names) { return names.map((name) => ({ id: uid(), name })); }
+
 // ---------- 預設固定選項(首次使用會寫進 Firestore) ----------
 const DEFAULT_OPTIONS = {
-  ponds: [],
-  feedNos: ["0.8號", "000號", "00號", "0號", "1號", "2號", "3號", "4號", "5號", "6號", "7號"],
-  mixes: ["安蒙20%", "安蒙50%", "弗洛得", "OTC"],
-  disinfectants: ["二氧化氯10%", "二氧化氯50%", "三氯20G", "三氯90%"],
-  tags: [],                  // 池塘分類標籤清單(如:第一區、鱸魚)
-  pondTags: {}               // { 池塘名: [標籤...] } — 每池貼哪些標籤
+  ponds: [],                 // [{id, name}]
+  feedNos: withIds(["0.8號", "000號", "00號", "0號", "1號", "2號", "3號", "4號", "5號", "6號", "7號"]),
+  mixes: withIds(["安蒙20%", "安蒙50%", "弗洛得", "OTC"]),
+  disinfectants: withIds(["二氧化氯10%", "二氧化氯50%", "三氯20G", "三氯90%"]),
+  tags: [],                  // 池塘分類標籤清單(如:第一區、鱸魚)— 純字串
+  pondTags: {}               // { 池塘id: [標籤...] } — 每池貼哪些標籤
 };
 
 // 各選項欄位的中文標題(設定頁用)。pondTags 不在此(它不是單純清單)
@@ -55,29 +72,32 @@ function buildDemoData() {
     "嘉義": ["太保", "朴子", "民雄"]
   };
   const fishTags = ["鱸魚", "鮪魚", "吳郭魚", "鮭魚"];
-  const feedNos = DEFAULT_OPTIONS.feedNos;
-  const mixes = DEFAULT_OPTIONS.mixes;
-  const disinfectants = DEFAULT_OPTIONS.disinfectants;
+  // 帶 id 的選項(假資料用固定 id,方便重現)
+  const feedNos = DEFAULT_OPTIONS.feedNos.map((it, i) => ({ id: `demo-feed-${i}`, name: it.name }));
+  const mixes = DEFAULT_OPTIONS.mixes.map((it, i) => ({ id: `demo-mix-${i}`, name: it.name }));
+  const disinfectants = DEFAULT_OPTIONS.disinfectants.map((it, i) => ({ id: `demo-dis-${i}`, name: it.name }));
 
   // 用固定種子的偽隨機,讓每次產生的假資料一致(可重現)
   let seed = 20260501;
   const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
   const pick = (arr) => arr[Math.floor(rnd() * arr.length)];
 
-  const ponds = [];
-  const pondTags = {};
+  const ponds = [];          // [{id, name}]
+  const pondTags = {};       // { 池塘id: [標籤...] }
+  let pn = 0;
   for (const [city, areas] of Object.entries(cities)) {
     for (const area of areas) {
-      ponds.push(area);
-      pondTags[area] = [city, pick(fishTags)];   // 自己城市 + 隨機魚種
+      const id = `demo-pond-${pn++}`;
+      ponds.push({ id, name: area });
+      pondTags[id] = [city, pick(fishTags)];   // 自己城市 + 隨機魚種
     }
   }
 
   const demoOptions = {
     ponds,
-    feedNos: [...feedNos],
-    mixes: [...mixes],
-    disinfectants: [...disinfectants],
+    feedNos,
+    mixes,
+    disinfectants,
     tags: ["高雄", "台南", "嘉義", ...fishTags],
     pondTags
   };
@@ -94,13 +114,13 @@ function buildDemoData() {
         const day = 1 + Math.floor(rnd() * daysInMonth);
         records.push({
           id: `demo-${idn++}`,
-          pond,
+          pondId: pond.id,
           date: `2026-${z(month)}-${z(day)}`,
           period: rnd() < 0.5 ? "morning" : "afternoon",
           bags: Math.round(1 + rnd() * 5),   // 1~6 整數
-          feedNo: pick(feedNos),
-          mix: rnd() < 0.5 ? pick(mixes) : "",
-          disinfectant: rnd() < 0.4 ? pick(disinfectants) : "",
+          feedNoId: pick(feedNos).id,
+          mixId: rnd() < 0.5 ? pick(mixes).id : "",
+          disinfectantId: rnd() < 0.4 ? pick(disinfectants).id : "",
           note: ""
         });
       }
@@ -134,17 +154,35 @@ function escapeHtml(s) {
 }
 function periodLabel(p) { return p === "afternoon" ? "下午" : "早上"; }
 
-// 池塘顯示名:有標籤時附上「池名(標籤-標籤)」,無標籤則只回池名
-function pondLabel(pond) {
-  const tags = (options.pondTags || {})[pond] || [];
-  return tags.length ? `${pond}(${tags.join("-")})` : pond;
+// ---------- 選項 id → 名稱 解析(找不到時給 fallback,理論上不該發生)----------
+function optNameById(key, id) {
+  if (!id) return "";
+  const hit = (options[key] || []).find((it) => it.id === id);
+  return hit ? hit.name : "(已刪除)";
+}
+// 用名稱反查 id(主要給「手打新池塘名」時找既有 id;找不到回 null)
+function optIdByName(key, name) {
+  if (!name) return null;
+  const hit = (options[key] || []).find((it) => it.name === name);
+  return hit ? hit.id : null;
+}
+function feedName(id) { return id ? optNameById("feedNos", id) : ""; }
+function mixName(id) { return id ? optNameById("mixes", id) : ""; }
+function disinfectantName(id) { return id ? optNameById("disinfectants", id) : ""; }
+function pondName(id) { return id ? optNameById("ponds", id) : ""; }
+
+// 池塘顯示名:有標籤時附上「池名(標籤-標籤)」,無標籤則只回池名。參數為池塘 id。
+function pondLabel(pondId) {
+  const name = pondName(pondId);
+  const tags = (options.pondTags || {})[pondId] || [];
+  return tags.length ? `${name}(${tags.join("-")})` : name;
 }
 
-// 某標籤(群組)包含哪些池塘 → 回傳池塘名集合
+// 某標籤(群組)包含哪些池塘 → 回傳「池塘 id」集合
 function pondsWithTag(tag) {
   const set = new Set();
-  for (const [pond, tags] of Object.entries(options.pondTags || {})) {
-    if ((tags || []).includes(tag)) set.add(pond);
+  for (const [pondId, tags] of Object.entries(options.pondTags || {})) {
+    if ((tags || []).includes(tag)) set.add(pondId);
   }
   return set;
 }
@@ -400,6 +438,7 @@ function blockIfDemo() {
 // ============================================================
 //  下拉選單渲染
 // ============================================================
+// items 為帶 id 的選項 [{id,name}]:option 的 value=id、顯示=name(或 labelFn(id))
 function fillSelect(sel, items, { allowEmpty = false, emptyLabel = "(不選)", labelFn = null } = {}) {
   const prev = sel.value;
   sel.innerHTML = "";
@@ -410,7 +449,7 @@ function fillSelect(sel, items, { allowEmpty = false, emptyLabel = "(不選)", l
   }
   for (const it of items) {
     const o = document.createElement("option");
-    o.value = it; o.textContent = labelFn ? labelFn(it) : it;  // value 維持原值,只改顯示
+    o.value = it.id; o.textContent = labelFn ? labelFn(it.id) : it.name;
     sel.appendChild(o);
   }
   if ([...sel.options].some((o) => o.value === prev)) sel.value = prev;
@@ -424,18 +463,20 @@ function renderOptionSelects() {
   fillSelect($("#disinfectantSelect"), options.disinfectants, { allowEmpty: true });
 }
 
-// 填一個「池塘」篩選下拉:清單 = 設定的池塘 ∪ 紀錄出現過的池塘
+// 填一個「池塘」篩選下拉:清單 = 設定的池塘 ∪ 紀錄出現過的池塘(以 id 為準)
 // tag 有值時,只列出屬於該群組的池塘(避免選了群組還能挑到別群組的池子)
 function fillPondFilter(sel, tag) {
   const prev = sel.value;
-  const set = new Set(options.ponds);
-  allRecords.forEach((r) => r.pond && set.add(r.pond));
-  let ponds = [...set].sort();
-  if (tag) { const inTag = pondsWithTag(tag); ponds = ponds.filter((p) => inTag.has(p)); }
+  const ids = new Set(options.ponds.map((p) => p.id));
+  allRecords.forEach((r) => r.pondId && ids.add(r.pondId));
+  let pondIds = [...ids];
+  if (tag) { const inTag = pondsWithTag(tag); pondIds = pondIds.filter((id) => inTag.has(id)); }
+  // 依顯示名稱排序
+  pondIds.sort((a, b) => pondName(a).localeCompare(pondName(b), "zh-Hant"));
   sel.innerHTML = '<option value="">全部</option>';
-  for (const p of ponds) {
+  for (const id of pondIds) {
     const o = document.createElement("option");
-    o.value = p; o.textContent = pondLabel(p);
+    o.value = id; o.textContent = pondLabel(id);
     sel.appendChild(o);
   }
   if ([...sel.options].some((o) => o.value === prev)) sel.value = prev;
@@ -497,14 +538,6 @@ function syncPondInputVisibility() {
   else { input.hidden = false; }
 }
 
-function getPondValue() {
-  // 下拉與輸入框互斥:選了下拉用下拉,否則用手打
-  const picked = $("#pondSelect").value;
-  if (picked) return picked;
-  const typed = $("#pondInput").value.trim();
-  return typed;
-}
-
 // 讀取包數(整數)
 function getBagsValue() {
   const i = parseInt($("#bagsInt").value, 10);
@@ -517,22 +550,23 @@ function stepBags(which, dir) {
   el.value = Math.max(0, (parseInt(el.value, 10) || 0) + dir);
 }
 
-// 記錄頁:依目前選定的池塘,顯示可勾選的標籤(分類)。無池塘或無標籤則隱藏。
+// 記錄頁:依目前選定的池塘,顯示可勾選的標籤(分類)。
+// 只有「下拉選了既有池塘(有 id)」才能貼標籤;手打的新池塘要先存檔才有 id。
 function renderRecordTags() {
   const box = $("#recordTags");
-  const pond = getPondValue();
+  const pondId = $("#pondSelect").value;        // 既有池塘才有 id
   const tags = options.tags || [];
-  if (!pond || !tags.length) { box.hidden = true; box.innerHTML = ""; return; }
-  const mine = new Set((options.pondTags || {})[pond] || []);
+  if (!pondId || !tags.length) { box.hidden = true; box.innerHTML = ""; return; }
+  const mine = new Set((options.pondTags || {})[pondId] || []);
   box.hidden = false;
   box.innerHTML = `
-    <span class="record-tags-label">群組(${escapeHtml(pond)}):</span>
+    <span class="record-tags-label">群組(${escapeHtml(pondName(pondId))}):</span>
     ${tags.map((t) => `
       <button type="button" class="tag-pick ${mine.has(t) ? "on" : ""}" data-rectag="${escapeHtml(t)}">${escapeHtml(t)}</button>
     `).join("")}`;
   box.querySelectorAll("[data-rectag]").forEach((b) =>
     b.addEventListener("click", async () => {
-      await togglePondTag(pond, b.dataset.rectag);
+      await togglePondTag(pondId, b.dataset.rectag);
       // togglePondTag 會寫回 Firestore;onSnapshot 回來會更新 options,但本地先即時切換顯示
       b.classList.toggle("on");
     }));
@@ -541,12 +575,12 @@ function renderRecordTags() {
 // 把一筆紀錄轉成條列文字:池塘 - 時段 - 飼料 - N包 - 拌料 - 消毒 - 備註(空欄略過)
 function recordSummaryLine(r) {
   const parts = [
-    pondLabel(r.pond),
+    pondLabel(r.pondId),
     periodLabel(r.period),
-    r.feedNo,
+    feedName(r.feedNoId),
     `${fmt(Number(r.bags) || 0)}包`,
-    r.mix,
-    r.disinfectant,
+    mixName(r.mixId),
+    disinfectantName(r.disinfectantId),
     r.note
   ].filter((x) => x != null && String(x).trim() !== "");
   return parts.map(escapeHtml).join(" - ");
@@ -579,27 +613,36 @@ async function onSaveRecord(e) {
   if (blockIfDemo()) return;
   if (!db) { showMsg("尚未設定 Firebase,無法儲存", true); return; }
 
-  const pond = getPondValue();
+  // 池塘:下拉選了既有池塘 → 直接用其 id;否則為手打的新池塘名 → 找既有 id 或新建一筆
+  const pickedId = $("#pondSelect").value;
+  const typedName = $("#pondInput").value.trim();
   const bags = getBagsValue();
-  if (!pond) { showMsg("請選擇或輸入池塘名稱", true); return; }
+  if (!pickedId && !typedName) { showMsg("請選擇或輸入池塘名稱", true); return; }
   if (bags <= 0) { showMsg("包數需大於 0", true); return; }
 
+  let pondId = pickedId;
+  if (!pondId) {
+    // 手打:同名已存在就沿用;否則本地先產 id,連同新池塘一起寫回 Firestore
+    pondId = optIdByName("ponds", typedName);
+    if (!pondId) {
+      pondId = uid();
+      addOption("ponds", typedName, pondId).catch(() => {});
+    }
+  }
+
   const rec = {
-    pond,
+    pondId,
     date: $("#dateInput").value,
     period: currentPeriod,
     bags,
-    feedNo: $("#feedNoSelect").value || "",
-    mix: $("#mixSelect").value || "",
-    disinfectant: $("#disinfectantSelect").value || "",
+    feedNoId: $("#feedNoSelect").value || "",
+    mixId: $("#mixSelect").value || "",
+    disinfectantId: $("#disinfectantSelect").value || "",
     note: $("#noteInput").value.trim()
   };
 
   const saveBtn = $("#saveBtn");
   saveBtn.disabled = true;
-
-  // 若輸入了新池塘名稱,自動加入池塘清單
-  if (pond && !options.ponds.includes(pond)) addOption("ponds", pond).catch(() => {});
 
   // 注意:離線時 Firestore 的寫入 promise 要等連線才 resolve,不能 await(會卡住)。
   // 改為發出寫入後立即依「目前是否已同步雲端」給提示;真正失敗(如權限)用 catch 補報。
@@ -610,7 +653,7 @@ async function onSaveRecord(e) {
   writePromise.catch((err) => { console.error(err); showToast(`${action}失敗:` + err.message, true); });
 
   if (cloudSynced) {
-    showToast(`已${action} ✔ ${pondLabel(rec.pond)} ${fmt(rec.bags)}包`);
+    showToast(`已${action} ✔ ${pondLabel(rec.pondId)} ${fmt(rec.bags)}包`);
   } else {
     showToast(`已存到本機 ⏳ 連線後自動上傳`, false);
   }
@@ -670,16 +713,16 @@ function startEdit(id) {
   $("#dateInput").value = r.date;
   currentPeriod = r.period || "morning";
   $$("#periodSeg .seg-btn").forEach((b) => b.classList.toggle("active", b.dataset.period === currentPeriod));
-  // 池塘:若在清單中用下拉,否則填到輸入框
-  if (options.ponds.includes(r.pond)) { $("#pondSelect").value = r.pond; $("#pondInput").value = ""; }
-  else { $("#pondSelect").value = ""; $("#pondInput").value = r.pond; }
+  // 池塘:id 仍在清單中用下拉;否則(已被刪)把名稱填回輸入框讓使用者重選
+  if (options.ponds.some((p) => p.id === r.pondId)) { $("#pondSelect").value = r.pondId; $("#pondInput").value = ""; }
+  else { $("#pondSelect").value = ""; $("#pondInput").value = pondName(r.pondId); }
   syncPondInputVisibility();
   renderRecordTags();
   renderTodayList();           // 日期可能改變,更新當日清單
   $("#bagsInt").value = Math.round(Number(r.bags) || 0);
-  $("#feedNoSelect").value = r.feedNo || "";
-  $("#mixSelect").value = r.mix || "";
-  $("#disinfectantSelect").value = r.disinfectant || "";
+  $("#feedNoSelect").value = r.feedNoId || "";
+  $("#mixSelect").value = r.mixId || "";
+  $("#disinfectantSelect").value = r.disinfectantId || "";
   $("#noteInput").value = r.note || "";
   $("#saveBtn").textContent = "更新紀錄";
   $("#cancelEditBtn").hidden = false;
@@ -743,8 +786,8 @@ function filteredRecords() {
     if (to)   recs = recs.filter((r) => (r.date || "") <= to);
   }
 
-  if (tag) { const set = pondsWithTag(tag); recs = recs.filter((r) => set.has(r.pond)); }
-  if (pond) recs = recs.filter((r) => r.pond === pond);
+  if (tag) { const set = pondsWithTag(tag); recs = recs.filter((r) => set.has(r.pondId)); }
+  if (pond) recs = recs.filter((r) => r.pondId === pond);
   // 排序:日期新→舊,同日早上在前
   recs.sort((a, b) => {
     if (a.date !== b.date) return a.date < b.date ? 1 : -1;
@@ -763,15 +806,16 @@ function renderList() {
 
   c.innerHTML = recs.map((r) => {
     const parts = [];
+    const fn = feedName(r.feedNoId), mn = mixName(r.mixId), dn = disinfectantName(r.disinfectantId);
     parts.push(`<span class="k">包數</span> <b>${escapeHtml(r.bags)}</b>`);
-    if (r.feedNo) parts.push(`<span class="k">飼料</span> ${escapeHtml(r.feedNo)}`);
-    if (r.mix) parts.push(`<span class="k">拌料</span> ${escapeHtml(r.mix)}`);
-    if (r.disinfectant) parts.push(`<span class="k">消毒</span> ${escapeHtml(r.disinfectant)}`);
+    if (fn) parts.push(`<span class="k">飼料</span> ${escapeHtml(fn)}`);
+    if (mn) parts.push(`<span class="k">拌料</span> ${escapeHtml(mn)}`);
+    if (dn) parts.push(`<span class="k">消毒</span> ${escapeHtml(dn)}`);
     const note = r.note ? `<div class="rec-body"><span class="k">備註</span> ${escapeHtml(r.note)}</div>` : "";
     return `
       <div class="rec">
         <div class="rec-top">
-          <span class="rec-pond">${escapeHtml(pondLabel(r.pond))}
+          <span class="rec-pond">${escapeHtml(pondLabel(r.pondId))}
             <span class="badge ${r.period}">${periodLabel(r.period)}</span>
           </span>
           <span class="rec-date">${escapeHtml(r.date)}</span>
@@ -795,7 +839,7 @@ async function onDelete(id) {
   if (blockIfDemo()) return;
   const r = allRecords.find((x) => x.id === id);
   const ok = await showConfirm(
-    `確定刪除這筆紀錄?\n${r?.date} ${periodLabel(r?.period)} ${r ? pondLabel(r.pond) : ""}`,
+    `確定刪除這筆紀錄?\n${r?.date} ${periodLabel(r?.period)} ${r ? pondLabel(r.pondId) : ""}`,
     { okText: "刪除", danger: true }
   );
   if (!ok) return;
@@ -887,8 +931,8 @@ function statsTagFiltered(recs) {
   const tag = $("#statsTagFilter").value;
   const pond = $("#statsPondFilter").value;
   let out = recs;
-  if (tag) { const set = pondsWithTag(tag); out = out.filter((r) => set.has(r.pond)); }
-  if (pond) out = out.filter((r) => r.pond === pond);
+  if (tag) { const set = pondsWithTag(tag); out = out.filter((r) => set.has(r.pondId)); }
+  if (pond) out = out.filter((r) => r.pondId === pond);
   return out;
 }
 
@@ -919,7 +963,7 @@ function renderOverview() {
     const e = (byMonth[m] ||= { total: 0, count: 0, feeds: {} });
     e.total += b;
     e.count += 1;
-    const fk = r.feedNo || "(未填)";
+    const fk = feedName(r.feedNoId) || "(未填)";
     e.feeds[fk] = (e.feeds[fk] || 0) + b;
   }
 
@@ -1020,8 +1064,8 @@ function renderMonthlyGroupedChart(months, rangeText) {
     const m = (r.date || "").slice(0, 7);
     const b = Number(r.bags) || 0;
     const mo = (data[m] ||= {});
-    const po = (mo[r.pond] ||= { total: 0, feeds: {} });
-    const fk = r.feedNo || "(未填)";
+    const po = (mo[r.pondId] ||= { total: 0, feeds: {} });
+    const fk = feedName(r.feedNoId) || "(未填)";
     po.total += b;
     po.feeds[fk] = (po.feeds[fk] || 0) + b;
     if (po.total > maxPond) maxPond = po.total;
@@ -1078,8 +1122,8 @@ function stackedPondRows(pondsEntries, maxVal, feedColor) {
 
 // 依一組紀錄建「料號→顏色」對應(用設定的料號順序,讓配色穩定一致)
 function buildFeedColorMap(recs) {
-  const present = new Set(recs.map((r) => r.feedNo || "(未填)"));
-  const ordered = [...(options.feedNos || []), "(未填)"].filter((f) => present.has(f));
+  const present = new Set(recs.map((r) => feedName(r.feedNoId) || "(未填)"));
+  const ordered = [...(options.feedNos || []).map((it) => it.name), "(未填)"].filter((f) => present.has(f));
   // 補上不在設定清單裡的(保險)
   for (const f of present) if (!ordered.includes(f)) ordered.push(f);
   const map = {};
@@ -1108,18 +1152,18 @@ function renderStats() {
   for (const r of recs) {
     const b = Number(r.bags) || 0;
     totalBags += b;
-    byPond[r.pond] = (byPond[r.pond] || 0) + b;
-    const fk = r.feedNo || "(未填)";
+    byPond[r.pondId] = (byPond[r.pondId] || 0) + b;
+    const fk = feedName(r.feedNoId) || "(未填)";
     byFeed[fk] = (byFeed[fk] || 0) + b;
   }
 
   // (3) 各標籤(群組)總包數:該標籤涵蓋的池塘加總,並記錄涵蓋哪些池
-  const byTag = {};   // { 標籤: { total, ponds:Set } }
-  for (const [pond, bags] of Object.entries(byPond)) {
-    for (const t of (options.pondTags || {})[pond] || []) {
+  const byTag = {};   // { 標籤: { total, ponds:Set(池名) } }
+  for (const [pondId, bags] of Object.entries(byPond)) {
+    for (const t of (options.pondTags || {})[pondId] || []) {
       const e = (byTag[t] ||= { total: 0, ponds: new Set() });
       e.total += bags;
-      e.ponds.add(pond);
+      e.ponds.add(pondName(pondId));
     }
   }
 
@@ -1152,8 +1196,8 @@ function renderStats() {
   const pondFeeds = {};   // { pond: { total, feeds:{料號:包數} } }
   for (const r of recs) {
     const b = Number(r.bags) || 0;
-    const e = (pondFeeds[r.pond] ||= { total: 0, feeds: {} });
-    const fk = r.feedNo || "(未填)";
+    const e = (pondFeeds[r.pondId] ||= { total: 0, feeds: {} });
+    const fk = feedName(r.feedNoId) || "(未填)";
     e.total += b;
     e.feeds[fk] = (e.feeds[fk] || 0) + b;
   }
@@ -1268,8 +1312,8 @@ function calendarHeatmap(recs, month) {
     const e = (byDay[d] ||= { total: 0, lines: [] });
     e.total += b;
     // 每筆:池 時段 料號 N包(拌料/消毒若有附後)
-    const extra = [r.mix, r.disinfectant].filter(Boolean).join("·");
-    e.lines.push(`${pondLabel(r.pond)} ${periodLabel(r.period)} ${r.feedNo || "(未填)"} ${fmt(b)}包${extra ? " " + extra : ""}`);
+    const extra = [mixName(r.mixId), disinfectantName(r.disinfectantId)].filter(Boolean).join("·");
+    e.lines.push(`${pondLabel(r.pondId)} ${periodLabel(r.period)} ${feedName(r.feedNoId) || "(未填)"} ${fmt(b)}包${extra ? " " + extra : ""}`);
     if (e.total > maxDay) maxDay = e.total;
   }
   const cells = [];
@@ -1358,22 +1402,24 @@ function buildExportData(records, { byMonth = false } = {}) {
   const detail = recs.map((r) => ({
     "日期": r.date,
     "時段": periodLabel(r.period),
-    "池塘": r.pond,
-    "群組": ((options.pondTags || {})[r.pond] || []).join("-"),
+    "池塘": pondName(r.pondId),
+    "群組": ((options.pondTags || {})[r.pondId] || []).join("-"),
     "包數": Number(r.bags) || 0,
-    "飼料編號": r.feedNo || "",
-    "拌料": r.mix || "",
-    "消毒劑": r.disinfectant || "",
+    "飼料編號": feedName(r.feedNoId),
+    "拌料": mixName(r.mixId),
+    "消毒劑": disinfectantName(r.disinfectantId),
     "備註": r.note || ""
   }));
 
-  // 工作表 2:統計(各池塘 / 各飼料)
+  // 工作表 2:統計(各池塘 / 各飼料)— 用名稱當顯示 key
   const byPond = {}, byFeed = {};
   let total = 0;
   for (const r of recs) {
     const b = Number(r.bags) || 0; total += b;
-    byPond[r.pond] = (byPond[r.pond] || 0) + b;
-    byFeed[r.feedNo || "(未填)"] = (byFeed[r.feedNo || "(未填)"] || 0) + b;
+    const pondNm = pondName(r.pondId);
+    byPond[pondNm] = (byPond[pondNm] || 0) + b;
+    const feedNm = feedName(r.feedNoId) || "(未填)";
+    byFeed[feedNm] = (byFeed[feedNm] || 0) + b;
   }
   const summary = [];
   summary.push({ A: "各池塘總包數", B: "" });
@@ -1388,7 +1434,7 @@ function buildExportData(records, { byMonth = false } = {}) {
   const byTag = {};
   for (const r of recs) {
     const b = Number(r.bags) || 0;
-    const tags = (options.pondTags || {})[r.pond] || [];
+    const tags = (options.pondTags || {})[r.pondId] || [];
     for (const t of tags) { byTag[t] = (byTag[t] || 0) + b; }
   }
   const tagSummary = [];
@@ -1477,11 +1523,11 @@ function summaryRowClass(r) {
 
 // 明細篩選欄位定義:key=畫面群組名;getVals(r)=該筆記錄在此欄位的值(可多個,用於群組)
 const PREVIEW_FILTERS = [
-  { key: "feedNo",       label: "料號", getVals: (r) => [r.feedNo || ""] },
-  { key: "mix",          label: "拌料", getVals: (r) => [r.mix || ""] },
-  { key: "disinfectant", label: "消毒劑", getVals: (r) => [r.disinfectant || ""] },
-  { key: "tag",          label: "群組", getVals: (r) => ((options.pondTags || {})[r.pond] || []) },
-  { key: "pond",         label: "池塘", getVals: (r) => [r.pond || ""] },
+  { key: "feedNo",       label: "料號", getVals: (r) => [feedName(r.feedNoId)] },
+  { key: "mix",          label: "拌料", getVals: (r) => [mixName(r.mixId)] },
+  { key: "disinfectant", label: "消毒劑", getVals: (r) => [disinfectantName(r.disinfectantId)] },
+  { key: "tag",          label: "群組", getVals: (r) => ((options.pondTags || {})[r.pondId] || []) },
+  { key: "pond",         label: "池塘", getVals: (r) => [pondName(r.pondId)] },
   { key: "period",       label: "時段", getVals: (r) => [periodLabel(r.period)] },
 ];
 
@@ -1610,7 +1656,7 @@ function renderOptionGroup(key) {
   const chips = items.map((it, i) => `
     <span class="chip" data-key="${key}" data-idx="${i}">
       <span class="chip-grip" title="拖曳排序">⠿</span>
-      <span class="chip-label">${escapeHtml(it)}</span>
+      <span class="chip-label">${escapeHtml(optName(it))}</span>
       <button class="chip-del" title="刪除" data-rmkey="${key}" data-rmidx="${i}">×</button>
     </span>`).join("") || '<span class="hint">尚無選項</span>';
   const hint = items.length ? ' <span class="reorder-hint">點字編輯・拖曳排序・✕ 刪除</span>' : "";
@@ -1670,13 +1716,13 @@ function renderPondTagsSection() {
   } else {
     const pondTags = options.pondTags || {};
     inner = ponds.map((p) => {
-      const mine = new Set(pondTags[p] || []);
+      const mine = new Set(pondTags[p.id] || []);
       const chips = tags.map((t) => `
-        <button class="tag-pick ${mine.has(t) ? "on" : ""}" data-tagpond="${escapeHtml(p)}" data-tagname="${escapeHtml(t)}">${escapeHtml(t)}</button>
+        <button class="tag-pick ${mine.has(t) ? "on" : ""}" data-tagpond="${escapeHtml(p.id)}" data-tagname="${escapeHtml(t)}">${escapeHtml(t)}</button>
       `).join("");
       return `
         <div class="pondtag-row">
-          <div class="pondtag-name">${escapeHtml(p)}</div>
+          <div class="pondtag-name">${escapeHtml(p.name)}</div>
           <div class="pondtag-chips">${chips}</div>
         </div>`;
     }).join("");
@@ -1688,26 +1734,31 @@ function renderPondTagsSection() {
     </details>`;
 }
 
-// 切換某池對某標籤的歸屬
-async function togglePondTag(pond, tag) {
+// 切換某池對某標籤的歸屬。pondId=池塘 id(pondTags 以 id 為 key)
+async function togglePondTag(pondId, tag) {
   if (blockIfDemo()) return;
   if (!db) return;
   const pondTags = { ...(options.pondTags || {}) };
-  const list = new Set(pondTags[pond] || []);
+  const list = new Set(pondTags[pondId] || []);
   if (list.has(tag)) list.delete(tag); else list.add(tag);
   // 依 tags 的順序保存,維持一致
-  pondTags[pond] = (options.tags || []).filter((t) => list.has(t));
+  pondTags[pondId] = (options.tags || []).filter((t) => list.has(t));
   try {
     await updateDoc(doc(db, "settings", "options"), { pondTags });
   } catch (err) { showToast("儲存群組失敗:" + err.message, true); }
 }
 
-async function addOption(key, value) {
+// 新增選項。四組帶 id 的選項存 {id,name};tags 維持純字串。
+// presetId:給 onSaveRecord 手打新池塘時用(先在本地產 id,確保紀錄能立刻指到)。
+async function addOption(key, value, presetId) {
   if (blockIfDemo()) return;
   if (!db) return;
   const list = options[key] || [];
-  if (list.includes(value)) return;           // 不重複
-  const next = [...list, value];
+  const isIdKey = ID_KEYS.includes(key);
+  // 不重複(比名稱)
+  if (list.some((it) => optName(it) === value)) return;
+  const item = isIdKey ? { id: presetId || uid(), name: value } : value;
+  const next = [...list, item];
   await updateDoc(doc(db, "settings", "options"), { [key]: next });
 }
 
@@ -1721,36 +1772,36 @@ async function reorderOption(key, from, to) {
   list.splice(to, 0, moved);
   try {
     await updateDoc(doc(db, "settings", "options"), { [key]: list });
-    showToast(`已調整順序:「${moved}」`);
+    showToast(`已調整順序:「${optName(moved)}」`);
   } catch (err) { showToast("排序失敗:" + err.message, true); }
 }
 
-// 重新命名選項:單點 chip 觸發。連帶更新 pondTags 內的引用(改池塘名 / 改標籤名)。
+// 重新命名選項:單點 chip 觸發。
+// 帶 id 的選項只改 name(id 不變,既有紀錄與 pondTags 自動跟著);tags 改名需連帶更新 pondTags 內的引用。
 async function renameOption(key, idx) {
   if (blockIfDemo()) return;
   if (!db) return;
   const list = (options[key] || []).slice();
-  const old = list[idx];
-  if (old == null) return;
+  const item = list[idx];
+  if (item == null) return;
+  const isIdKey = ID_KEYS.includes(key);
+  const old = optName(item);
 
   const next = await showPrompt(`編輯「${OPTION_LABELS[key]}」`, old);
   if (next == null) return;                 // 取消
   if (next === "" || next === old) return;  // 空白或沒改,不動作
-  if (list.includes(next)) { showToast(`「${next}」已存在`, true); return; }
+  if (list.some((it) => optName(it) === next)) { showToast(`「${next}」已存在`, true); return; }
 
-  list[idx] = next;
+  list[idx] = isIdKey ? { ...item, name: next } : next;
   const patch = { [key]: list };
 
-  // 連帶更新 pondTags,讓引用跟著改名
+  // tags(群組)改名:pondTags 內存的是標籤「名稱」,要一起改;
+  // 帶 id 的選項(含池塘)改名不必動 pondTags —— pondTags 用 id 關聯,id 沒變。
   if (key === "tags") {
     const pondTags = {};
     for (const [p, ts] of Object.entries(options.pondTags || {})) {
       pondTags[p] = (ts || []).map((t) => (t === old ? next : t));
     }
-    patch.pondTags = pondTags;
-  } else if (key === "ponds") {
-    const pondTags = { ...(options.pondTags || {}) };
-    if (old in pondTags) { pondTags[next] = pondTags[old]; delete pondTags[old]; }
     patch.pondTags = pondTags;
   }
 
@@ -1878,13 +1929,30 @@ function setupChipDrag(listEl) {
   listEl.addEventListener("pointerdown", onDown);
 }
 
+// 各帶 id 選項對應到紀錄的哪個欄位(用來檢查是否仍被引用)
+const KEY_TO_REC_FIELD = { ponds: "pondId", feedNos: "feedNoId", mixes: "mixId", disinfectants: "disinfectantId" };
+
 async function removeOption(key, idx) {
   if (blockIfDemo()) return;
   if (!db) return;
   const list = (options[key] || []).slice();
-  const removed = list[idx];
+  const item = list[idx];
+  if (item == null) return;
+  const name = optName(item);
+  const isIdKey = ID_KEYS.includes(key);
+
+  // 帶 id 的選項:若仍有紀錄引用,擋下不刪(避免孤兒)
+  if (isIdKey) {
+    const field = KEY_TO_REC_FIELD[key];
+    const used = allRecords.filter((r) => r[field] === item.id).length;
+    if (used > 0) {
+      showToast(`「${name}」還有 ${used} 筆紀錄在使用,無法刪除`, true);
+      return;
+    }
+  }
+
   const ok = await showConfirm(
-    `確定刪除「${removed}」?\n(只是不再出現在選單,過去的紀錄照常保留)`,
+    `確定刪除「${name}」?`,
     { okText: "刪除", danger: true }
   );
   if (!ok) return;
@@ -1896,13 +1964,13 @@ async function removeOption(key, idx) {
     // 刪標籤:從每池移除該標籤
     const pondTags = {};
     for (const [p, ts] of Object.entries(options.pondTags || {})) {
-      pondTags[p] = (ts || []).filter((t) => t !== removed);
+      pondTags[p] = (ts || []).filter((t) => t !== name);
     }
     patch.pondTags = pondTags;
   } else if (key === "ponds") {
-    // 刪池塘:移除該池的分類項
+    // 刪池塘(已確認無紀錄引用):移除該池 id 的分類項
     const pondTags = { ...(options.pondTags || {}) };
-    delete pondTags[removed];
+    delete pondTags[item.id];
     patch.pondTags = pondTags;
   }
 

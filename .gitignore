@@ -12,3 +12,10 @@ yarn.lock
 
 # Claude Code 個人本地設定(權限偏好,不進 repo);.mcp.json 則保留進 repo
 .claude/settings.local.json
+
+# Firestore 備份 / 遷移中間產物(含真實資料,不進公開 repo)
+backups/
+scripts/_migration-preview.json
+
+# Playwright MCP 測試暫存
+.playwright-mcp/
