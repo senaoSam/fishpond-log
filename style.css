@@ -575,13 +575,14 @@ tr.total td { font-weight: 800; background: var(--total-bg); border-top: 2px sol
   z-index: 21;
   display: flex;
   gap: 10px;
+  justify-content: center;        /* 按鈕依文字大小,整組置中 */
   padding: 10px 16px;
   background: var(--card);
   border-top: 1px solid var(--border);
   box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.12);
 }
-.save-bar #saveBtn { flex: 1 1 auto; margin-top: 0; }
-.save-bar #cancelEditBtn { flex: 0 0 auto; width: auto; margin-top: 0; padding: 0 18px; }
+/* 按鈕寬度依文字內容,不撐滿;只用 padding 留出點擊範圍,兩顆同高同字級 */
+.save-bar button { flex: 0 0 auto; width: auto; margin-top: 0; padding: 12px 28px; font-size: 1rem; line-height: 1.2; }
 /* 記錄頁要多留底部空間,避免內容被儲存列+分頁列遮住(由 JS 加 .on-record) */
 body.on-record #main { padding-bottom: 172px; }
 
@@ -597,7 +598,6 @@ body.on-record #main { padding-bottom: 172px; }
 }
 .tab {
   flex: 1;
-  position: relative;            /* 給頂部指示條定位用 */
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -619,18 +619,6 @@ body.on-record #main { padding-bottom: 172px; }
   background: var(--primary);
 }
 .tab.active span { font-weight: 700; }
-/* 頂部指示條:置中於膠囊上緣 */
-.tab.active::before {
-  content: "";
-  position: absolute;
-  top: -6px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 28px;
-  height: 3px;
-  border-radius: 0 0 3px 3px;
-  background: var(--primary);
-}
 
 .empty { text-align: center; color: var(--muted); padding: 32px 0; }
 
