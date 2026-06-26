@@ -297,6 +297,14 @@ tr.total td { font-weight: 800; background: var(--total-bg); border-top: 2px sol
 /* 各群組統計:標籤後面附涵蓋的池塘 */
 .tag-ponds { display: block; font-size: 0.78rem; color: var(--muted); font-weight: 400; margin-top: 2px; }
 
+/* 各池塘飼料明細:每池一張小卡,卡內直式條列各飼料+總共;多張卡自動換行並排 */
+.pf-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.pf-card { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; background: var(--total-bg); }
+.pf-pond { font-weight: 700; margin-bottom: 6px; }
+.pf-feed { display: flex; justify-content: space-between; gap: 10px; padding: 2px 0; color: var(--muted); }
+.pf-total { display: flex; justify-content: space-between; gap: 10px; padding: 5px 0 1px; margin-top: 5px; font-weight: 800; border-top: 1px dashed var(--border); }
+.pf-feed .num, .pf-total .num { font-variant-numeric: tabular-nums; }
+
 /* ---------- 堆疊橫條圖(每月×每池 / 單月各池,依料號堆疊) ---------- */
 .g-legend { display: flex; flex-wrap: wrap; gap: 12px; margin: 6px 0 14px; font-size: 0.85rem; }
 .g-leg { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }

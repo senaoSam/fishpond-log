@@ -807,8 +807,8 @@ function renderList() {
   c.innerHTML = recs.map((r) => {
     const parts = [];
     const fn = feedName(r.feedNoId), mn = mixName(r.mixId), dn = disinfectantName(r.disinfectantId);
-    parts.push(`<span class="k">包數</span> <b>${escapeHtml(r.bags)}</b>`);
-    if (fn) parts.push(`<span class="k">飼料</span> ${escapeHtml(fn)}`);
+    // 飼料 + 包數合併:有飼料顯示「y號 x包」,沒飼料只顯示「x包」
+    parts.push(`<b>${fn ? escapeHtml(fn) + " " : ""}${escapeHtml(r.bags)}包</b>`);
     if (mn) parts.push(`<span class="k">拌料</span> ${escapeHtml(mn)}`);
     if (dn) parts.push(`<span class="k">消毒</span> ${escapeHtml(dn)}`);
     const note = r.note ? `<div class="rec-body"><span class="k">備註</span> ${escapeHtml(r.note)}</div>` : "";
@@ -1234,6 +1234,23 @@ function renderStats() {
       <p class="hint">每個群組獨立計算,不同群組不應相加。</p>
     </div>` : "";
 
+  // 各池塘 × 飼料明細:每池做成一張小卡(卡內直式條列各飼料 + 總共),多張卡自動換行並排
+  const pondFeedRows = pondEntries.map(([pondId, info]) => {
+    const feedLines = Object.entries(info.feeds).sort((a, b) => b[1] - a[1])
+      .map(([f, v]) => `<div class="pf-feed"><span>${escapeHtml(f)}</span><span class="num">${fmt(v)}包</span></div>`).join("");
+    return `
+      <div class="pf-card">
+        <div class="pf-pond">${escapeHtml(pondLabel(pondId))}</div>
+        ${feedLines}
+        <div class="pf-total"><span>總共</span><span class="num">${fmt(info.total)}包</span></div>
+      </div>`;
+  }).join("");
+  const pondFeedCard = pondEntries.length ? `
+    <div class="card">
+      <div class="stats-title">🐟 各池塘飼料明細</div>
+      <div class="pf-cards">${pondFeedRows}</div>
+    </div>` : "";
+
   // 當月日曆熱力圖
   const heatCard = `
     <div class="card">
@@ -1243,6 +1260,7 @@ function renderStats() {
 
   c.innerHTML = `
     ${barCard}
+    ${pondFeedCard}
     ${feedBarCard}
     ${groupBarCard}
     ${heatCard}
@@ -1430,6 +1448,24 @@ function buildExportData(records, { byMonth = false } = {}) {
   Object.entries(byFeed).sort((a, b) => b[1] - a[1]).forEach(([k, v]) => summary.push({ A: k, B: v }));
   summary.push({ A: "合計", B: total });
 
+  // 各池塘飼料明細:每池列出各飼料包數,再附該池小計(與統計頁的明細卡同源)
+  const pondFeed = {};   // { 池名: { total, feeds:{飼料名:包數} } }
+  for (const r of recs) {
+    const b = Number(r.bags) || 0;
+    const pondNm = pondName(r.pondId);
+    const feedNm = feedName(r.feedNoId) || "(未填)";
+    const e = (pondFeed[pondNm] ||= { total: 0, feeds: {} });
+    e.total += b;
+    e.feeds[feedNm] = (e.feeds[feedNm] || 0) + b;
+  }
+  summary.push({ A: "", B: "" });
+  summary.push({ A: "各池塘飼料明細", B: "" });
+  Object.entries(pondFeed).sort((a, b) => b[1].total - a[1].total).forEach(([pondNm, info]) => {
+    Object.entries(info.feeds).sort((a, b) => b[1] - a[1])
+      .forEach(([f, v]) => summary.push({ A: `${pondNm} - ${f}`, B: v }));
+    summary.push({ A: `${pondNm} 小計`, B: info.total });
+  });
+
   // 工作表 3:分類統計(以標籤為視角;一筆記錄計入其池塘的每個標籤)
   const byTag = {};
   for (const r of recs) {
@@ -1516,6 +1552,7 @@ function rowsToTable(rows, { headerless = false, rowClass = null } = {}) {
 // 統計表的列分類:分類標題(只有 A 有值、B 空) / 合計 / 一般
 function summaryRowClass(r) {
   if (r.A === "合計") return "row-total";
+  if (typeof r.A === "string" && r.A.endsWith(" 小計")) return "row-total";   // 各池塘飼料明細的每池小計
   if (r.A === "" && r.B === "") return "row-spacer";
   if (r.B === "" || r.B == null) return "row-section";   // 分類標題列
   return "";
