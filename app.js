@@ -154,20 +154,40 @@ function escapeHtml(s) {
 }
 function periodLabel(p) { return p === "afternoon" ? "下午" : "早上"; }
 
-// 由 createdAt 取 Date 物件;Firestore Timestamp 有 toDate(),一般是 ISO 字串。失敗回 null
-function recordDate(r) {
-  const ts = r.createdAt;
+// 把 createdAt/updatedAt(Firestore Timestamp 有 toDate(),一般是 ISO 字串)轉 Date;失敗回 null
+function tsToDate(ts) {
   if (!ts) return null;
   const d = typeof ts?.toDate === "function" ? ts.toDate() : new Date(ts);
   return isNaN(d) ? null : d;
 }
-// 由 createdAt 取建立時間 hh:mm:ss(24h);無 createdAt(如假資料)回空字串
-function recordTimeStr(r) {
-  const d = recordDate(r);
+function recordDate(r) { return tsToDate(r.createdAt); }       // 建立時間
+function recordUpdatedDate(r) { return tsToDate(r.updatedAt); } // 最後編輯時間
+// Date → hh:mm:ss(24h);null 回空字串
+function fmtTime(d) {
   if (!d) return "";
   const z = (n) => String(n).padStart(2, "0");
   return `${z(d.getHours())}:${z(d.getMinutes())}:${z(d.getSeconds())}`;
 }
+// 是否同一天
+function sameDay(a, b) {
+  return a && b && a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+}
+// 紀錄的時間標記:「建立: hh:mm:ss」+(若有編輯)「, 最後編輯: hh:mm:ss」。
+// 最後編輯與建立不同天時,編輯時間前面加「MM/DD-」。回傳純文字(呼叫端自行 escape)。
+function recordTimeLabel(r) {
+  const c = recordDate(r), u = recordUpdatedDate(r);
+  if (!c && !u) return "";
+  const parts = [];
+  if (c) parts.push(`建立: ${fmtTime(c)}`);
+  if (u) {
+    const z = (n) => String(n).padStart(2, "0");
+    const datePrefix = (c && !sameDay(c, u)) ? `${z(u.getMonth() + 1)}/${z(u.getDate())}-` : "";
+    parts.push(`最後編輯: ${datePrefix}${fmtTime(u)}`);
+  }
+  return parts.join(", ");
+}
+// 由 createdAt 取建立時間 hh:mm:ss(24h);無 createdAt(如假資料)回空字串
+function recordTimeStr(r) { return fmtTime(recordDate(r)); }
 // 取建立時間毫秒(供排序);無 createdAt 回 0
 function recordTimeMs(r) {
   const d = recordDate(r);
@@ -639,9 +659,9 @@ function renderTodayList() {
   box.innerHTML = `
     <div class="today-head">${escapeHtml(date)} 已記錄 ${recs.length} 筆 <span class="today-hint">(點擊可編輯)</span></div>
     ${recs.map((r) => {
-      const t = recordTimeStr(r);
-      const timeTag = t ? `<span class="today-time">${t}</span>` : "";
-      return `<button type="button" class="today-item${t ? " has-time" : ""}" data-edit="${r.id}">${timeTag}${recordSummaryLine(r)}</button>`;
+      const label = recordTimeLabel(r);
+      const timeTag = label ? `<span class="today-time">${escapeHtml(label)}</span>` : "";
+      return `<button type="button" class="today-item${label ? " has-time" : ""}" data-edit="${r.id}">${timeTag}${recordSummaryLine(r)}</button>`;
     }).join("")}`;
   box.querySelectorAll("[data-edit]").forEach((b) =>
     b.addEventListener("click", () => startEdit(b.dataset.edit)));
@@ -687,7 +707,7 @@ async function onSaveRecord(e) {
   // 改為發出寫入後立即依「目前是否已同步雲端」給提示;真正失敗(如權限)用 catch 補報。
   const action = editingId ? "更新" : "儲存";
   const writePromise = editingId
-    ? updateDoc(doc(db, "records", editingId), rec)
+    ? updateDoc(doc(db, "records", editingId), { ...rec, updatedAt: serverTimestamp() })
     : addDoc(collection(db, "records"), { ...rec, createdAt: serverTimestamp() });
   writePromise.catch((err) => { console.error(err); showToast(`${action}失敗:` + err.message, true); });
 
@@ -851,19 +871,32 @@ function renderList() {
     if (mn) parts.push(`<span class="k">拌料</span> ${escapeHtml(mn)}`);
     if (dn) parts.push(`<span class="k">消毒</span> ${escapeHtml(dn)}`);
     const note = r.note ? `<div class="rec-body"><span class="k">備註</span> ${escapeHtml(r.note)}</div>` : "";
+    // 建立時間接在右上角日期後;最後編輯(若有)放動作列左側,跨建立日才加 MM/DD-
+    const ct = recordTimeStr(r);
+    const dateLine = `${escapeHtml(r.date)}${ct ? " " + escapeHtml(ct) : ""}`;
+    const c2 = recordDate(r), u = recordUpdatedDate(r);
+    let edited = "";
+    if (u) {
+      const z = (n) => String(n).padStart(2, "0");
+      const prefix = (c2 && !sameDay(c2, u)) ? `${z(u.getMonth() + 1)}/${z(u.getDate())}-` : "";
+      edited = `<span class="rec-edited">最後編輯: ${escapeHtml(prefix + fmtTime(u))}</span>`;
+    }
     return `
       <div class="rec">
         <div class="rec-top">
           <span class="rec-pond">${escapeHtml(pondLabel(r.pondId))}
             <span class="badge ${r.period}">${periodLabel(r.period)}</span>
           </span>
-          <span class="rec-date">${escapeHtml(r.date)}</span>
+          <span class="rec-date">${dateLine}</span>
         </div>
         <div class="rec-body">${parts.join(" ・ ")}</div>
         ${note}
         <div class="rec-actions">
-          <button class="btn-sm" data-edit="${r.id}">編輯</button>
-          <button class="btn-sm btn-danger" data-del="${r.id}">刪除</button>
+          ${edited}
+          <span class="rec-actions-btns">
+            <button class="btn-sm" data-edit="${r.id}">編輯</button>
+            <button class="btn-sm btn-danger" data-del="${r.id}">刪除</button>
+          </span>
         </div>
       </div>`;
   }).join("");

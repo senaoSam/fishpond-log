@@ -284,7 +284,10 @@ select { appearance: none; background-image: url("data:image/svg+xml;utf8,<svg x
 .badge.afternoon { background: #d0ebff; color: #1864ab; }
 .rec-body { margin: 8px 0 4px; font-size: 0.92rem; line-height: 1.6; }
 .rec-body .k { color: var(--muted); }
-.rec-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 6px; }
+/* 動作列:最後編輯靠左、編輯/刪除靠右(同一排);無編輯時按鈕仍靠右 */
+.rec-actions { display: flex; gap: 8px; align-items: center; justify-content: flex-end; margin-top: 6px; }
+.rec-edited { color: var(--muted); font-size: 0.78rem; font-variant-numeric: tabular-nums; margin-right: auto; }
+.rec-actions-btns { display: flex; gap: 8px; }
 
 /* ---------- Tables (stats) ---------- */
 table { width: 100%; border-collapse: collapse; background: var(--card); }
@@ -533,6 +536,8 @@ tr.total td { font-weight: 800; background: var(--total-bg); border-top: 2px sol
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
+/* 已編輯標記:接在建立時間後面,主色微弱提示 */
+.today-edited { margin-left: 8px; color: var(--primary); }
 
 /* ---------- 記錄頁:該池標籤選擇 ---------- */
 .record-tags {
