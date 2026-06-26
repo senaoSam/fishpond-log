@@ -580,6 +580,12 @@ function setupRecordForm() {
 
   $("#recordForm").addEventListener("submit", onSaveRecord);
   $("#cancelEditBtn").addEventListener("click", resetForm);
+  // 編輯模式刪除:刪掉目前編輯的紀錄,成功後回到新增模式
+  $("#deleteEditBtn").addEventListener("click", async () => {
+    if (!editingId) return;
+    const ok = await onDelete(editingId);
+    if (ok) resetForm();
+  });
 }
 
 // 依下拉狀態決定輸入框顯示與否:選了既有池塘就隱藏+清空輸入框
@@ -728,7 +734,7 @@ function flashSaveOk(synced = true) {
   btn.textContent = synced ? "✔ 已儲存" : "⏳ 已存本機";
   setTimeout(() => {
     btn.classList.remove("btn-ok-flash");
-    btn.textContent = "儲存紀錄";   // 存檔後一律回新增模式
+    btn.textContent = "儲存";   // 存檔後一律回新增模式
   }, 1200);
 }
 
@@ -745,8 +751,9 @@ function showMsg(text, isErr) {
 function resetForm(opts = {}) {
   const keep = opts.keepContext === true;
   editingId = null;
-  $("#saveBtn").textContent = "儲存紀錄";
+  $("#saveBtn").textContent = "儲存";
   $("#cancelEditBtn").hidden = true;
+  $("#deleteEditBtn").hidden = true;
   // 這三項每筆通常不同,存檔後一律清空
   $("#mixSelect").value = "";
   $("#disinfectantSelect").value = "";
@@ -783,8 +790,9 @@ function startEdit(id) {
   $("#mixSelect").value = r.mixId || "";
   $("#disinfectantSelect").value = r.disinfectantId || "";
   $("#noteInput").value = r.note || "";
-  $("#saveBtn").textContent = "更新紀錄";
+  $("#saveBtn").textContent = "更新";
   $("#cancelEditBtn").hidden = false;
+  $("#deleteEditBtn").hidden = false;
   switchPage("record");
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
@@ -907,18 +915,20 @@ function renderList() {
     b.addEventListener("click", () => onDelete(b.dataset.del)));
 }
 
+// 回傳 true=已送出刪除、false=取消或失敗(供編輯模式刪除後決定是否重設表單)
 async function onDelete(id) {
-  if (blockIfDemo()) return;
+  if (blockIfDemo()) return false;
   const r = allRecords.find((x) => x.id === id);
   const ok = await showConfirm(
     `確定刪除這筆紀錄?\n${r?.date} ${periodLabel(r?.period)} ${r ? pondLabel(r.pondId) : ""}`,
     { okText: "刪除", danger: true }
   );
-  if (!ok) return;
+  if (!ok) return false;
   try {
     await deleteDoc(doc(db, "records", id));
     showToast("已刪除 ✔");
-  } catch (err) { showToast("刪除失敗:" + err.message, true); }
+    return true;
+  } catch (err) { showToast("刪除失敗:" + err.message, true); return false; }
 }
 
 // ============================================================
