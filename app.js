@@ -777,24 +777,51 @@ async function attachWeather(recordId) {
   } catch (e) { console.error(e); }   // 寫回失敗就讓它維持 pending,下次再補
 }
 
-// 機會式重試:每次 App 回到前景時,掃「建立 +RETRY_WINDOW_MIN 分鐘內、weather 仍 pending」
-// 的紀錄,趁現在(通常已有網)補抓即時氣溫。PWA 背景不會自動跑,只能靠這個時機觸發。
-let retryingWeather = false;
-async function retryPendingWeather() {
-  if (!db || demoMode || retryingWeather) return;
+// 仍待補抓的紀錄:weather 還 pending、且建立未超過重試時窗。
+function pendingWeatherTargets() {
   const now = Date.now();
   const windowMs = RETRY_WINDOW_MIN * 60 * 1000;
-  const targets = allRecords.filter((r) => {
+  return allRecords.filter((r) => {
     if (!r.weather || r.weather.pending !== true) return false;
     const created = recordDate(r);
     return created && (now - created.getTime()) <= windowMs;  // 仍在重試時窗內
   });
+}
+
+// 機會式重試:掃「pending 且建立 +RETRY_WINDOW_MIN 分鐘內」的紀錄補抓即時氣溫。
+// 觸發時機:App 回前景 / 取得焦點 / 同步完成 / 前景定時器(見 ensureWeatherTimer)。
+let retryingWeather = false;
+async function retryPendingWeather() {
+  if (!db || demoMode || retryingWeather) return;
+  const targets = pendingWeatherTargets();
   if (!targets.length) return;
   retryingWeather = true;
   try {
     for (const r of targets) await attachWeather(r.id);   // 逐筆,避免一次大量請求
   } finally {
     retryingWeather = false;
+  }
+  ensureWeatherTimer();   // 抓完後若已無待補,計時器會自行停止
+}
+
+// 前景定時重試:App 在前景且尚有待補紀錄時,每分鐘掃一次補抓。
+// 設計考量:
+//   - 只在「分頁可見」時跑(背景被 OS 凍結,且重試對背景無意義)。
+//   - 抓到即停(pending 變 false 後退出名單);無待補時自動清掉計時器,不空轉。
+//   - CWA 個人額度寬鬆,單筆最多在 60 分鐘窗內每分鐘試一次,用量微小。
+const WEATHER_RETRY_INTERVAL_MS = 60 * 1000;   // 1 分鐘
+let weatherTimer = null;
+function ensureWeatherTimer() {
+  const needed =
+    !demoMode &&
+    document.visibilityState === "visible" &&
+    pendingWeatherTargets().length > 0;
+
+  if (needed && !weatherTimer) {
+    weatherTimer = setInterval(retryPendingWeather, WEATHER_RETRY_INTERVAL_MS);
+  } else if (!needed && weatherTimer) {
+    clearInterval(weatherTimer);
+    weatherTimer = null;
   }
 }
 
@@ -2245,9 +2272,11 @@ function main() {
   // 還原上次模式:applyMode 內部會處理(假資料→灌假資料;DB→訂閱 Firestore)
   setupModeToggle();
 
-  // 天氣機會式重試:App 回到前景 / 視窗取得焦點時,補抓仍 pending 的紀錄
+  // 天氣機會式重試:App 回到前景 / 視窗取得焦點時,補抓仍 pending 的紀錄。
+  // 回前景時順手啟動前景定時器(離開前景則停掉,避免背景空轉)。
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") retryPendingWeather();
+    ensureWeatherTimer();
   });
   window.addEventListener("focus", retryPendingWeather);
 
