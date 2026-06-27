@@ -243,12 +243,28 @@
     $("#demoToggle").addEventListener("click", () => applyMode(!demoMode));
 
     // ---------- 輸入表單 ----------
+    // formDirty:使用者動過表單(打字/改日期/點編輯)後設 true,避免自動帶值蓋掉輸入中的內容
+    let formDirty = false;
     function updateNetPreview() {
       const net = num($("#costInput").value) + num($("#returnInput").value) - num($("#pledgeInput").value);
       $("#netPreview").textContent = fmt(net);
     }
-    ["#costInput", "#returnInput", "#pledgeInput"].forEach((s) => $(s).addEventListener("input", updateNetPreview));
+    ["#costInput", "#returnInput", "#pledgeInput"].forEach((s) =>
+      $(s).addEventListener("input", () => { formDirty = true; updateNetPreview(); }));
+    $("#dateInput").addEventListener("input", () => { formDirty = true; });
     $("#dateInput").value = todayStr();
+
+    // 成本、質押很少變動 → 預設帶入「最近一筆」的值(報酬留空每天填)。
+    // 僅在表單未被動過時帶,且不覆蓋使用者已輸入的內容。
+    function prefillFromLast() {
+      if (formDirty) return;
+      const data = sorted();
+      if (!data.length) return;
+      const last = data[data.length - 1];
+      if ($("#costInput").value === "") $("#costInput").value = last.cost ?? "";
+      if ($("#pledgeInput").value === "") $("#pledgeInput").value = last.pledge ?? "";
+      updateNetPreview();
+    }
 
     $("#assetForm").addEventListener("submit", async (e) => {
       e.preventDefault();
@@ -267,11 +283,16 @@
         // 以日期當文件 id → 同日覆寫
         await setDoc(doc(db, COL, date), rec);
         toast("已儲存 ✔");
+        // 存完回到「今日 + 自動帶上次成本/質押」的乾淨狀態
+        formDirty = false;
+        $("#dateInput").value = todayStr();
+        $("#returnInput").value = "";
       } catch (err) { toast("儲存失敗:" + err.message, true); }
     });
 
-    // 載入某天到表單(編輯)
+    // 載入某天到表單(編輯):視為使用者主動操作,停止自動帶值
     function loadToForm(r) {
+      formDirty = true;
       $("#dateInput").value = r.date;
       $("#costInput").value = r.cost ?? "";
       $("#returnInput").value = r.return ?? "";
@@ -294,6 +315,7 @@
       renderSummary(data);
       renderChart(data);
       renderList(data);
+      prefillFromLast();   // 資料載入/變動後,自動帶上次成本/質押
     }
 
     function renderSummary(data) {
