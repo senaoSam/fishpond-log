@@ -2,6 +2,7 @@
 //  魚塭紀錄 — 主程式
 // ============================================================
 import { firebaseConfig } from "./firebase-config.js";
+import { fetchWeather, RETRY_WINDOW_MIN } from "./weather.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
   getFirestore, collection, doc, addDoc, setDoc, updateDoc, deleteDoc,
@@ -439,6 +440,8 @@ function subscribeData() {
     renderStatsView();
     renderPondFilter();
     renderTodayList();
+    // 同步到最新後,順手補抓仍 pending 的天氣(只在已連雲端時試,離線無意義)
+    if (cloudSynced) retryPendingWeather();
   }, (err) => { console.error(err); cloudSynced = false; setSync("err", "讀取紀錄失敗"); }));
 }
 
@@ -564,8 +567,8 @@ function setupRecordForm() {
     syncPondInputVisibility();
     renderRecordTags();
   });
-  // 手打池塘名也即時更新標籤區
-  $("#pondInput").addEventListener("input", renderRecordTags);
+  // 手打池塘名也即時更新標籤區,並連動「新增」按鈕可否按
+  $("#pondInput").addEventListener("input", () => { renderRecordTags(); updateSaveDisabled(); });
 
   // 包數 +/− 按鈕
   $$(".step-btn").forEach((btn) =>
@@ -586,6 +589,8 @@ function setupRecordForm() {
     const ok = await onDelete(editingId);
     if (ok) resetForm();
   });
+
+  updateSaveDisabled();   // 初始:尚未選池塘 → 按鈕置灰
 }
 
 // 依下拉狀態決定輸入框顯示與否:選了既有池塘就隱藏+清空輸入框
@@ -594,6 +599,15 @@ function syncPondInputVisibility() {
   const input = $("#pondInput");
   if (picked) { input.value = ""; input.hidden = true; }
   else { input.hidden = false; }
+  updateSaveDisabled();   // 池塘狀態變了,連動「新增/更新」按鈕可否按
+}
+
+// 防呆:沒選下拉、也沒手打池塘名時,「新增/更新」按鈕置灰不可按
+function updateSaveDisabled() {
+  const btn = $("#saveBtn");
+  if (!btn) return;
+  const hasPond = !!$("#pondSelect").value || $("#pondInput").value.trim() !== "";
+  btn.disabled = !hasPond;
 }
 
 // 讀取包數(整數)
@@ -628,6 +642,13 @@ function renderRecordTags() {
       // togglePondTag 會寫回 Firestore;onSnapshot 回來會更新 options,但本地先即時切換顯示
       b.classList.toggle("on");
     }));
+}
+
+// 紀錄的氣溫顯示字串:有溫度回「🌡 27.3°C」;仍 pending 或無資料回空字串。
+function weatherTempStr(r) {
+  const w = r && r.weather;
+  if (!w || w.pending || !Number.isFinite(Number(w.temp))) return "";
+  return `${fmt(Number(w.temp))}°C`;
 }
 
 // 把一筆紀錄轉成條列文字:池塘 - 時段 - 飼料 - N包 - 拌料 - 消毒 - 備註(空欄略過)
@@ -667,7 +688,9 @@ function renderTodayList() {
     ${recs.map((r) => {
       const label = recordTimeLabel(r);
       const timeTag = label ? `<span class="today-time">${escapeHtml(label)}</span>` : "";
-      return `<button type="button" class="today-item${label ? " has-time" : ""}" data-edit="${r.id}">${timeTag}${recordSummaryLine(r)}</button>`;
+      const t = weatherTempStr(r);
+      const tempTag = t ? ` <span class="today-temp">${escapeHtml(t)}</span>` : "";
+      return `<button type="button" class="today-item${label ? " has-time" : ""}" data-edit="${r.id}">${timeTag}${recordSummaryLine(r)}${tempTag}</button>`;
     }).join("")}`;
   box.querySelectorAll("[data-edit]").forEach((b) =>
     b.addEventListener("click", () => startEdit(b.dataset.edit)));
@@ -711,30 +734,78 @@ async function onSaveRecord(e) {
 
   // 注意:離線時 Firestore 的寫入 promise 要等連線才 resolve,不能 await(會卡住)。
   // 改為發出寫入後立即依「目前是否已同步雲端」給提示;真正失敗(如權限)用 catch 補報。
-  const action = editingId ? "更新" : "儲存";
-  const writePromise = editingId
-    ? updateDoc(doc(db, "records", editingId), { ...rec, updatedAt: serverTimestamp() })
-    : addDoc(collection(db, "records"), { ...rec, createdAt: serverTimestamp() });
-  writePromise.catch((err) => { console.error(err); showToast(`${action}失敗:` + err.message, true); });
+  const action = editingId ? "更新" : "新增";
+  if (editingId) {
+    // 編輯:不重抓天氣(天氣只在建立當下抓)
+    updateDoc(doc(db, "records", editingId), { ...rec, updatedAt: serverTimestamp() })
+      .catch((err) => { console.error(err); showToast(`${action}失敗:` + err.message, true); });
+  } else {
+    // 新增:先標記天氣 pending(抓不到也照存),寫入後在背景抓即時氣溫補上
+    const ref = addDoc(collection(db, "records"), {
+      ...rec, createdAt: serverTimestamp(), weather: { pending: true }
+    });
+    ref.then((docRef) => attachWeather(docRef.id))
+      .catch((err) => { console.error(err); showToast(`${action}失敗:` + err.message, true); });
+  }
 
   if (cloudSynced) {
     showToast(`已${action} ✔ ${pondLabel(rec.pondId)} ${fmt(rec.bags)}包`);
   } else {
     showToast(`已存到本機 ⏳ 連線後自動上傳`, false);
   }
-  flashSaveOk(cloudSynced);
+  flashSaveOk(cloudSynced, action);
   resetForm({ keepContext: true });
-  saveBtn.disabled = false;
+  updateSaveDisabled();   // 依目前(保留的)池塘狀態決定按鈕可否按
+}
+
+// ---------- 天氣:建立當下抓即時氣溫(文安站),抓不到則保持 pending ----------
+// 對單一紀錄抓一次即時氣溫;成功就寫回該 doc 的 weather 欄位,失敗保持 pending(不動 doc)。
+async function attachWeather(recordId) {
+  if (!db || !recordId) return;
+  const w = await fetchWeather();
+  if (!w) return;   // 抓不到:維持 { pending:true },留待之後重試
+  try {
+    await updateDoc(doc(db, "records", recordId), {
+      weather: {
+        temp: w.temp,
+        obsTime: w.obsTime,
+        station: w.station,
+        stationName: w.stationName,
+        pending: false
+      }
+    });
+  } catch (e) { console.error(e); }   // 寫回失敗就讓它維持 pending,下次再補
+}
+
+// 機會式重試:每次 App 回到前景時,掃「建立 +RETRY_WINDOW_MIN 分鐘內、weather 仍 pending」
+// 的紀錄,趁現在(通常已有網)補抓即時氣溫。PWA 背景不會自動跑,只能靠這個時機觸發。
+let retryingWeather = false;
+async function retryPendingWeather() {
+  if (!db || demoMode || retryingWeather) return;
+  const now = Date.now();
+  const windowMs = RETRY_WINDOW_MIN * 60 * 1000;
+  const targets = allRecords.filter((r) => {
+    if (!r.weather || r.weather.pending !== true) return false;
+    const created = recordDate(r);
+    return created && (now - created.getTime()) <= windowMs;  // 仍在重試時窗內
+  });
+  if (!targets.length) return;
+  retryingWeather = true;
+  try {
+    for (const r of targets) await attachWeather(r.id);   // 逐筆,避免一次大量請求
+  } finally {
+    retryingWeather = false;
+  }
 }
 
 // 儲存成功時:按鈕短暫變色 + 文字回饋。synced=false 時用不同字樣(已存本機)
-function flashSaveOk(synced = true) {
+function flashSaveOk(synced = true, action = "新增") {
   const btn = $("#saveBtn");
   btn.classList.add("btn-ok-flash");
-  btn.textContent = synced ? "✔ 已儲存" : "⏳ 已存本機";
+  btn.textContent = synced ? `✔ 已${action}` : "⏳ 已存本機";
   setTimeout(() => {
     btn.classList.remove("btn-ok-flash");
-    btn.textContent = "儲存";   // 存檔後一律回新增模式
+    btn.textContent = "新增";   // 存檔後一律回新增模式
   }, 1200);
 }
 
@@ -751,7 +822,7 @@ function showMsg(text, isErr) {
 function resetForm(opts = {}) {
   const keep = opts.keepContext === true;
   editingId = null;
-  $("#saveBtn").textContent = "儲存";
+  $("#saveBtn").textContent = "新增";
   $("#cancelEditBtn").hidden = true;
   $("#deleteEditBtn").hidden = true;
   // 這三項每筆通常不同,存檔後一律清空
@@ -878,6 +949,8 @@ function renderList() {
     parts.push(`<b>${fn ? escapeHtml(fn) + " " : ""}${escapeHtml(r.bags)}包</b>`);
     if (mn) parts.push(`<span class="k">拌料</span> ${escapeHtml(mn)}`);
     if (dn) parts.push(`<span class="k">消毒</span> ${escapeHtml(dn)}`);
+    const wt = weatherTempStr(r);
+    if (wt) parts.push(`<span class="rec-temp">${escapeHtml(wt)}</span>`);
     const note = r.note ? `<div class="rec-body"><span class="k">備註</span> ${escapeHtml(r.note)}</div>` : "";
     // 建立時間接在右上角日期後;最後編輯(若有)放動作列左側,跨建立日才加 MM/DD-
     const ct = recordTimeStr(r);
@@ -1524,6 +1597,7 @@ function buildExportData(records, { byMonth = false } = {}) {
     "飼料編號": feedName(r.feedNoId),
     "拌料": mixName(r.mixId),
     "消毒劑": disinfectantName(r.disinfectantId),
+    "氣溫": (r.weather && !r.weather.pending && Number.isFinite(Number(r.weather.temp))) ? Number(r.weather.temp) : "",
     "備註": r.note || ""
   }));
 
@@ -2170,6 +2244,12 @@ function main() {
   initFirebase();
   // 還原上次模式:applyMode 內部會處理(假資料→灌假資料;DB→訂閱 Firestore)
   setupModeToggle();
+
+  // 天氣機會式重試:App 回到前景 / 視窗取得焦點時,補抓仍 pending 的紀錄
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") retryPendingWeather();
+  });
+  window.addEventListener("focus", retryPendingWeather);
 
   // 註冊 service worker(PWA)
   if ("serviceWorker" in navigator) {

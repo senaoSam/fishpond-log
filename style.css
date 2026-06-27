@@ -236,6 +236,8 @@ select { appearance: none; background-image: url("data:image/svg+xml;utf8,<svg x
   cursor: pointer;
 }
 .btn-primary:active { background: var(--primary-dark); }
+/* 防呆:未選池塘時置灰不可按 */
+.btn-primary:disabled { background: var(--muted); opacity: 0.55; cursor: not-allowed; }
 .btn-big { padding: 16px; font-size: 1.1rem; margin-top: 4px; }
 /* 儲存成功:按鈕短暫變綠閃爍 */
 .btn-ok-flash { background: var(--ok) !important; animation: ok-pulse 0.4s ease; }
@@ -543,6 +545,14 @@ tr.total td { font-weight: 800; background: var(--total-bg); border-top: 2px sol
 }
 /* 已編輯標記:接在建立時間後面,主色微弱提示 */
 .today-edited { margin-left: 8px; color: var(--primary); }
+
+/* 建立當下氣溫:清單與當日列表共用,弱化的小標 */
+.today-temp, .rec-temp {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.rec-temp { font-size: 0.92em; }
 
 /* ---------- 記錄頁:該池標籤選擇 ---------- */
 .record-tags {

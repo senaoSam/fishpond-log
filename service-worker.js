@@ -12,6 +12,8 @@ const SHELL = [
   "./index.html",
   "./style.css",
   "./app.js",
+  "./weather.js",
+  "./firebase-config.js",
   "./manifest.json",
   "./icons/icon-192.png",
   "./icons/icon-512.png"
@@ -45,7 +47,8 @@ self.addEventListener("fetch", (e) => {
   // 用結尾比對,忽略查詢字串(?v= / ?nocache=)與 Pages 子路徑。
   const p = url.pathname;
   const isShellCore =
-    p.endsWith("/app.js") || p.endsWith("/style.css") ||
+    p.endsWith("/app.js") || p.endsWith("/weather.js") ||
+    p.endsWith("/firebase-config.js") || p.endsWith("/style.css") ||
     p.endsWith("/index.html") || p.endsWith("/");
 
   if (isShellCore) {
