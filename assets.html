@@ -31,12 +31,19 @@
       background: var(--total-bg); border-radius: 8px; padding: 10px 12px; margin-top: 2px; }
     .net-preview .lbl { color: var(--muted); font-size: 0.85rem; }
     .net-preview .val { font-weight: 800; font-size: 1.15rem; font-variant-numeric: tabular-nums; }
-    .btn { padding: 12px 16px; font-size: 1rem; font-weight: 700; border-radius: 10px; cursor: pointer; border: 1px solid transparent; }
-    .btn-primary { background: var(--primary); color: #fff; width: 100%; margin-top: 10px; }
+    .btn { padding: 12px 16px; font-size: 1rem; font-weight: 700; border-radius: 10px; cursor: pointer; border: 1px solid transparent; white-space: nowrap; line-height: 1; box-sizing: border-box; }
+    .btn-primary { background: var(--primary); color: #fff; }
     .btn-primary:active { background: var(--primary-dark); }
     .btn-ghost { background: none; border-color: var(--border); color: var(--text); }
     .btn-danger { color: var(--danger); border-color: var(--danger); background: none; }
     .btn-sm { padding: 6px 12px; font-size: 0.85rem; }
+    .btn-xs { padding: 3px 9px; font-size: 0.75rem; font-weight: 600; border-radius: 7px; }
+
+    /* 表單動作列:新增模式 → 單顆靠右;編輯模式(.editing)→ 三顆等寬等高 */
+    .form-actions { grid-column: 1 / -1; display: flex; align-items: stretch; gap: 8px; margin-top: 10px; justify-content: flex-end; }
+    .form-actions .btn { display: inline-flex; align-items: center; justify-content: center; margin: 0; }
+    .form-actions.editing { justify-content: stretch; }
+    .form-actions.editing .btn { flex: 1 1 0; min-width: 0; }
 
     /* 圖表 */
     .chart-box { position: relative; }
@@ -64,8 +71,11 @@
     .rec-top { display: flex; justify-content: space-between; align-items: baseline; }
     .rec-date { font-weight: 700; }
     .rec-net { font-weight: 800; font-variant-numeric: tabular-nums; }
-    .rec-detail { color: var(--muted); font-size: 0.85rem; margin-top: 4px; font-variant-numeric: tabular-nums; }
-    .rec-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 6px; }
+    /* 成本/報酬 與 動作按鈕同一行:文字靠左、按鈕靠右下 */
+    .rec-foot { display: flex; justify-content: space-between; align-items: flex-end; gap: 8px; margin-top: 4px; }
+    .rec-detail { color: var(--muted); font-size: 0.85rem; font-variant-numeric: tabular-nums; }
+    .rec-actions { display: flex; gap: 6px; flex-shrink: 0; align-items: stretch; }
+    .rec-actions .btn { display: inline-flex; align-items: center; justify-content: center; margin: 0; }
     .rec-delta { font-size: 0.85rem; font-variant-numeric: tabular-nums; }
 
     .empty { text-align: center; color: var(--muted); padding: 24px 0; }
@@ -74,6 +84,15 @@
     .toast.show { opacity: 1; }
     .toast.err { background: var(--danger); }
     .nav-back { font-size: 0.85rem; color: var(--muted); text-decoration: none; }
+
+    /* 自訂確認對話框 */
+    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.45); display: flex;
+      align-items: center; justify-content: center; z-index: 100; padding: 20px; }
+    .modal-overlay[hidden] { display: none; }
+    .modal { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+      padding: 18px 16px 14px; max-width: 360px; width: 100%; box-shadow: 0 10px 30px rgba(0,0,0,0.25); }
+    .modal-text { margin: 0 0 16px; font-size: 1rem; color: var(--text); line-height: 1.5; }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
   </style>
 </head>
 <body>
@@ -91,7 +110,7 @@
 
     <!-- 今日輸入 -->
     <div class="card">
-      <p class="card-title">今日資產</p>
+      <p class="card-title" id="cardTitle">今日資產</p>
       <form id="assetForm" class="form-grid">
         <label class="full">日期
           <input type="date" id="dateInput" required />
@@ -109,7 +128,11 @@
           <span class="lbl">今日淨值(成本 + 報酬 − 質押)</span>
           <span class="val" id="netPreview">0</span>
         </div>
-        <button type="submit" class="btn btn-primary full" id="saveBtn">儲存今日</button>
+        <div class="form-actions" id="formActions">
+          <button type="button" class="btn btn-ghost" id="cancelBtn" hidden>取消</button>
+          <button type="button" class="btn btn-danger" id="deleteBtn" hidden>刪除</button>
+          <button type="submit" class="btn btn-primary" id="saveBtn">新增</button>
+        </div>
       </form>
     </div>
 
@@ -140,6 +163,17 @@
 
   <div class="toast" id="toast"></div>
 
+  <!-- 自訂確認對話框(取代原生 confirm) -->
+  <div id="modalOverlay" class="modal-overlay" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalText">
+      <p id="modalText" class="modal-text"></p>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="modalCancel">取消</button>
+        <button type="button" class="btn btn-primary" id="modalOk">確定</button>
+      </div>
+    </div>
+  </div>
+
   <script type="module">
     import { firebaseConfig } from "./firebase-config.js";
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
@@ -160,6 +194,14 @@
       const x = Math.round((Number(n) || 0) * 100) / 100;
       return x.toLocaleString("en-US", { maximumFractionDigits: 2 });
     };
+    // 軸標籤用的精簡格式:百萬→M、千→K,避免 Y 軸文字過長被切到
+    const fmtAxis = (n) => {
+      const v = Number(n) || 0, a = Math.abs(v), s = v < 0 ? "-" : "";
+      const trim = (x) => (Math.round(x * 100) / 100).toString();
+      if (a >= 1e6) return s + trim(a / 1e6) + "M";
+      if (a >= 1e3) return s + trim(a / 1e3) + "K";
+      return trim(a) === "0" ? "0" : s + trim(a);
+    };
     const todayStr = () => {
       const d = new Date(); const z = (n) => String(n).padStart(2, "0");
       return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}`;
@@ -167,6 +209,35 @@
     function toast(msg, err = false) {
       const t = $("#toast"); t.textContent = msg; t.className = "toast show" + (err ? " err" : "");
       clearTimeout(toast._t); toast._t = setTimeout(() => t.className = "toast", 2200);
+    }
+
+    // 自訂確認對話框(取代原生 confirm),回傳 Promise<boolean>
+    function showConfirm(message, { okText = "確定", danger = false } = {}) {
+      return new Promise((resolve) => {
+        const overlay = $("#modalOverlay"), okBtn = $("#modalOk"), cancelBtn = $("#modalCancel");
+        $("#modalText").textContent = message;
+        okBtn.textContent = okText;
+        okBtn.classList.toggle("btn-danger", danger);
+        okBtn.classList.toggle("btn-primary", !danger);
+        const close = (result) => {
+          overlay.hidden = true;
+          okBtn.removeEventListener("click", onOk);
+          cancelBtn.removeEventListener("click", onCancel);
+          overlay.removeEventListener("click", onBackdrop);
+          document.removeEventListener("keydown", onKey);
+          resolve(result);
+        };
+        const onOk = () => close(true);
+        const onCancel = () => close(false);
+        const onBackdrop = (e) => { if (e.target === overlay) close(false); };
+        const onKey = (e) => { if (e.key === "Escape") close(false); if (e.key === "Enter") close(true); };
+        okBtn.addEventListener("click", onOk);
+        cancelBtn.addEventListener("click", onCancel);
+        overlay.addEventListener("click", onBackdrop);
+        document.addEventListener("keydown", onKey);
+        overlay.hidden = false;
+        okBtn.focus();
+      });
     }
 
     // ---------- 深色模式 ----------
@@ -184,6 +255,7 @@
 
     // ---------- 狀態 ----------
     let db = null, records = [], demoMode = false, unsub = null;
+    let editingId = null;   // 正在編輯的紀錄 id(null = 新增模式)
 
     // ---------- 範例資料(一週)----------
     function buildDemo() {
@@ -270,7 +342,8 @@
       e.preventDefault();
       if (demoMode) { toast("範例資料模式為唯讀", true); return; }
       if (!db) { toast("尚未連線 Firebase", true); return; }
-      const date = $("#dateInput").value;
+      // 編輯模式鎖定日期 → 用原本的 id;新增模式用日期欄
+      const date = editingId || $("#dateInput").value;
       if (!date) { toast("請選擇日期", true); return; }
       const rec = {
         date,
@@ -282,29 +355,58 @@
       try {
         // 以日期當文件 id → 同日覆寫
         await setDoc(doc(db, COL, date), rec);
-        toast("已儲存 ✔");
-        // 存完回到「今日 + 自動帶上次成本/質押」的乾淨狀態
-        formDirty = false;
-        $("#dateInput").value = todayStr();
-        $("#returnInput").value = "";
+        toast(editingId ? "已更新 ✔" : "已新增 ✔");
+        exitEdit();   // 回到「今日 + 自動帶上次成本/質押」的乾淨新增狀態
       } catch (err) { toast("儲存失敗:" + err.message, true); }
     });
 
-    // 載入某天到表單(編輯):視為使用者主動操作,停止自動帶值
+    // 進入編輯模式:載入某天到表單、鎖日期、切換按鈕與標題
     function loadToForm(r) {
-      formDirty = true;
+      editingId = r.id;
+      formDirty = true;   // 視為使用者主動操作,停止自動帶值
       $("#dateInput").value = r.date;
+      $("#dateInput").disabled = true;          // 編輯不改日期(日期=文件 id)
       $("#costInput").value = r.cost ?? "";
       $("#returnInput").value = r.return ?? "";
       $("#pledgeInput").value = r.pledge ?? "";
+      $("#cardTitle").textContent = `編輯 ${r.date}`;
+      $("#saveBtn").textContent = "更新";
+      $("#cancelBtn").hidden = false;
+      $("#deleteBtn").hidden = false;
+      $("#formActions").classList.add("editing");
       updateNetPreview();
       window.scrollTo({ top: 0, behavior: "smooth" });
     }
+
+    // 離開編輯模式 → 回到新增模式的乾淨狀態
+    function exitEdit() {
+      editingId = null;
+      formDirty = false;
+      $("#dateInput").disabled = false;
+      $("#dateInput").value = todayStr();
+      $("#returnInput").value = "";
+      $("#cardTitle").textContent = "今日資產";
+      $("#saveBtn").textContent = "新增";
+      $("#cancelBtn").hidden = true;
+      $("#deleteBtn").hidden = true;
+      $("#formActions").classList.remove("editing");
+      prefillFromLast();   // 重新帶入最近一筆成本/質押
+      updateNetPreview();
+    }
+    $("#cancelBtn").addEventListener("click", exitEdit);
+    $("#deleteBtn").addEventListener("click", () => {
+      if (editingId) delRecord(records.find((r) => r.id === editingId));
+    });
+
     async function delRecord(r) {
+      if (!r) return;
       if (demoMode) { toast("範例資料模式為唯讀", true); return; }
-      if (!confirm(`刪除 ${r.date} 的紀錄?`)) return;
-      try { await deleteDoc(doc(db, COL, r.id)); toast("已刪除 ✔"); }
-      catch (err) { toast("刪除失敗:" + err.message, true); }
+      if (!await showConfirm(`刪除 ${r.date} 的紀錄?`, { okText: "刪除", danger: true })) return;
+      try {
+        await deleteDoc(doc(db, COL, r.id));
+        toast("已刪除 ✔");
+        if (editingId === r.id) exitEdit();
+      } catch (err) { toast("刪除失敗:" + err.message, true); }
     }
 
     // ---------- 渲染 ----------
@@ -343,8 +445,7 @@
       if (data.length < 1) { box.innerHTML = '<div class="chart-empty">尚無資料。輸入今日資產或點上方「範例資料」看看。</div>'; return; }
 
       const W = box.clientWidth || 680, H = 260;
-      const padL = 52, padR = 14, padT = 14, padB = 28;
-      const innerW = W - padL - padR, innerH = H - padT - padB;
+      const padR = 14, padT = 14, padB = 28;
 
       // Y 軸貼合資料範圍(不強制含 0),讓每日波動看得出來;淨值有負才把 0 納入
       const nets = data.map((d) => d.net);
@@ -352,6 +453,13 @@
       if (min > 0) max = max;                 // 全正:不從 0 起算
       if (min === max) { min -= Math.abs(min) * 0.05 || 1; max += Math.abs(max) * 0.05 || 1; }
       const pad = (max - min) * 0.12; min -= pad; max += pad;
+
+      // 依「最寬的 Y 軸標籤」決定左邊距,避免百萬級數字被切掉
+      const yLabels = [];
+      for (let k = 0; k <= 4; k++) yLabels.push(fmtAxis(min + (k / 4) * (max - min)));
+      const maxLabelLen = Math.max(...yLabels.map((s) => s.length));
+      const padL = Math.max(44, maxLabelLen * 7.5 + 12);   // 約 7.5px/字 + 間距
+      const innerW = W - padL - padR, innerH = H - padT - padB;
 
       const n = data.length;
       const x = (i) => padL + (n === 1 ? innerW / 2 : (i / (n - 1)) * innerW);
@@ -363,7 +471,7 @@
         const v = min + (k / 4) * (max - min);
         const yy = y(v);
         grid += `<line class="chart-grid-line" x1="${padL}" y1="${yy}" x2="${W - padR}" y2="${yy}"/>`;
-        grid += `<text class="chart-axis-txt" x="${padL - 6}" y="${yy + 3}" text-anchor="end">${fmt(v)}</text>`;
+        grid += `<text class="chart-axis-txt" x="${padL - 6}" y="${yy + 3}" text-anchor="end">${fmtAxis(v)}</text>`;
       }
       // 0 基準線(若在範圍內)
       let zero = "";
@@ -429,10 +537,12 @@
           `<span class="rec-delta ${delta > 0 ? "pos" : delta < 0 ? "neg" : ""}">${delta > 0 ? "▲ +" : delta < 0 ? "▼ " : ""}${fmt(delta)}</span>`;
         return `<div class="rec">
           <div class="rec-top"><span class="rec-date">${d.date}</span><span class="rec-net">淨值 ${fmt(d.net)} ${dtxt}</span></div>
-          <div class="rec-detail">成本 ${fmt(d.cost)} ・ 報酬 ${fmt(d.return)} ・ 質押 ${fmt(d.pledge)}</div>
-          <div class="rec-actions">
-            <button class="btn btn-ghost btn-sm" data-edit="${d.id}">編輯</button>
-            <button class="btn btn-danger btn-sm" data-del="${d.id}">刪除</button>
+          <div class="rec-foot">
+            <span class="rec-detail">成本 ${fmt(d.cost)} ・ 報酬 ${fmt(d.return)} ・ 質押 ${fmt(d.pledge)}</span>
+            <span class="rec-actions">
+              <button class="btn btn-ghost btn-xs" data-edit="${d.id}">✏️ 編輯</button>
+              <button class="btn btn-danger btn-xs" data-del="${d.id}">🗑 刪除</button>
+            </span>
           </div>
         </div>`;
       }).join("");
