@@ -108,6 +108,19 @@
       <button id="demoToggle" class="btn btn-ghost btn-sm" style="margin-left:8px">🧪 範例資料</button>
     </div>
 
+    <!-- 全域:可用餘額 -->
+    <div class="card">
+      <p class="card-title">可用餘額(現金)</p>
+      <form id="balanceForm" class="form-grid">
+        <label class="full">可用餘額(換股或額外投入時才需調整)
+          <input type="number" id="balanceInput" inputmode="decimal" step="any" placeholder="0" />
+        </label>
+        <div class="form-actions" id="balanceActions">
+          <button type="submit" class="btn btn-primary" id="balanceSaveBtn">儲存餘額</button>
+        </div>
+      </form>
+    </div>
+
     <!-- 今日輸入 -->
     <div class="card">
       <p class="card-title" id="cardTitle">今日資產</p>
@@ -128,6 +141,10 @@
           <span class="lbl">今日淨值(成本 + 報酬 − 質押)</span>
           <span class="val" id="netPreview">0</span>
         </div>
+        <div class="net-preview">
+          <span class="lbl">今日淨資產(淨值 + 可用餘額)</span>
+          <span class="val" id="netWorthPreview">0</span>
+        </div>
         <div class="form-actions" id="formActions">
           <button type="button" class="btn btn-ghost" id="cancelBtn" hidden>取消</button>
           <button type="button" class="btn btn-danger" id="deleteBtn" hidden>刪除</button>
@@ -139,7 +156,7 @@
     <!-- 摘要 -->
     <div class="card" id="summaryCard" hidden>
       <div class="stat-row">
-        <div class="stat"><div class="k">最新淨值</div><div class="v" id="sLatest">—</div></div>
+        <div class="stat"><div class="k">最新淨資產</div><div class="v" id="sLatest">—</div></div>
         <div class="stat"><div class="k">較前日</div><div class="v" id="sDelta">—</div></div>
         <div class="stat"><div class="k">區間變化</div><div class="v" id="sRange">—</div></div>
       </div>
@@ -147,7 +164,7 @@
 
     <!-- 淨值趨勢圖 -->
     <div class="card">
-      <p class="card-title">淨值趨勢</p>
+      <p class="card-title">淨資產趨勢</p>
       <div class="chart-box">
         <div id="chart"></div>
         <div class="chart-tip" id="chartTip"></div>
@@ -186,6 +203,7 @@
     const THEME_KEY = "yutun-theme";          // 與魚塭頁共用深色設定
     const DEMO_KEY = "asset-demo-mode";
     const COL = "assets";                       // 新 collection,與魚塭資料隔離
+    const META_ID = "_meta";                    // 全域設定文件(可用餘額),非每日紀錄
 
     const num = (v) => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
     const netOf = (r) => num(r.cost) + num(r.return) - num(r.pledge);
@@ -256,6 +274,7 @@
     // ---------- 狀態 ----------
     let db = null, records = [], demoMode = false, unsub = null;
     let editingId = null;   // 正在編輯的紀錄 id(null = 新增模式)
+    let balance = 0;        // 全域可用餘額(現金),換股/額外投入時才變
 
     // ---------- 範例資料(一週)----------
     function buildDemo() {
@@ -290,7 +309,12 @@
       if (!db) return;
       if (unsub) unsub();
       unsub = onSnapshot(query(collection(db, COL)), (snap) => {
-        records = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        const all = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        // _meta 是全域設定(可用餘額),不是每日紀錄 → 抽離
+        const meta = all.find((d) => d.id === META_ID);
+        balance = meta ? num(meta.balance) : 0;
+        if (!demoMode) syncBalanceInput();
+        records = all.filter((d) => d.id !== META_ID);
         $("#sync").textContent = snap.metadata.fromCache ? "離線(暫存本機)" : "已同步";
         $("#sync").className = "asset-sync " + (snap.metadata.fromCache ? "" : "ok");
         render();
@@ -306,9 +330,12 @@
       if (demo) {
         if (unsub) { unsub(); unsub = null; }
         records = buildDemo();
+        balance = 200_000;                  // 範例:一筆現金餘額
+        $("#balanceInput").value = balance;
         $("#sync").textContent = "範例資料(唯讀)"; $("#sync").className = "asset-sync demo";
         render();
       } else {
+        balanceDirty = false;               // 離開範例 → 允許從 Firestore 帶回真實餘額
         if (db) { $("#sync").textContent = "連線中…"; $("#sync").className = "asset-sync"; subscribe(); }
       }
     }
@@ -320,7 +347,29 @@
     function updateNetPreview() {
       const net = num($("#costInput").value) + num($("#returnInput").value) - num($("#pledgeInput").value);
       $("#netPreview").textContent = fmt(net);
+      $("#netWorthPreview").textContent = fmt(net + balance);
     }
+
+    // 可用餘額表單(全域,只有換股/額外投入時調整)
+    let balanceDirty = false;
+    function syncBalanceInput() {
+      if (balanceDirty) return;   // 不蓋掉使用者輸入中的內容
+      $("#balanceInput").value = balance || "";
+    }
+    $("#balanceInput").addEventListener("input", () => { balanceDirty = true; });
+    $("#balanceForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      if (demoMode) { toast("範例資料模式為唯讀", true); return; }
+      if (!db) { toast("尚未連線 Firebase", true); return; }
+      try {
+        await setDoc(doc(db, COL, META_ID), {
+          balance: num($("#balanceInput").value),
+          updatedAt: new Date().toISOString(),
+        });
+        balanceDirty = false;
+        toast("已更新可用餘額 ✔");
+      } catch (err) { toast("儲存失敗:" + err.message, true); }
+    });
     ["#costInput", "#returnInput", "#pledgeInput"].forEach((s) =>
       $(s).addEventListener("input", () => { formDirty = true; updateNetPreview(); }));
     $("#dateInput").addEventListener("input", () => { formDirty = true; });
@@ -413,7 +462,8 @@
     function sorted() { return records.slice().sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0)); }
 
     function render() {
-      const data = sorted().map((r) => ({ ...r, net: netOf(r) }));
+      // net = 當日淨值(成本+報酬−質押);worth = 淨資產(淨值+全域可用餘額)
+      const data = sorted().map((r) => { const net = netOf(r); return { ...r, net, worth: net + balance }; });
       renderSummary(data);
       renderChart(data);
       renderList(data);
@@ -427,9 +477,10 @@
       const latest = data[data.length - 1];
       const prev = data.length >= 2 ? data[data.length - 2] : null;
       const first = data[0];
+      // 餘額為全域常數 → delta/range 用 net 或 worth 結果相同;最新值顯示淨資產
       const delta = prev ? latest.net - prev.net : 0;
       const range = latest.net - first.net;
-      $("#sLatest").textContent = fmt(latest.net);
+      $("#sLatest").textContent = fmt(latest.worth);
       const setDelta = (el, v) => {
         const e = $(el);
         e.textContent = (v > 0 ? "+" : "") + fmt(v);
@@ -447,8 +498,8 @@
       const W = box.clientWidth || 680, H = 260;
       const padR = 14, padT = 14, padB = 28;
 
-      // Y 軸貼合資料範圍(不強制含 0),讓每日波動看得出來;淨值有負才把 0 納入
-      const nets = data.map((d) => d.net);
+      // Y 軸貼合資料範圍(不強制含 0),讓每日波動看得出來;淨資產有負才把 0 納入
+      const nets = data.map((d) => d.worth);
       let min = Math.min(...nets), max = Math.max(...nets);
       if (min > 0) max = max;                 // 全正:不從 0 起算
       if (min === max) { min -= Math.abs(min) * 0.05 || 1; max += Math.abs(max) * 0.05 || 1; }
@@ -478,9 +529,9 @@
       if (min < 0 && max > 0) { const yz = y(0); zero = `<line class="chart-zero-line" x1="${padL}" y1="${yz}" x2="${W - padR}" y2="${yz}"/>`; }
 
       // 折線 + 區域
-      const line = data.map((d, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(d.net).toFixed(1)}`).join(" ");
+      const line = data.map((d, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(d.worth).toFixed(1)}`).join(" ");
       const area = `M${x(0).toFixed(1)},${y(min).toFixed(1)} ` +
-        data.map((d, i) => `L${x(i).toFixed(1)},${y(d.net).toFixed(1)}`).join(" ") +
+        data.map((d, i) => `L${x(i).toFixed(1)},${y(d.worth).toFixed(1)}`).join(" ") +
         ` L${x(n - 1).toFixed(1)},${y(min).toFixed(1)} Z`;
 
       // X 軸標籤(最多 6 個,避免擠)
@@ -493,7 +544,7 @@
 
       // 點 + 觸控熱區
       const dots = data.map((d, i) =>
-        `<circle class="chart-dot" cx="${x(i).toFixed(1)}" cy="${y(d.net).toFixed(1)}" r="3.5"/>`).join("");
+        `<circle class="chart-dot" cx="${x(i).toFixed(1)}" cy="${y(d.worth).toFixed(1)}" r="3.5"/>`).join("");
       const hot = data.map((d, i) =>
         `<rect x="${(x(i) - innerW / n / 2).toFixed(1)}" y="${padT}" width="${(innerW / n).toFixed(1)}" height="${innerH}"
           fill="transparent" data-i="${i}"/>`).join("");
@@ -506,14 +557,15 @@
       const showTip = (i, clientX) => {
         const d = data[i];
         const prev = i > 0 ? data[i - 1] : null;
-        const delta = prev ? d.net - prev.net : 0;
+        const delta = prev ? d.worth - prev.worth : 0;
         const sign = delta > 0 ? "▲ +" : delta < 0 ? "▼ " : "";
-        tip.innerHTML = `${d.date}<br><b>淨值 ${fmt(d.net)}</b>` +
+        tip.innerHTML = `${d.date}<br><b>淨資產 ${fmt(d.worth)}</b>` +
           (prev ? `<br>${sign}${fmt(delta)}` : "") +
+          `<br><span style="opacity:.8">淨值 ${fmt(d.net)} · 餘額 ${fmt(balance)}</span>` +
           `<br><span style="opacity:.8">成本 ${fmt(d.cost)} · 報酬 ${fmt(d.return)} · 質押 ${fmt(d.pledge)}</span>`;
         const rect = box.getBoundingClientRect();
         const sx = (x(i) / W) * rect.width;
-        const sy = (y(d.net) / H) * rect.height;
+        const sy = (y(d.worth) / H) * rect.height;
         tip.style.left = sx + "px"; tip.style.top = sy + "px"; tip.style.display = "block";
       };
       svg.querySelectorAll("[data-i]").forEach((el) => {
@@ -532,13 +584,13 @@
       const rev = data.slice().reverse();
       box.innerHTML = rev.map((d, idx) => {
         const prev = rev[idx + 1];   // 前一天(時間較早)
-        const delta = prev ? d.net - prev.net : null;
+        const delta = prev ? d.worth - prev.worth : null;
         const dtxt = delta == null ? "" :
           `<span class="rec-delta ${delta > 0 ? "pos" : delta < 0 ? "neg" : ""}">${delta > 0 ? "▲ +" : delta < 0 ? "▼ " : ""}${fmt(delta)}</span>`;
         return `<div class="rec">
-          <div class="rec-top"><span class="rec-date">${d.date}</span><span class="rec-net">淨值 ${fmt(d.net)} ${dtxt}</span></div>
+          <div class="rec-top"><span class="rec-date">${d.date}</span><span class="rec-net">淨資產 ${fmt(d.worth)} ${dtxt}</span></div>
           <div class="rec-foot">
-            <span class="rec-detail">成本 ${fmt(d.cost)} ・ 報酬 ${fmt(d.return)} ・ 質押 ${fmt(d.pledge)}</span>
+            <span class="rec-detail">淨值 ${fmt(d.net)} ・ 成本 ${fmt(d.cost)} ・ 報酬 ${fmt(d.return)} ・ 質押 ${fmt(d.pledge)}</span>
             <span class="rec-actions">
               <button class="btn btn-ghost btn-xs" data-edit="${d.id}">✏️ 編輯</button>
               <button class="btn btn-danger btn-xs" data-del="${d.id}">🗑 刪除</button>
