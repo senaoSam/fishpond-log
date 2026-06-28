@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#0b7285" />
+  <title>每日資產</title>
+  <link rel="stylesheet" href="style.css?v=16" />
+  <style>
+    /* 資產頁專屬樣式(沿用 style.css 的 CSS 變數) */
+    .asset-wrap { max-width: 720px; margin: 0 auto; padding: 16px 14px 40px; }
+    .asset-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+    .asset-head h1 { font-size: 1.3rem; margin: 0; }
+    .asset-head .right { display: flex; align-items: center; gap: 8px; }
+    .asset-sync { font-size: 0.78rem; color: var(--muted); white-space: nowrap; }
+    .asset-head h1 { white-space: nowrap; }
+    .asset-sync.ok::before { content: "● "; color: var(--ok); }
+    .asset-sync.err::before { content: "● "; color: var(--danger); }
+    .asset-sync.demo::before { content: "● "; color: #f59f00; }
+
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; margin-bottom: 14px; }
+    .card-title { font-weight: 700; margin: 0 0 10px; }
+
+    /* 輸入表單 */
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .form-grid label { display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem; color: var(--muted); }
+    .form-grid label.full { grid-column: 1 / -1; }
+    .form-grid input { width: 100%; box-sizing: border-box; padding: 10px; font-size: 1rem;
+      border: 1px solid var(--border); border-radius: 8px; background: var(--field); color: var(--text); }
+    .net-preview { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: baseline;
+      background: var(--total-bg); border-radius: 8px; padding: 10px 12px; margin-top: 2px; }
+    .net-preview .lbl { color: var(--muted); font-size: 0.85rem; }
+    .net-preview .val { font-weight: 800; font-size: 1.15rem; font-variant-numeric: tabular-nums; }
+    .btn { padding: 12px 16px; font-size: 1rem; font-weight: 700; border-radius: 10px; cursor: pointer; border: 1px solid transparent; white-space: nowrap; line-height: 1; box-sizing: border-box; }
+    .btn-primary { background: var(--primary); color: #fff; }
+    .btn-primary:active { background: var(--primary-dark); }
+    .btn-ghost { background: none; border-color: var(--border); color: var(--text); }
+    .btn-danger { color: var(--danger); border-color: var(--danger); background: none; }
+    .btn-sm { padding: 6px 12px; font-size: 0.85rem; }
+    .btn-xs { padding: 3px 9px; font-size: 0.75rem; font-weight: 600; border-radius: 7px; }
+
+    /* 表單動作列:新增模式 → 單顆靠右;編輯模式(.editing)→ 三顆等寬等高 */
+    .form-actions { grid-column: 1 / -1; display: flex; align-items: stretch; gap: 8px; margin-top: 10px; justify-content: flex-end; }
+    .form-actions .btn { display: inline-flex; align-items: center; justify-content: center; margin: 0; }
+    .form-actions.editing { justify-content: stretch; }
+    .form-actions.editing .btn { flex: 1 1 0; min-width: 0; }
+
+    /* 圖表 */
+    .chart-box { position: relative; }
+    .chart-svg { width: 100%; height: 260px; display: block; touch-action: none; }
+    .chart-empty { color: var(--muted); text-align: center; padding: 40px 0; }
+    .chart-grid-line { stroke: var(--border); stroke-width: 1; }
+    .chart-zero-line { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 3; opacity: 0.6; }
+    .chart-line { fill: none; stroke: var(--primary); stroke-width: 2.5; }
+    .chart-area { fill: var(--primary); opacity: 0.08; }
+    .chart-dot { fill: var(--card); stroke: var(--primary); stroke-width: 2; }
+    .chart-axis-txt { fill: var(--muted); font-size: 11px; }
+    .chart-tip { position: absolute; pointer-events: none; background: rgba(20,25,30,0.95); color: #fff;
+      font-size: 0.78rem; line-height: 1.5; padding: 6px 9px; border-radius: 8px; white-space: nowrap; transform: translate(-50%, -120%); display: none; z-index: 5; }
+    .chart-tip b { font-variant-numeric: tabular-nums; }
+
+    /* 摘要數字列 */
+    .stat-row { display: flex; gap: 10px; flex-wrap: wrap; }
+    .stat { flex: 1 1 0; min-width: 90px; background: var(--total-bg); border-radius: 8px; padding: 10px; text-align: center; }
+    .stat .k { font-size: 0.78rem; color: var(--muted); }
+    .stat .v { font-weight: 800; font-size: 1.05rem; font-variant-numeric: tabular-nums; margin-top: 2px; }
+    .pos { color: var(--ok); } .neg { color: var(--danger); }
+
+    /* 清單 */
+    .rec { border: 1px solid var(--border); border-left: 3px solid var(--primary); border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; }
+    .rec-top { display: flex; justify-content: space-between; align-items: baseline; }
+    .rec-date { font-weight: 700; }
+    .rec-net { font-weight: 800; font-variant-numeric: tabular-nums; }
+    /* 成本/報酬 與 動作按鈕同一行:文字靠左、按鈕靠右下 */
+    .rec-foot { display: flex; justify-content: space-between; align-items: flex-end; gap: 8px; margin-top: 4px; }
+    .rec-detail { color: var(--muted); font-size: 0.85rem; font-variant-numeric: tabular-nums; }
+    .rec-actions { display: flex; gap: 6px; flex-shrink: 0; align-items: stretch; }
+    .rec-actions .btn { display: inline-flex; align-items: center; justify-content: center; margin: 0; }
+    .rec-delta { font-size: 0.85rem; font-variant-numeric: tabular-nums; }
+
+    .empty { text-align: center; color: var(--muted); padding: 24px 0; }
+    .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: rgba(20,25,30,0.95);
+      color: #fff; padding: 10px 16px; border-radius: 10px; font-size: 0.9rem; z-index: 50; opacity: 0; transition: opacity .2s; pointer-events: none; }
+    .toast.show { opacity: 1; }
+    .toast.err { background: var(--danger); }
+    .nav-back { font-size: 0.85rem; color: var(--muted); text-decoration: none; }
+
+    /* 自訂確認對話框 */
+    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.45); display: flex;
+      align-items: center; justify-content: center; z-index: 100; padding: 20px; }
+    .modal-overlay[hidden] { display: none; }
+    .modal { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+      padding: 18px 16px 14px; max-width: 360px; width: 100%; box-shadow: 0 10px 30px rgba(0,0,0,0.25); }
+    .modal-text { margin: 0 0 16px; font-size: 1rem; color: var(--text); line-height: 1.5; }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
+  </style>
+</head>
+<body>
+  <div class="asset-wrap">
+    <div class="asset-head">
+      <h1>💰 每日資產</h1>
+      <div class="right">
+        <span id="sync" class="asset-sync">連線中…</span>
+        <button id="themeToggle" class="btn btn-ghost btn-sm" title="深色模式">🌙</button>
+      </div>
+    </div>
+    <div style="margin-bottom:12px"><a class="nav-back" href="index.html">← 回魚塭紀錄</a>
+      <button id="demoToggle" class="btn btn-ghost btn-sm" style="margin-left:8px">🧪 範例資料</button>
+    </div>
+
+    <!-- 今日輸入 -->
+    <div class="card">
+      <p class="card-title" id="cardTitle">今日資產</p>
+      <form id="assetForm" class="form-grid">
+        <label class="full">日期
+          <input type="date" id="dateInput" required />
+        </label>
+        <label>投資成本
+          <input type="number" id="costInput" inputmode="decimal" step="any" placeholder="0" />
+        </label>
+        <label>報酬(累計損益,可負)
+          <input type="number" id="returnInput" inputmode="decimal" step="any" placeholder="0" />
+        </label>
+        <label class="full">質押
+          <input type="number" id="pledgeInput" inputmode="decimal" step="any" placeholder="0" />
+        </label>
+        <div class="net-preview">
+          <span class="lbl">今日淨值(成本 + 報酬 − 質押)</span>
+          <span class="val" id="netPreview">0</span>
+        </div>
+        <div class="form-actions" id="formActions">
+          <button type="button" class="btn btn-ghost" id="cancelBtn" hidden>取消</button>
+          <button type="button" class="btn btn-danger" id="deleteBtn" hidden>刪除</button>
+          <button type="submit" class="btn btn-primary" id="saveBtn">新增</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- 摘要 -->
+    <div class="card" id="summaryCard" hidden>
+      <div class="stat-row">
+        <div class="stat"><div class="k">最新淨值</div><div class="v" id="sLatest">—</div></div>
+        <div class="stat"><div class="k">較前日</div><div class="v" id="sDelta">—</div></div>
+        <div class="stat"><div class="k">區間變化</div><div class="v" id="sRange">—</div></div>
+      </div>
+    </div>
+
+    <!-- 淨值趨勢圖 -->
+    <div class="card">
+      <p class="card-title">淨值趨勢</p>
+      <div class="chart-box">
+        <div id="chart"></div>
+        <div class="chart-tip" id="chartTip"></div>
+      </div>
+    </div>
+
+    <!-- 紀錄清單 -->
+    <div class="card">
+      <p class="card-title">每日紀錄 <span id="recCount" style="color:var(--muted);font-weight:400;font-size:0.85rem"></span></p>
+      <div id="recList"></div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <!-- 自訂確認對話框(取代原生 confirm) -->
+  <div id="modalOverlay" class="modal-overlay" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalText">
+      <p id="modalText" class="modal-text"></p>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="modalCancel">取消</button>
+        <button type="button" class="btn btn-primary" id="modalOk">確定</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { firebaseConfig } from "./firebase-config.js";
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+    import {
+      getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, query
+    } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+    // ---------- 小工具 ----------
+    const $ = (s) => document.querySelector(s);
+    const THEME_KEY = "yutun-theme";          // 與魚塭頁共用深色設定
+    const DEMO_KEY = "asset-demo-mode";
+    const COL = "assets";                       // 新 collection,與魚塭資料隔離
+
+    const num = (v) => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
+    const netOf = (r) => num(r.cost) + num(r.return) - num(r.pledge);
+    // 千分位;負數帶減號
+    const fmt = (n) => {
+      const x = Math.round((Number(n) || 0) * 100) / 100;
+      return x.toLocaleString("en-US", { maximumFractionDigits: 2 });
+    };
+    // 軸標籤用的精簡格式:百萬→M、千→K,避免 Y 軸文字過長被切到
+    const fmtAxis = (n) => {
+      const v = Number(n) || 0, a = Math.abs(v), s = v < 0 ? "-" : "";
+      const trim = (x) => (Math.round(x * 100) / 100).toString();
+      if (a >= 1e6) return s + trim(a / 1e6) + "M";
+      if (a >= 1e3) return s + trim(a / 1e3) + "K";
+      return trim(a) === "0" ? "0" : s + trim(a);
+    };
+    const todayStr = () => {
+      const d = new Date(); const z = (n) => String(n).padStart(2, "0");
+      return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}`;
+    };
+    function toast(msg, err = false) {
+      const t = $("#toast"); t.textContent = msg; t.className = "toast show" + (err ? " err" : "");
+      clearTimeout(toast._t); toast._t = setTimeout(() => t.className = "toast", 2200);
+    }
+
+    // 自訂確認對話框(取代原生 confirm),回傳 Promise<boolean>
+    function showConfirm(message, { okText = "確定", danger = false } = {}) {
+      return new Promise((resolve) => {
+        const overlay = $("#modalOverlay"), okBtn = $("#modalOk"), cancelBtn = $("#modalCancel");
+        $("#modalText").textContent = message;
+        okBtn.textContent = okText;
+        okBtn.classList.toggle("btn-danger", danger);
+        okBtn.classList.toggle("btn-primary", !danger);
+        const close = (result) => {
+          overlay.hidden = true;
+          okBtn.removeEventListener("click", onOk);
+          cancelBtn.removeEventListener("click", onCancel);
+          overlay.removeEventListener("click", onBackdrop);
+          document.removeEventListener("keydown", onKey);
+          resolve(result);
+        };
+        const onOk = () => close(true);
+        const onCancel = () => close(false);
+        const onBackdrop = (e) => { if (e.target === overlay) close(false); };
+        const onKey = (e) => { if (e.key === "Escape") close(false); if (e.key === "Enter") close(true); };
+        okBtn.addEventListener("click", onOk);
+        cancelBtn.addEventListener("click", onCancel);
+        overlay.addEventListener("click", onBackdrop);
+        document.addEventListener("keydown", onKey);
+        overlay.hidden = false;
+        okBtn.focus();
+      });
+    }
+
+    // ---------- 深色模式 ----------
+    function applyTheme(dark) {
+      document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+      $("#themeToggle").textContent = dark ? "☀️" : "🌙";
+    }
+    applyTheme(localStorage.getItem(THEME_KEY) === "dark");
+    $("#themeToggle").addEventListener("click", () => {
+      const dark = document.documentElement.getAttribute("data-theme") !== "dark";
+      localStorage.setItem(THEME_KEY, dark ? "dark" : "light");
+      applyTheme(dark);
+      render();   // 重畫圖以套用新色
+    });
+
+    // ---------- 狀態 ----------
+    let db = null, records = [], demoMode = false, unsub = null;
+    let editingId = null;   // 正在編輯的紀錄 id(null = 新增模式)
+
+    // ---------- 範例資料(一週)----------
+    function buildDemo() {
+      // 以「今天」往前 7 天,淨值有漲有跌,像股票日線
+      const base = 1_000_000;
+      const series = [
+        { cost: 1_000_000, return: 0,      pledge: 0 },       // 第1天:剛投入
+        { cost: 1_000_000, return: 35_000,  pledge: 0 },
+        { cost: 1_050_000, return: 12_000,  pledge: 50_000 }, // 加碼+質押
+        { cost: 1_050_000, return: -18_000, pledge: 50_000 }, // 回檔
+        { cost: 1_050_000, return: 41_000,  pledge: 50_000 },
+        { cost: 1_050_000, return: 88_000,  pledge: 30_000 }, // 部分還款
+        { cost: 1_100_000, return: 102_000, pledge: 30_000 }, // 再加碼
+      ];
+      const out = [];
+      for (let i = 0; i < series.length; i++) {
+        const d = new Date(); d.setDate(d.getDate() - (series.length - 1 - i));
+        const z = (n) => String(n).padStart(2, "0");
+        const date = `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}`;
+        out.push({ id: date, date, ...series[i] });
+      }
+      return out;
+    }
+
+    // ---------- Firebase ----------
+    function initFirebase() {
+      if (firebaseConfig.apiKey.startsWith("請填入")) { $("#sync").textContent = "未設定 Firebase"; $("#sync").className = "asset-sync err"; return; }
+      const app = initializeApp(firebaseConfig);
+      db = getFirestore(app);
+    }
+    function subscribe() {
+      if (!db) return;
+      if (unsub) unsub();
+      unsub = onSnapshot(query(collection(db, COL)), (snap) => {
+        records = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        $("#sync").textContent = snap.metadata.fromCache ? "離線(暫存本機)" : "已同步";
+        $("#sync").className = "asset-sync " + (snap.metadata.fromCache ? "" : "ok");
+        render();
+      }, (err) => { console.error(err); $("#sync").textContent = "讀取失敗"; $("#sync").className = "asset-sync err"; });
+    }
+
+    // ---------- 模式切換 ----------
+    function applyMode(demo) {
+      demoMode = demo;
+      localStorage.setItem(DEMO_KEY, demo ? "1" : "0");
+      $("#demoToggle").classList.toggle("btn-primary", demo);
+      $("#demoToggle").classList.toggle("btn-ghost", !demo);
+      if (demo) {
+        if (unsub) { unsub(); unsub = null; }
+        records = buildDemo();
+        $("#sync").textContent = "範例資料(唯讀)"; $("#sync").className = "asset-sync demo";
+        render();
+      } else {
+        if (db) { $("#sync").textContent = "連線中…"; $("#sync").className = "asset-sync"; subscribe(); }
+      }
+    }
+    $("#demoToggle").addEventListener("click", () => applyMode(!demoMode));
+
+    // ---------- 輸入表單 ----------
+    // formDirty:使用者動過表單(打字/改日期/點編輯)後設 true,避免自動帶值蓋掉輸入中的內容
+    let formDirty = false;
+    function updateNetPreview() {
+      const net = num($("#costInput").value) + num($("#returnInput").value) - num($("#pledgeInput").value);
+      $("#netPreview").textContent = fmt(net);
+    }
+    ["#costInput", "#returnInput", "#pledgeInput"].forEach((s) =>
+      $(s).addEventListener("input", () => { formDirty = true; updateNetPreview(); }));
+    $("#dateInput").addEventListener("input", () => { formDirty = true; });
+    $("#dateInput").value = todayStr();
+
+    // 成本、質押很少變動 → 預設帶入「最近一筆」的值(報酬留空每天填)。
+    // 僅在表單未被動過時帶,且不覆蓋使用者已輸入的內容。
+    function prefillFromLast() {
+      if (formDirty) return;
+      const data = sorted();
+      if (!data.length) return;
+      const last = data[data.length - 1];
+      if ($("#costInput").value === "") $("#costInput").value = last.cost ?? "";
+      if ($("#pledgeInput").value === "") $("#pledgeInput").value = last.pledge ?? "";
+      updateNetPreview();
+    }
+
+    $("#assetForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      if (demoMode) { toast("範例資料模式為唯讀", true); return; }
+      if (!db) { toast("尚未連線 Firebase", true); return; }
+      // 編輯模式鎖定日期 → 用原本的 id;新增模式用日期欄
+      const date = editingId || $("#dateInput").value;
+      if (!date) { toast("請選擇日期", true); return; }
+      const rec = {
+        date,
+        cost: num($("#costInput").value),
+        return: num($("#returnInput").value),
+        pledge: num($("#pledgeInput").value),
+        updatedAt: new Date().toISOString(),
+      };
+      try {
+        // 以日期當文件 id → 同日覆寫
+        await setDoc(doc(db, COL, date), rec);
+        toast(editingId ? "已更新 ✔" : "已新增 ✔");
+        exitEdit();   // 回到「今日 + 自動帶上次成本/質押」的乾淨新增狀態
+      } catch (err) { toast("儲存失敗:" + err.message, true); }
+    });
+
+    // 進入編輯模式:載入某天到表單、鎖日期、切換按鈕與標題
+    function loadToForm(r) {
+      editingId = r.id;
+      formDirty = true;   // 視為使用者主動操作,停止自動帶值
+      $("#dateInput").value = r.date;
+      $("#dateInput").disabled = true;          // 編輯不改日期(日期=文件 id)
+      $("#costInput").value = r.cost ?? "";
+      $("#returnInput").value = r.return ?? "";
+      $("#pledgeInput").value = r.pledge ?? "";
+      $("#cardTitle").textContent = `編輯 ${r.date}`;
+      $("#saveBtn").textContent = "更新";
+      $("#cancelBtn").hidden = false;
+      $("#deleteBtn").hidden = false;
+      $("#formActions").classList.add("editing");
+      updateNetPreview();
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+
+    // 離開編輯模式 → 回到新增模式的乾淨狀態
+    function exitEdit() {
+      editingId = null;
+      formDirty = false;
+      $("#dateInput").disabled = false;
+      $("#dateInput").value = todayStr();
+      $("#returnInput").value = "";
+      $("#cardTitle").textContent = "今日資產";
+      $("#saveBtn").textContent = "新增";
+      $("#cancelBtn").hidden = true;
+      $("#deleteBtn").hidden = true;
+      $("#formActions").classList.remove("editing");
+      prefillFromLast();   // 重新帶入最近一筆成本/質押
+      updateNetPreview();
+    }
+    $("#cancelBtn").addEventListener("click", exitEdit);
+    $("#deleteBtn").addEventListener("click", () => {
+      if (editingId) delRecord(records.find((r) => r.id === editingId));
+    });
+
+    async function delRecord(r) {
+      if (!r) return;
+      if (demoMode) { toast("範例資料模式為唯讀", true); return; }
+      if (!await showConfirm(`刪除 ${r.date} 的紀錄?`, { okText: "刪除", danger: true })) return;
+      try {
+        await deleteDoc(doc(db, COL, r.id));
+        toast("已刪除 ✔");
+        if (editingId === r.id) exitEdit();
+      } catch (err) { toast("刪除失敗:" + err.message, true); }
+    }
+
+    // ---------- 渲染 ----------
+    function sorted() { return records.slice().sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0)); }
+
+    function render() {
+      const data = sorted().map((r) => ({ ...r, net: netOf(r) }));
+      renderSummary(data);
+      renderChart(data);
+      renderList(data);
+      prefillFromLast();   // 資料載入/變動後,自動帶上次成本/質押
+    }
+
+    function renderSummary(data) {
+      const card = $("#summaryCard");
+      if (!data.length) { card.hidden = true; return; }
+      card.hidden = false;
+      const latest = data[data.length - 1];
+      const prev = data.length >= 2 ? data[data.length - 2] : null;
+      const first = data[0];
+      const delta = prev ? latest.net - prev.net : 0;
+      const range = latest.net - first.net;
+      $("#sLatest").textContent = fmt(latest.net);
+      const setDelta = (el, v) => {
+        const e = $(el);
+        e.textContent = (v > 0 ? "+" : "") + fmt(v);
+        e.className = "v " + (v > 0 ? "pos" : v < 0 ? "neg" : "");
+      };
+      setDelta("#sDelta", delta);
+      setDelta("#sRange", range);
+    }
+
+    // SVG 折線圖
+    function renderChart(data) {
+      const box = $("#chart");
+      if (data.length < 1) { box.innerHTML = '<div class="chart-empty">尚無資料。輸入今日資產或點上方「範例資料」看看。</div>'; return; }
+
+      const W = box.clientWidth || 680, H = 260;
+      const padR = 14, padT = 14, padB = 28;
+
+      // Y 軸貼合資料範圍(不強制含 0),讓每日波動看得出來;淨值有負才把 0 納入
+      const nets = data.map((d) => d.net);
+      let min = Math.min(...nets), max = Math.max(...nets);
+      if (min > 0) max = max;                 // 全正:不從 0 起算
+      if (min === max) { min -= Math.abs(min) * 0.05 || 1; max += Math.abs(max) * 0.05 || 1; }
+      const pad = (max - min) * 0.12; min -= pad; max += pad;
+
+      // 依「最寬的 Y 軸標籤」決定左邊距,避免百萬級數字被切掉
+      const yLabels = [];
+      for (let k = 0; k <= 4; k++) yLabels.push(fmtAxis(min + (k / 4) * (max - min)));
+      const maxLabelLen = Math.max(...yLabels.map((s) => s.length));
+      const padL = Math.max(44, maxLabelLen * 7.5 + 12);   // 約 7.5px/字 + 間距
+      const innerW = W - padL - padR, innerH = H - padT - padB;
+
+      const n = data.length;
+      const x = (i) => padL + (n === 1 ? innerW / 2 : (i / (n - 1)) * innerW);
+      const y = (v) => padT + innerH - ((v - min) / (max - min)) * innerH;
+
+      // Y 軸格線(4 等分)
+      let grid = "";
+      for (let k = 0; k <= 4; k++) {
+        const v = min + (k / 4) * (max - min);
+        const yy = y(v);
+        grid += `<line class="chart-grid-line" x1="${padL}" y1="${yy}" x2="${W - padR}" y2="${yy}"/>`;
+        grid += `<text class="chart-axis-txt" x="${padL - 6}" y="${yy + 3}" text-anchor="end">${fmtAxis(v)}</text>`;
+      }
+      // 0 基準線(若在範圍內)
+      let zero = "";
+      if (min < 0 && max > 0) { const yz = y(0); zero = `<line class="chart-zero-line" x1="${padL}" y1="${yz}" x2="${W - padR}" y2="${yz}"/>`; }
+
+      // 折線 + 區域
+      const line = data.map((d, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(d.net).toFixed(1)}`).join(" ");
+      const area = `M${x(0).toFixed(1)},${y(min).toFixed(1)} ` +
+        data.map((d, i) => `L${x(i).toFixed(1)},${y(d.net).toFixed(1)}`).join(" ") +
+        ` L${x(n - 1).toFixed(1)},${y(min).toFixed(1)} Z`;
+
+      // X 軸標籤(最多 6 個,避免擠)
+      const step = Math.max(1, Math.ceil(n / 6));
+      let xlab = "";
+      for (let i = 0; i < n; i += step) {
+        const md = data[i].date.slice(5);   // MM-DD
+        xlab += `<text class="chart-axis-txt" x="${x(i)}" y="${H - 8}" text-anchor="middle">${md}</text>`;
+      }
+
+      // 點 + 觸控熱區
+      const dots = data.map((d, i) =>
+        `<circle class="chart-dot" cx="${x(i).toFixed(1)}" cy="${y(d.net).toFixed(1)}" r="3.5"/>`).join("");
+      const hot = data.map((d, i) =>
+        `<rect x="${(x(i) - innerW / n / 2).toFixed(1)}" y="${padT}" width="${(innerW / n).toFixed(1)}" height="${innerH}"
+          fill="transparent" data-i="${i}"/>`).join("");
+
+      box.innerHTML = `<svg class="chart-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+        ${grid}${zero}<path class="chart-area" d="${area}"/><path class="chart-line" d="${line}"/>${dots}${hot}${xlab}</svg>`;
+
+      // tooltip
+      const svg = box.querySelector("svg"), tip = $("#chartTip");
+      const showTip = (i, clientX) => {
+        const d = data[i];
+        const prev = i > 0 ? data[i - 1] : null;
+        const delta = prev ? d.net - prev.net : 0;
+        const sign = delta > 0 ? "▲ +" : delta < 0 ? "▼ " : "";
+        tip.innerHTML = `${d.date}<br><b>淨值 ${fmt(d.net)}</b>` +
+          (prev ? `<br>${sign}${fmt(delta)}` : "") +
+          `<br><span style="opacity:.8">成本 ${fmt(d.cost)} · 報酬 ${fmt(d.return)} · 質押 ${fmt(d.pledge)}</span>`;
+        const rect = box.getBoundingClientRect();
+        const sx = (x(i) / W) * rect.width;
+        const sy = (y(d.net) / H) * rect.height;
+        tip.style.left = sx + "px"; tip.style.top = sy + "px"; tip.style.display = "block";
+      };
+      svg.querySelectorAll("[data-i]").forEach((el) => {
+        const i = +el.dataset.i;
+        el.addEventListener("pointerenter", (e) => showTip(i, e.clientX));
+        el.addEventListener("pointerdown", (e) => showTip(i, e.clientX));
+      });
+      box.addEventListener("pointerleave", () => tip.style.display = "none");
+    }
+
+    function renderList(data) {
+      const box = $("#recList");
+      $("#recCount").textContent = data.length ? `共 ${data.length} 天` : "";
+      if (!data.length) { box.innerHTML = '<p class="empty">還沒有資料</p>'; return; }
+      // 新→舊
+      const rev = data.slice().reverse();
+      box.innerHTML = rev.map((d, idx) => {
+        const prev = rev[idx + 1];   // 前一天(時間較早)
+        const delta = prev ? d.net - prev.net : null;
+        const dtxt = delta == null ? "" :
+          `<span class="rec-delta ${delta > 0 ? "pos" : delta < 0 ? "neg" : ""}">${delta > 0 ? "▲ +" : delta < 0 ? "▼ " : ""}${fmt(delta)}</span>`;
+        return `<div class="rec">
+          <div class="rec-top"><span class="rec-date">${d.date}</span><span class="rec-net">淨值 ${fmt(d.net)} ${dtxt}</span></div>
+          <div class="rec-foot">
+            <span class="rec-detail">成本 ${fmt(d.cost)} ・ 報酬 ${fmt(d.return)} ・ 質押 ${fmt(d.pledge)}</span>
+            <span class="rec-actions">
+              <button class="btn btn-ghost btn-xs" data-edit="${d.id}">✏️ 編輯</button>
+              <button class="btn btn-danger btn-xs" data-del="${d.id}">🗑 刪除</button>
+            </span>
+          </div>
+        </div>`;
+      }).join("");
+      box.querySelectorAll("[data-edit]").forEach((b) =>
+        b.addEventListener("click", () => loadToForm(records.find((r) => r.id === b.dataset.edit))));
+      box.querySelectorAll("[data-del]").forEach((b) =>
+        b.addEventListener("click", () => delRecord(records.find((r) => r.id === b.dataset.del))));
+    }
+
+    // 視窗縮放時重畫圖(寬度變了)
+    let rT; window.addEventListener("resize", () => { clearTimeout(rT); rT = setTimeout(render, 150); });
+
+    // ---------- 啟動 ----------
+    initFirebase();
+    updateNetPreview();
+    applyMode(localStorage.getItem(DEMO_KEY) === "1");
+    render();
+  </script>
+</body>
+</html>
