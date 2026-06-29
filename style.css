@@ -9,6 +9,8 @@
   --muted: #6b7785;
   --border: #d7dde3;
   --danger: #c0392b;
+  --danger-solid: #c0392b;   /* 實心刪除鈕底色(白字對比足夠) */
+  --danger-solid-dark: #9e2f22;
   --ok: #2f9e44;
   --th-bg: #eef3f5;          /* 表頭 / chip 背景 */
   --total-bg: #f1f7f9;       /* 合計列背景 */
@@ -30,6 +32,8 @@
   --muted: #9aa7b4;
   --border: #313c48;
   --danger: #ff7b6b;
+  --danger-solid: #c0392b;   /* 深色下實心刪除鈕仍用較深紅,白字才清楚 */
+  --danger-solid-dark: #a32e22;
   --ok: #51cf66;
   --th-bg: #232c37;
   --total-bg: #1a2730;
@@ -292,7 +296,13 @@ select { appearance: none; background-image: url("data:image/svg+xml;utf8,<svg x
   cursor: pointer;
 }
 .btn-sm { padding: 6px 10px; font-size: 0.85rem; border-radius: 8px; cursor: pointer; border: 1px solid var(--border); background: var(--field); color: var(--text); }
-.btn-danger { color: var(--danger); border-color: var(--danger); }
+/* 刪除=危險動作:一律實心紅底白字,蓋掉所搭配的 ghost/primary/sm 底色,避免混色看不出是危險 */
+.btn-danger {
+  background: var(--danger-solid);
+  color: #fff;
+  border: 1px solid var(--danger-solid);
+}
+.btn-danger:active { background: var(--danger-solid-dark); border-color: var(--danger-solid-dark); }
 
 .msg { text-align: center; font-weight: 600; min-height: 1.4em; }
 .msg.ok { color: var(--ok); }
@@ -901,6 +911,13 @@ body.on-record #main { padding-bottom: 172px; }
     border-color: var(--primary);
     color: var(--primary);
     background: var(--th-bg);
+  }
+  /* 刪除鈕 hover:維持實心紅(不可被上面的 ghost/sm hover 轉成主色)。
+     放在後面且選擇器更具體 → 蓋過 .btn-ghost:hover / .btn-sm:hover */
+  .btn-ghost.btn-danger:hover, .btn-sm.btn-danger:hover, .btn-danger:hover {
+    background: var(--danger-solid-dark);
+    color: #fff;
+    border-color: var(--danger-solid-dark);
   }
   /* 已選中的分段/籌碼 hover:維持主色,只稍微加深 */
   .seg-btn.active:hover, .chip-btn.active:hover, .tag-pick.on:hover {
