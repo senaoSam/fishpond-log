@@ -533,6 +533,24 @@ tr.total td { font-weight: 800; background: var(--total-bg); border-top: 2px sol
   cursor: pointer;
 }
 .today-item:active { background: var(--th-bg); }
+/* 目前正在編輯的那筆:明顯高亮(粗左框 + 主色底 + 外框),一眼分辨點到哪筆 */
+.today-item.editing {
+  background: var(--total-bg);
+  border-color: var(--primary);
+  border-left-width: 5px;
+  box-shadow: 0 0 0 2px var(--primary) inset;
+  padding-right: 64px;   /* 右上角「編輯中」標籤預留空間,避免蓋到內文 */
+}
+.today-editing {
+  position: absolute;
+  top: 6px; right: 8px;
+  padding: 1px 7px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #fff;
+  background: var(--primary);
+  border-radius: 999px;
+}
 /* 左上角建立時間:絕對定位小字。上方留出時間高度,下方收緊不留多餘空白 */
 .today-item.has-time { padding-top: 20px; padding-bottom: 0; }
 .today-time {
@@ -670,6 +688,12 @@ body.on-record #main { padding-bottom: 172px; }
 .modal {
   width: 100%;
   max-width: 360px;
+  /* 手機:限制高度不超出畫面(扣掉 overlay 的上下 padding),內容過長時內部捲動。
+     dvh 處理 iOS 動態工具列;舊瀏覽器退回 vh */
+  max-height: calc(100vh - 48px);
+  max-height: calc(100dvh - 48px);
+  display: flex;
+  flex-direction: column;
   background: var(--card);
   color: var(--text);
   border: 1px solid var(--border);
@@ -678,15 +702,17 @@ body.on-record #main { padding-bottom: 172px; }
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
   animation: pop-in 0.15s ease;
 }
-.modal-text { margin: 0 0 18px; font-size: 1rem; line-height: 1.6; white-space: pre-line; }
+/* 文字區可捲動;按鈕區(modal-actions)固定在底部不被推走 */
+.modal-text { margin: 0 0 18px; font-size: 1rem; line-height: 1.6; white-space: pre-line;
+  overflow-y: auto; flex: 1 1 auto; -webkit-overflow-scrolling: touch; }
 .modal-input {
-  width: 100%; box-sizing: border-box; margin: 0 0 18px;
+  width: 100%; box-sizing: border-box; margin: 0 0 18px; flex: 0 0 auto;
   padding: 10px 12px; font-size: 1rem;
   background: var(--th-bg); color: var(--text);
   border: 1px solid var(--border); border-radius: 10px;
 }
 .modal-input:focus { outline: 2px solid var(--primary); border-color: var(--primary); }
-.modal-actions { display: flex; gap: 10px; }
+.modal-actions { display: flex; gap: 10px; flex: 0 0 auto; }
 .modal-actions button { flex: 1; margin-top: 0; }
 
 /* ============================================================

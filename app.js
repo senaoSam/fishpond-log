@@ -690,6 +690,26 @@ function recordSummaryLine(r) {
   return parts.map(escapeHtml).join(" - ");
 }
 
+// 把一筆紀錄轉成「欄位名稱:值」的多行純文字(給刪除確認等需要看完整內容的地方)。
+// 空欄一律顯示「—」,讓使用者清楚知道刪掉的是哪一筆、有哪些內容。
+function recordDetailText(r) {
+  if (!r) return "";
+  const dash = (v) => (v != null && String(v).trim() !== "" ? String(v) : "—");
+  const temp = weatherTempStr(r);
+  const lines = [
+    ["日期", dash(r.date)],
+    ["時段", dash(periodLabel(r.period))],
+    ["池塘", dash(pondLabel(r.pondId))],
+    ["飼料", dash(feedName(r.feedNoId))],
+    ["包數", `${fmt(Number(r.bags) || 0)}包`],
+    ["拌料", dash(mixName(r.mixId))],
+    ["消毒劑", dash(disinfectantName(r.disinfectantId))],
+    ["氣溫", temp ? temp : "—"],
+    ["備註", dash(r.note)],
+  ];
+  return lines.map(([k, v]) => `${k}:${v}`).join("\n");
+}
+
 // 記錄頁上方:列出「日期欄」當天已記錄的清單,點可編輯
 function renderTodayList() {
   const box = $("#todayList");
@@ -715,7 +735,9 @@ function renderTodayList() {
       const timeTag = label ? `<span class="today-time">${escapeHtml(label)}</span>` : "";
       const t = weatherTempStr(r);
       const tempTag = t ? ` <span class="today-temp">${escapeHtml(t)}</span>` : "";
-      return `<button type="button" class="today-item${label ? " has-time" : ""}" data-edit="${r.id}">${timeTag}${recordSummaryLine(r)}${tempTag}</button>`;
+      const editingCls = r.id === editingId ? " editing" : "";   // 目前正在編輯這筆 → 高亮
+      const editingTag = r.id === editingId ? ` <span class="today-editing">編輯中</span>` : "";
+      return `<button type="button" class="today-item${label ? " has-time" : ""}${editingCls}" data-edit="${r.id}">${timeTag}${recordSummaryLine(r)}${tempTag}${editingTag}</button>`;
     }).join("")}`;
   box.querySelectorAll("[data-edit]").forEach((b) =>
     b.addEventListener("click", () => startEdit(b.dataset.edit)));
@@ -1081,7 +1103,7 @@ async function onDelete(id) {
   if (blockIfDemo()) return false;
   const r = allRecords.find((x) => x.id === id);
   const ok = await showConfirm(
-    `確定刪除這筆紀錄?\n${r?.date} ${periodLabel(r?.period)} ${r ? pondLabel(r.pondId) : ""}`,
+    `確定刪除這筆紀錄?\n\n${recordDetailText(r)}`,
     { okText: "刪除", danger: true }
   );
   if (!ok) return false;
