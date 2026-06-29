@@ -60,6 +60,16 @@ let options = { ...DEFAULT_OPTIONS };
 let editingId = null;       // 目前正在編輯的紀錄 id(null = 新增模式)
 let currentPeriod = "morning";
 
+// ---------- 上次使用的時段/飼料(記到 localStorage,新增/編輯後不必重選)----------
+// 時段與飼料通常連續(魚不太可能短時間換飼料),記住最後一次選擇當預設值。
+const LAST_CTX_KEY = "yutun-last-ctx";
+function loadLastCtx() {
+  try { return JSON.parse(localStorage.getItem(LAST_CTX_KEY)) || {}; } catch { return {}; }
+}
+function saveLastCtx(period, feedNoId) {
+  try { localStorage.setItem(LAST_CTX_KEY, JSON.stringify({ period, feedNoId })); } catch {}
+}
+
 // ---------- 假資料模式 ----------
 const DEMO_KEY = "yutun-demo-mode";          // localStorage:'1' = 假資料模式
 let demoMode = false;
@@ -516,6 +526,17 @@ function renderOptionSelects() {
   fillSelect($("#feedNoSelect"), options.feedNos);
   fillSelect($("#mixSelect"), options.mixes, { allowEmpty: true });
   fillSelect($("#disinfectantSelect"), options.disinfectants, { allowEmpty: true });
+  // 選項(重新)載入後,非編輯模式下把飼料帶回上次用的(若該飼料仍存在)
+  applyLastFeed();
+}
+
+// 把飼料下拉設成上次使用的(僅在新增模式、且該飼料仍在清單中時)
+function applyLastFeed() {
+  if (editingId) return;
+  const sel = $("#feedNoSelect");
+  if (!sel) return;
+  const last = loadLastCtx().feedNoId;
+  if (last && [...sel.options].some((o) => o.value === last)) sel.value = last;
 }
 
 // 填一個「池塘」篩選下拉:清單 = 設定的池塘 ∪ 紀錄出現過的池塘(以 id 為準)
@@ -549,6 +570,10 @@ function renderPondFilter() {
 // ============================================================
 function setupRecordForm() {
   $("#dateInput").value = todayStr();
+
+  // 還原上次選的時段(預設 morning),並同步分段按鈕外觀
+  currentPeriod = loadLastCtx().period || "morning";
+  $$("#periodSeg .seg-btn").forEach((b) => b.classList.toggle("active", b.dataset.period === currentPeriod));
 
   // 改日期 → 更新「當日已記錄」清單
   $("#dateInput").addEventListener("change", renderTodayList);
@@ -728,6 +753,8 @@ async function onSaveRecord(e) {
     disinfectantId: $("#disinfectantSelect").value || "",
     note: $("#noteInput").value.trim()
   };
+  // 記住這次的時段/飼料,下次新增/編輯後自動帶回(不必重選)
+  saveLastCtx(rec.period, rec.feedNoId);
 
   const saveBtn = $("#saveBtn");
   saveBtn.disabled = true;
@@ -858,12 +885,15 @@ function resetForm(opts = {}) {
   $("#noteInput").value = "";
   if (!keep) {
     $("#bagsInt").value = "2";       // 預設 2 包
-    $("#feedNoSelect").selectedIndex = 0;
     $("#dateInput").value = todayStr();
     $("#pondSelect").value = "";
     $("#pondInput").value = "";
-    currentPeriod = "morning";
-    $$("#periodSeg .seg-btn").forEach((b) => b.classList.toggle("active", b.dataset.period === "morning"));
+    // 時段/飼料帶回上次使用的(連續性高,免重選);預設 morning/第一項
+    const ctx = loadLastCtx();
+    $("#feedNoSelect").selectedIndex = 0;
+    applyLastFeed();
+    currentPeriod = ctx.period || "morning";
+    $$("#periodSeg .seg-btn").forEach((b) => b.classList.toggle("active", b.dataset.period === currentPeriod));
   }
   syncPondInputVisibility();   // 同步池塘輸入框顯隱
   renderRecordTags();          // 池塘可能變動或清空,更新標籤區
