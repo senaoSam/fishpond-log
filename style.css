@@ -252,6 +252,22 @@ select { appearance: none; background-image: url("data:image/svg+xml;utf8,<svg x
 .pond-picker-item.selected { color: var(--primary); font-weight: 700; box-shadow: inset 3px 0 0 var(--primary); }
 .pond-picker-empty { padding: 14px 12px; color: var(--muted); font-size: 0.9rem; text-align: center; }
 
+/* ====== 編輯紀錄 modal:沿用 .modal 的置中限高;表單區可捲、動作列固定底部 ====== */
+.edit-modal { padding: 16px 14px 14px; max-width: 480px; }
+.edit-modal .preview-head { flex: 0 0 auto; margin-bottom: 8px; }
+.edit-form {
+  overflow-y: auto; flex: 1 1 auto; -webkit-overflow-scrolling: touch;
+  padding: 2px 2px 8px;
+}
+.edit-form label { display: block; margin-bottom: 4px; font-weight: 600; }
+.edit-form > label { margin-top: 12px; }
+.edit-form > label:first-child { margin-top: 0; }
+.edit-form .seg { margin: 6px 0 0; }
+.edit-form .pond-picker-btn { margin-top: 6px; }
+/* 動作列:取消 / 刪除 / 更新 三顆等寬,固定在 modal 底部 */
+.edit-actions { flex: 0 0 auto; display: flex; gap: 8px; margin-top: 12px; }
+.edit-actions button { flex: 1 1 0; width: auto; margin-top: 0; padding: 12px 8px; }
+
 /* segmented control */
 .seg { display: flex; gap: 8px; margin: 6px 0 14px; }
 .seg-btn {
@@ -734,6 +750,10 @@ body.on-record #main { padding-bottom: 172px; }
   background: rgba(0, 0, 0, 0.45);
   animation: fade-in 0.15s ease;
 }
+/* 多層 modal 疊加時的層級(數字越大越上層):
+   編輯 modal(預設 100)< 池塘選取 < 確認框(刪除 double check 一律最上層) */
+#pondPickerOverlay { z-index: 120; }
+#modalOverlay { z-index: 140; }
 .modal {
   width: 100%;
   max-width: 360px;

@@ -532,48 +532,54 @@ function renderOptionSelects() {
 }
 
 // ---------- 池塘選取(置中 modal,取代原生 select)----------
-// 設計:隱藏的 #pondSelect 仍是真值來源(沿用既有 .value 讀寫與 change 連動);
+// 設計:隱藏的 select 仍是真值來源(沿用既有 .value 讀寫與 change 連動);
 // 這個 modal 只負責「好按的選取體驗」,選定後寫回 select.value 並觸發 change。
+// 同一個 picker modal 服務兩處:新增表單(#pondSelect)與編輯 modal(#editPondSelect)。
+const POND_PICKER_TARGETS = {
+  add:  { selectId: "#pondSelect",     labelId: "#pondPickerLabel",     btnId: "#pondPickerBtn",     placeholder: "— 選擇或在下方輸入 —" },
+  edit: { selectId: "#editPondSelect", labelId: "#editPondPickerLabel", btnId: "#editPondPickerBtn", placeholder: "—" },
+};
+let pondPickerTarget = POND_PICKER_TARGETS.add;   // 目前開啟者
+
 function setupPondPicker() {
-  const btn = $("#pondPickerBtn"), overlay = $("#pondPickerOverlay");
-  if (!btn) return;
-  btn.addEventListener("click", openPondPicker);
+  const overlay = $("#pondPickerOverlay");
+  if (!overlay) return;
+  $("#pondPickerBtn") && $("#pondPickerBtn").addEventListener("click", () => openPondPicker("add"));
+  $("#editPondPickerBtn") && $("#editPondPickerBtn").addEventListener("click", () => openPondPicker("edit"));
   $("#pondPickerClose").addEventListener("click", closePondPicker);
-  // 點遮罩(modal 外)關閉
   overlay.addEventListener("click", (e) => { if (e.target === overlay) closePondPicker(); });
-  // Esc 關閉
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && !overlay.hidden) { closePondPicker(); btn.focus(); }
+    if (e.key === "Escape" && !overlay.hidden) { closePondPicker(); }
   });
 }
 
-function openPondPicker() {
-  const overlay = $("#pondPickerOverlay");
+function openPondPicker(which = "add") {
+  pondPickerTarget = POND_PICKER_TARGETS[which] || POND_PICKER_TARGETS.add;
   renderPondPickerList();
-  overlay.hidden = false;
-  $("#pondPickerBtn").setAttribute("aria-expanded", "true");
+  $("#pondPickerOverlay").hidden = false;
+  $(pondPickerTarget.btnId)?.setAttribute("aria-expanded", "true");
 }
 function closePondPicker() {
   const overlay = $("#pondPickerOverlay");
   if (overlay.hidden) return;
   overlay.hidden = true;
-  $("#pondPickerBtn").setAttribute("aria-expanded", "false");
+  $(pondPickerTarget.btnId)?.setAttribute("aria-expanded", "false");
 }
 
-// 依目前 select.value 更新觸發鈕的顯示文字(及空值 placeholder 樣式)
-function renderPondPicker() {
-  const sel = $("#pondSelect"), label = $("#pondPickerLabel");
+// 依某個 target 的 select.value 更新其觸發鈕顯示文字(預設更新「新增表單」那顆)
+function renderPondPicker(which = "add") {
+  const t = POND_PICKER_TARGETS[which] || POND_PICKER_TARGETS.add;
+  const sel = $(t.selectId), label = $(t.labelId);
   if (!sel || !label) return;
   const v = sel.value;
   if (v) { label.textContent = pondLabel(v); label.classList.remove("placeholder"); }
-  else { label.textContent = "— 選擇或在下方輸入 —"; label.classList.add("placeholder"); }
+  else { label.textContent = t.placeholder; label.classList.add("placeholder"); }
 }
 
-// 重建 modal 內的池塘清單;點項目 → 寫回 select 並觸發 change
+// 重建 modal 內的池塘清單(來源=目前 target 的隱藏 select);點項目 → 寫回並觸發 change
 function renderPondPickerList() {
-  const sel = $("#pondSelect"), list = $("#pondPickerList");
+  const sel = $(pondPickerTarget.selectId), list = $("#pondPickerList");
   if (!sel || !list) return;
-  // 來源就是隱藏 select 的 options(去掉「不選」空項,維持與既有資料一致)
   const opts = [...sel.options].filter((o) => o.value !== "");
   if (!opts.length) {
     list.innerHTML = `<li class="pond-picker-empty">尚無池塘,請在下方輸入新名稱</li>`;
@@ -587,16 +593,15 @@ function renderPondPickerList() {
 }
 
 function choosePond(id) {
-  const sel = $("#pondSelect");
+  const sel = $(pondPickerTarget.selectId);
   sel.value = id;
-  sel.dispatchEvent(new Event("change"));   // 觸發既有連動(輸入框顯隱、群組標籤、按鈕防呆)
-  renderPondPicker();
+  sel.dispatchEvent(new Event("change"));   // 觸發各自的連動
+  renderPondPicker(pondPickerTarget === POND_PICKER_TARGETS.edit ? "edit" : "add");
   closePondPicker();
 }
 
-// 把飼料下拉設成上次使用的(僅在新增模式、且該飼料仍在清單中時)
+// 把新增表單的飼料下拉設成上次使用的(該飼料仍在清單中時)
 function applyLastFeed() {
-  if (editingId) return;
   const sel = $("#feedNoSelect");
   if (!sel) return;
   const last = loadLastCtx().feedNoId;
@@ -656,7 +661,8 @@ function setupRecordForm() {
     syncPondInputVisibility();
     renderRecordTags();
   });
-  setupPondPicker();   // 池塘可搜尋自訂下拉(隱藏 select 仍為真值來源)
+  setupPondPicker();   // 池塘選取 modal(新增與編輯共用)
+  setupEditModal();    // 編輯紀錄獨立 modal
   // 手打池塘名也即時更新標籤區,並連動「新增」按鈕可否按
   $("#pondInput").addEventListener("input", () => { renderRecordTags(); updateSaveDisabled(); });
 
@@ -672,13 +678,6 @@ function setupRecordForm() {
   $("#bagsInt").addEventListener("blur", (e) => { if (e.target.value === "") e.target.value = "0"; });
 
   $("#recordForm").addEventListener("submit", onSaveRecord);
-  $("#cancelEditBtn").addEventListener("click", resetForm);
-  // 編輯模式刪除:刪掉目前編輯的紀錄,成功後回到新增模式
-  $("#deleteEditBtn").addEventListener("click", async () => {
-    if (!editingId) return;
-    const ok = await onDelete(editingId);
-    if (ok) resetForm();
-  });
 
   updateSaveDisabled();   // 初始:尚未選池塘 → 按鈕置灰
 }
@@ -848,26 +847,19 @@ async function onSaveRecord(e) {
 
   // 注意:離線時 Firestore 的寫入 promise 要等連線才 resolve,不能 await(會卡住)。
   // 改為發出寫入後立即依「目前是否已同步雲端」給提示;真正失敗(如權限)用 catch 補報。
-  const action = editingId ? "更新" : "新增";
-  if (editingId) {
-    // 編輯:不重抓天氣(天氣只在建立當下抓)
-    updateDoc(doc(db, "records", editingId), { ...rec, updatedAt: serverTimestamp() })
-      .catch((err) => { console.error(err); showToast(`${action}失敗:` + err.message, true); });
-  } else {
-    // 新增:先標記天氣 pending(抓不到也照存),寫入後在背景抓即時氣溫補上
-    const ref = addDoc(collection(db, "records"), {
-      ...rec, createdAt: serverTimestamp(), weather: { pending: true }
-    });
-    ref.then((docRef) => attachWeather(docRef.id))
-      .catch((err) => { console.error(err); showToast(`${action}失敗:` + err.message, true); });
-  }
+  // 上方表單只負責「新增」(編輯走獨立 modal)。先標記天氣 pending,寫入後在背景補抓氣溫。
+  const ref = addDoc(collection(db, "records"), {
+    ...rec, createdAt: serverTimestamp(), weather: { pending: true }
+  });
+  ref.then((docRef) => attachWeather(docRef.id))
+    .catch((err) => { console.error(err); showToast("新增失敗:" + err.message, true); });
 
   if (cloudSynced) {
-    showToast(`已${action} ✔ ${pondLabel(rec.pondId)} ${fmt(rec.bags)}包`);
+    showToast(`已新增 ✔ ${pondLabel(rec.pondId)} ${fmt(rec.bags)}包`);
   } else {
     showToast(`已存到本機 ⏳ 連線後自動上傳`, false);
   }
-  flashSaveOk(cloudSynced, action);
+  flashSaveOk(cloudSynced, "新增");
   resetForm({ keepContext: true });
   updateSaveDisabled();   // 依目前(保留的)池塘狀態決定按鈕可否按
 }
@@ -988,15 +980,11 @@ function showMsg(text, isErr) {
   if (!isErr) setTimeout(() => { if (el.textContent === text) el.textContent = ""; }, 2500);
 }
 
-// 重設表單。
-// keepContext=true(存檔後):保留池塘/日期/時段/飼料/包數,只清空備註、拌料、消毒。
-// keepContext=false(取消編輯):整張表清回預設。
+// 重設「新增」表單(編輯有獨立 modal,不經過這裡)。
+// keepContext=true(新增成功後):保留池塘/日期/時段/飼料/包數,只清空備註、拌料、消毒。
+// keepContext=false(整張清回預設)。
 function resetForm(opts = {}) {
   const keep = opts.keepContext === true;
-  editingId = null;
-  $("#saveBtn").textContent = "新增";
-  $("#cancelEditBtn").hidden = true;
-  $("#deleteEditBtn").hidden = true;
   // 這三項每筆通常不同,存檔後一律清空
   $("#mixSelect").value = "";
   $("#disinfectantSelect").value = "";
@@ -1019,30 +1007,152 @@ function resetForm(opts = {}) {
   renderTodayList();           // 日期可能重設,更新當日清單
 }
 
+// ============================================================
+//  編輯紀錄 modal(獨立於上方新增表單;上方永遠新增,編輯一律走這裡)
+// ============================================================
+let editPeriod = "morning";   // 編輯 modal 自己的時段狀態(與新增的 currentPeriod 分離)
+
+function setupEditModal() {
+  const overlay = $("#editOverlay");
+  if (!overlay) return;
+  $("#editClose").addEventListener("click", closeEditModal);
+  $("#editCancelBtn").addEventListener("click", closeEditModal);
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) closeEditModal(); });
+  document.addEventListener("keydown", (e) => {
+    // 池塘 picker 開著時 Esc 讓它先處理;這裡只在編輯 modal 是最上層時關閉
+    if (e.key === "Escape" && !overlay.hidden && $("#pondPickerOverlay").hidden) closeEditModal();
+  });
+
+  // 時段切換
+  $("#editPeriodSeg").addEventListener("click", (e) => {
+    const btn = e.target.closest(".seg-btn");
+    if (!btn) return;
+    editPeriod = btn.dataset.period;
+    $$("#editPeriodSeg .seg-btn").forEach((b) => b.classList.toggle("active", b === btn));
+  });
+
+  // 池塘選定後(picker 觸發 change)→ 更新編輯 modal 的群組標籤
+  $("#editPondSelect").addEventListener("change", renderEditTags);
+
+  // 包數 +/−
+  $$("#editForm [data-editstep]").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      const el = $("#editBagsInt");
+      el.value = Math.max(0, (parseInt(el.value, 10) || 0) + Number(btn.dataset.editstep));
+    }));
+  $("#editBagsInt").addEventListener("input", (e) => { e.target.value = e.target.value.replace(/\D/g, ""); });
+  $("#editBagsInt").addEventListener("blur", (e) => { if (e.target.value === "") e.target.value = "0"; });
+
+  $("#editForm").addEventListener("submit", onSaveEdit);
+  $("#editDeleteBtn").addEventListener("click", async () => {
+    if (!editingId) return;
+    const id = editingId;
+    // 先收起編輯 modal,只留刪除確認框(避免被編輯 modal 擋住);保留編輯中的欄位狀態
+    $("#editOverlay").hidden = true;
+    const ok = await onDelete(id);
+    if (ok) {
+      closeEditModal();   // 真的刪了 → 收尾(清 editingId、取消反白)
+    } else {
+      $("#editOverlay").hidden = false;   // 取消刪除 → 原封不動把編輯 modal 開回來
+    }
+  });
+}
+
+// 編輯只選現有池塘 → 填入「現有池塘」選項(隱藏 select 作為 picker 真值來源)
+function fillEditPondSelect() {
+  fillSelect($("#editPondSelect"), options.ponds, { allowEmpty: true, emptyLabel: "—", labelFn: pondLabel });
+}
+
 function startEdit(id) {
   const r = allRecords.find((x) => x.id === id);
   if (!r) return;
+  if (blockIfDemo()) return;
   editingId = id;
-  $("#dateInput").value = r.date;
-  currentPeriod = r.period || "morning";
-  $$("#periodSeg .seg-btn").forEach((b) => b.classList.toggle("active", b.dataset.period === currentPeriod));
-  // 池塘:id 仍在清單中用下拉;否則(已被刪)把名稱填回輸入框讓使用者重選
-  if (options.ponds.some((p) => p.id === r.pondId)) { $("#pondSelect").value = r.pondId; $("#pondInput").value = ""; }
-  else { $("#pondSelect").value = ""; $("#pondInput").value = pondName(r.pondId); }
-  renderPondPicker();          // 直接設了 select.value,同步自訂下拉顯示
-  syncPondInputVisibility();
-  renderRecordTags();
-  renderTodayList();           // 日期可能改變,更新當日清單
-  $("#bagsInt").value = Math.round(Number(r.bags) || 0);
-  $("#feedNoSelect").value = r.feedNoId || "";
-  $("#mixSelect").value = r.mixId || "";
-  $("#disinfectantSelect").value = r.disinfectantId || "";
-  $("#noteInput").value = r.note || "";
-  $("#saveBtn").textContent = "更新";
-  $("#cancelEditBtn").hidden = false;
-  $("#deleteEditBtn").hidden = false;
-  switchPage("record");
-  window.scrollTo({ top: 0, behavior: "smooth" });
+
+  // 選項清單(可能在 options 載入後才齊全)→ 開啟時重填一次,確保有值可選
+  fillEditPondSelect();
+  fillSelect($("#editFeedNoSelect"), options.feedNos);
+  fillSelect($("#editMixSelect"), options.mixes, { allowEmpty: true });
+  fillSelect($("#editDisinfectantSelect"), options.disinfectants, { allowEmpty: true });
+
+  $("#editDateInput").value = r.date;
+  editPeriod = r.period || "morning";
+  $$("#editPeriodSeg .seg-btn").forEach((b) => b.classList.toggle("active", b.dataset.period === editPeriod));
+
+  // 池塘:原池仍在清單就選它;已被刪則留空(編輯只能選現有池塘,需重新挑一個)
+  $("#editPondSelect").value = options.ponds.some((p) => p.id === r.pondId) ? r.pondId : "";
+  renderPondPicker("edit");
+  renderEditTags();
+
+  $("#editBagsInt").value = Math.round(Number(r.bags) || 0);
+  $("#editFeedNoSelect").value = r.feedNoId || "";
+  $("#editMixSelect").value = r.mixId || "";
+  $("#editDisinfectantSelect").value = r.disinfectantId || "";
+  $("#editNoteInput").value = r.note || "";
+
+  renderTodayList();           // 反白「編輯中」那筆
+  $("#editOverlay").hidden = false;
+}
+
+function closeEditModal() {
+  if ($("#editOverlay").hidden) return;
+  $("#editOverlay").hidden = true;
+  editingId = null;
+  renderTodayList();           // 取消「編輯中」反白
+}
+
+// 編輯 modal 內:依選定池塘顯示可勾選的群組標籤(沿用 togglePondTag)
+function renderEditTags() {
+  const box = $("#editRecordTags");
+  const pondId = $("#editPondSelect").value;
+  const tags = options.tags || [];
+  if (!pondId || !tags.length) { box.hidden = true; box.innerHTML = ""; return; }
+  const mine = new Set((options.pondTags || {})[pondId] || []);
+  box.hidden = false;
+  box.innerHTML = `
+    <span class="record-tags-label">群組(${escapeHtml(pondName(pondId))}):</span>
+    ${tags.map((t) => `
+      <button type="button" class="tag-pick ${mine.has(t) ? "on" : ""}" data-rectag="${escapeHtml(t)}">${escapeHtml(t)}</button>
+    `).join("")}`;
+  box.querySelectorAll("[data-rectag]").forEach((b) =>
+    b.addEventListener("click", async () => {
+      await togglePondTag(pondId, b.dataset.rectag);
+      b.classList.toggle("on");
+    }));
+}
+
+async function onSaveEdit(e) {
+  e.preventDefault();
+  if (blockIfDemo()) return;
+  if (!db) { showToast("尚未設定 Firebase,無法儲存", true); return; }
+  if (!editingId) return;
+
+  const pondId = $("#editPondSelect").value;
+  if (!pondId) { showToast("請選擇池塘", true); return; }
+  const bags = Math.max(0, parseInt($("#editBagsInt").value, 10) || 0);
+  if (bags <= 0) { showToast("包數需大於 0", true); return; }
+
+  const rec = {
+    pondId,
+    date: $("#editDateInput").value,
+    period: editPeriod,
+    bags,
+    feedNoId: $("#editFeedNoSelect").value || "",
+    mixId: $("#editMixSelect").value || "",
+    disinfectantId: $("#editDisinfectantSelect").value || "",
+    note: $("#editNoteInput").value.trim(),
+  };
+
+  $("#editSaveBtn").disabled = true;
+  // 編輯不重抓天氣(天氣只在建立當下抓)
+  updateDoc(doc(db, "records", editingId), { ...rec, updatedAt: serverTimestamp() })
+    .catch((err) => { console.error(err); showToast("更新失敗:" + err.message, true); });
+  $("#editSaveBtn").disabled = false;
+
+  showToast(cloudSynced
+    ? `已更新 ✔ ${pondLabel(rec.pondId)} ${fmt(rec.bags)}包`
+    : `已存到本機 ⏳ 連線後自動上傳`);
+  closeEditModal();
 }
 
 // ============================================================

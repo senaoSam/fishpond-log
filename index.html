@@ -201,8 +201,6 @@
 
   <!-- 固定儲存列(僅記錄頁顯示,浮在分頁列上方) -->
   <div id="saveBar" class="save-bar">
-    <button type="button" class="btn-ghost" id="cancelEditBtn" form="recordForm" hidden>取消</button>
-    <button type="button" class="btn-ghost btn-danger" id="deleteEditBtn" form="recordForm" hidden>刪除</button>
     <button type="submit" class="btn-primary btn-big" id="saveBtn" form="recordForm">新增</button>
   </div>
 
@@ -234,6 +232,74 @@
         <button type="button" class="preview-x" id="pondPickerClose" aria-label="關閉">×</button>
       </div>
       <ul class="pond-picker-list" id="pondPickerList" role="listbox"></ul>
+    </div>
+  </div>
+
+  <!-- 編輯紀錄 modal(獨立於上方新增表單;上方永遠是「新增」,編輯一律走這裡)-->
+  <div id="editOverlay" class="modal-overlay" hidden>
+    <div class="modal edit-modal" role="dialog" aria-modal="true" aria-labelledby="editTitle">
+      <div class="preview-head">
+        <h3 id="editTitle" class="preview-title">編輯紀錄</h3>
+        <button type="button" class="preview-x" id="editClose" aria-label="關閉">×</button>
+      </div>
+      <form id="editForm" class="edit-form">
+        <label>
+          池塘名稱
+          <!-- 編輯只能選現有池塘:用按鈕開啟池塘選取 modal(共用同一個 picker)-->
+          <select id="editPondSelect" class="visually-hidden" tabindex="-1" aria-hidden="true"></select>
+          <button type="button" class="pond-picker-btn" id="editPondPickerBtn" aria-haspopup="dialog">
+            <span class="pond-picker-label" id="editPondPickerLabel">—</span>
+            <span class="pond-picker-caret" aria-hidden="true">▾</span>
+          </button>
+        </label>
+
+        <div id="editRecordTags" class="record-tags" hidden></div>
+
+        <label>
+          日期
+          <input id="editDateInput" type="date" required />
+        </label>
+
+        <label>時段</label>
+        <div class="seg" id="editPeriodSeg">
+          <button type="button" class="seg-btn active" data-period="morning">早上</button>
+          <button type="button" class="seg-btn" data-period="afternoon">下午</button>
+        </div>
+
+        <label>
+          飼料編號
+          <select id="editFeedNoSelect"></select>
+        </label>
+
+        <label>輸入幾包</label>
+        <div class="bags-row">
+          <div class="stepper">
+            <button type="button" class="step-btn" data-editstep="-1" aria-label="包數減一">−</button>
+            <input id="editBagsInt" type="number" inputmode="numeric" min="0" step="1" value="0" aria-label="包數" />
+            <button type="button" class="step-btn" data-editstep="1" aria-label="包數加一">＋</button>
+          </div>
+        </div>
+
+        <label>
+          拌料(可不選)
+          <select id="editMixSelect"></select>
+        </label>
+
+        <label>
+          消毒劑(可不選)
+          <select id="editDisinfectantSelect"></select>
+        </label>
+
+        <label>
+          備註(選填)
+          <input id="editNoteInput" type="text" placeholder="" autocomplete="off" />
+        </label>
+      </form>
+      <div class="edit-actions">
+        <button type="button" class="btn-ghost" id="editCancelBtn">取消</button>
+        <button type="button" class="btn-ghost btn-danger" id="editDeleteBtn">刪除</button>
+        <button type="submit" class="btn-primary" id="editSaveBtn" form="editForm">更新</button>
+      </div>
     </div>
   </div>
 
