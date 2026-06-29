@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#0b7285" />
+  <title>溫度抓取 Debug</title>
+  <link rel="stylesheet" href="style.css?v=16" />
+  <style>
+    /* [DEBUG-TEMP] 暫時觀察頁;觀察完連同此檔一併刪除 */
+    .dbg-wrap { max-width: 920px; margin: 0 auto; padding: 16px 14px 40px; }
+    .dbg-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+    .dbg-head h1 { font-size: 1.3rem; margin: 0; white-space: nowrap; }
+    .dbg-head .right { display: flex; align-items: center; gap: 8px; }
+    .dbg-sync { font-size: 0.78rem; color: var(--muted); white-space: nowrap; }
+    .dbg-sync.ok::before { content: "● "; color: var(--ok); }
+    .dbg-sync.err::before { content: "● "; color: var(--danger); }
+    .nav-back { font-size: 0.85rem; color: var(--muted); text-decoration: none; }
+
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; margin-bottom: 14px; }
+    .card-title { font-weight: 700; margin: 0 0 10px; }
+
+    /* 摘要數字列 */
+    .stat-row { display: flex; gap: 10px; flex-wrap: wrap; }
+    .stat { flex: 1 1 0; min-width: 90px; background: var(--total-bg); border-radius: 8px; padding: 10px; text-align: center; }
+    .stat .k { font-size: 0.78rem; color: var(--muted); }
+    .stat .v { font-weight: 800; font-size: 1.15rem; font-variant-numeric: tabular-nums; margin-top: 2px; }
+    .pos { color: var(--ok); } .neg { color: var(--danger); }
+
+    /* 失敗原因分佈 */
+    .reason-list { display: flex; flex-direction: column; gap: 6px; }
+    .reason-row { display: flex; align-items: center; gap: 8px; font-size: 0.9rem; }
+    .reason-row .lbl { flex: 0 0 auto; min-width: 130px; font-family: ui-monospace, monospace; }
+    .reason-row .bar { flex: 1 1 auto; height: 14px; border-radius: 7px; background: var(--border); overflow: hidden; }
+    .reason-row .bar > i { display: block; height: 100%; }
+    .reason-row .cnt { flex: 0 0 auto; font-variant-numeric: tabular-nums; min-width: 40px; text-align: right; }
+
+    /* 紀錄列 */
+    .rec { border: 1px solid var(--border); border-left: 3px solid var(--border); border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; }
+    .rec.ok { border-left-color: var(--ok); }
+    .rec.bad { border-left-color: var(--danger); }
+    .rec-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+    .rec-when { font-weight: 700; font-variant-numeric: tabular-nums; }
+    .rec-reason { font-family: ui-monospace, monospace; font-size: 0.85rem; }
+    .rec-reason.ok { color: var(--ok); } .rec-reason.bad { color: var(--danger); }
+    .rec-detail { color: var(--muted); font-size: 0.82rem; font-variant-numeric: tabular-nums; margin-top: 4px; word-break: break-all; }
+    .rec-detail b { color: var(--text); font-weight: 600; }
+
+    .empty { text-align: center; color: var(--muted); padding: 24px 0; }
+    .filter-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+    .filter-row .btn.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+    .btn { padding: 8px 12px; font-size: 0.85rem; font-weight: 700; border-radius: 8px; cursor: pointer; border: 1px solid var(--border); background: none; color: var(--text); white-space: nowrap; }
+    .btn-ghost { background: none; }
+    .btn-sm { padding: 6px 10px; font-size: 0.8rem; }
+    .hint { color: var(--muted); font-size: 0.8rem; margin: 8px 0 0; }
+    .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: rgba(20,25,30,0.95);
+      color: #fff; padding: 10px 16px; border-radius: 10px; font-size: 0.9rem; z-index: 50; opacity: 0; transition: opacity .2s; pointer-events: none; }
+    .toast.show { opacity: 1; }
+  </style>
+</head>
+<body>
+  <div class="dbg-wrap">
+    <div class="dbg-head">
+      <h1>🌡 溫度抓取 Debug</h1>
+      <div class="right">
+        <span id="sync" class="dbg-sync">連線中…</span>
+        <button id="themeToggle" class="btn btn-ghost btn-sm" title="深色模式">🌙</button>
+      </div>
+    </div>
+    <div style="margin-bottom:12px"><a class="nav-back" href="index.html">← 回魚塭紀錄</a></div>
+
+    <!-- 摘要 -->
+    <div class="card" id="summaryCard" hidden>
+      <div class="stat-row">
+        <div class="stat"><div class="k">總嘗試次數</div><div class="v" id="sTotal">—</div></div>
+        <div class="stat"><div class="k">成功</div><div class="v pos" id="sOk">—</div></div>
+        <div class="stat"><div class="k">失敗</div><div class="v neg" id="sFail">—</div></div>
+        <div class="stat"><div class="k">成功率</div><div class="v" id="sRate">—</div></div>
+      </div>
+    </div>
+
+    <!-- 失敗原因分佈 -->
+    <div class="card" id="reasonCard" hidden>
+      <p class="card-title">原因分佈</p>
+      <div class="reason-list" id="reasonList"></div>
+    </div>
+
+    <!-- 明細 -->
+    <div class="card">
+      <p class="card-title">嘗試明細 <span id="recCount" style="color:var(--muted);font-weight:400;font-size:0.85rem"></span></p>
+      <div class="filter-row" id="filterRow">
+        <button type="button" class="btn active" data-f="all">全部</button>
+        <button type="button" class="btn" data-f="fail">只看失敗</button>
+        <button type="button" class="btn" data-f="ok">只看成功</button>
+      </div>
+      <div id="recList"></div>
+      <p class="hint">此頁為暫時觀察用,資料來自 <b>weather_debug</b> collection。觀察完可整個刪除。</p>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script type="module">
+    import { firebaseConfig } from "./firebase-config.js";
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+    import {
+      getFirestore, collection, onSnapshot, query
+    } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+    const $ = (s) => document.querySelector(s);
+    const THEME_KEY = "yutun-theme";
+    const COL = "weather_debug";
+
+    function toast(msg) {
+      const t = $("#toast"); t.textContent = msg; t.className = "toast show";
+      clearTimeout(toast._t); toast._t = setTimeout(() => t.className = "toast", 2200);
+    }
+
+    // ---------- 深色模式(與魚塭頁一致:沒選過跟隨系統)----------
+    const THEME_COLOR = { light: "#0b7285", dark: "#1a222b" };
+    function applyTheme(dark) {
+      document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+      $("#themeToggle").textContent = dark ? "☀️" : "🌙";
+      const meta = document.querySelector('meta[name="theme-color"]');
+      if (meta) meta.setAttribute("content", dark ? THEME_COLOR.dark : THEME_COLOR.light);
+    }
+    const savedTheme = localStorage.getItem(THEME_KEY);
+    const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+    applyTheme(savedTheme ? savedTheme === "dark" : prefersDark);
+    $("#themeToggle").addEventListener("click", () => {
+      const dark = document.documentElement.getAttribute("data-theme") !== "dark";
+      localStorage.setItem(THEME_KEY, dark ? "dark" : "light");
+      applyTheme(dark);
+    });
+    window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", (e) => {
+      if (!localStorage.getItem(THEME_KEY)) applyTheme(e.matches);
+    });
+
+    // ---------- 狀態 ----------
+    let rows = [], filter = "all";
+
+    // attemptAt 是 Firestore Timestamp;沒有就退回 attemptAtLocal(ISO 字串)
+    function whenMs(r) {
+      if (r.attemptAt && typeof r.attemptAt.toMillis === "function") return r.attemptAt.toMillis();
+      if (r.attemptAtLocal) { const t = Date.parse(r.attemptAtLocal); return isNaN(t) ? 0 : t; }
+      return 0;
+    }
+    function whenStr(r) {
+      const ms = whenMs(r);
+      if (!ms) return "—";
+      const d = new Date(ms), z = (n) => String(n).padStart(2, "0");
+      return `${d.getMonth() + 1}/${z(d.getDate())} ${z(d.getHours())}:${z(d.getMinutes())}:${z(d.getSeconds())}`;
+    }
+
+    // ---------- Firebase ----------
+    function init() {
+      if (firebaseConfig.apiKey.startsWith("請填入")) {
+        $("#sync").textContent = "未設定 Firebase"; $("#sync").className = "dbg-sync err"; return;
+      }
+      const app = initializeApp(firebaseConfig);
+      const db = getFirestore(app);
+      onSnapshot(query(collection(db, COL)), (snap) => {
+        rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        $("#sync").textContent = snap.metadata.fromCache ? "離線(暫存本機)" : "已同步";
+        $("#sync").className = "dbg-sync " + (snap.metadata.fromCache ? "" : "ok");
+        render();
+      }, (err) => {
+        console.error(err);
+        $("#sync").textContent = "讀取失敗"; $("#sync").className = "dbg-sync err";
+        toast("讀取失敗:" + err.message);
+      });
+    }
+
+    // ---------- 渲染 ----------
+    function render() {
+      renderSummary();
+      renderReasons();
+      renderList();
+    }
+
+    function renderSummary() {
+      const card = $("#summaryCard");
+      if (!rows.length) { card.hidden = true; return; }
+      card.hidden = false;
+      const total = rows.length;
+      const ok = rows.filter((r) => r.ok === true).length;
+      const fail = total - ok;
+      $("#sTotal").textContent = total;
+      $("#sOk").textContent = ok;
+      $("#sFail").textContent = fail;
+      $("#sRate").textContent = total ? Math.round((ok / total) * 100) + "%" : "—";
+    }
+
+    function renderReasons() {
+      const card = $("#reasonCard");
+      if (!rows.length) { card.hidden = true; return; }
+      card.hidden = false;
+      const by = {};
+      rows.forEach((r) => { const k = r.reason || "(無)"; by[k] = (by[k] || 0) + 1; });
+      const entries = Object.entries(by).sort((a, b) => b[1] - a[1]);
+      const max = Math.max(...entries.map((e) => e[1]));
+      $("#reasonList").innerHTML = entries.map(([k, v]) => {
+        const isOk = k === "ok";
+        const color = isOk ? "var(--ok)" : "var(--danger)";
+        const w = max ? (v / max) * 100 : 0;
+        return `<div class="reason-row">
+          <span class="lbl">${escapeHtml(k)}</span>
+          <span class="bar"><i style="width:${w}%;background:${color}"></i></span>
+          <span class="cnt">${v}</span>
+        </div>`;
+      }).join("");
+    }
+
+    function renderList() {
+      const box = $("#recList");
+      let data = rows.slice().sort((a, b) => whenMs(b) - whenMs(a));   // 新→舊
+      if (filter === "fail") data = data.filter((r) => r.ok !== true);
+      else if (filter === "ok") data = data.filter((r) => r.ok === true);
+
+      $("#recCount").textContent = rows.length ? `共 ${rows.length} 筆` : "";
+      if (!data.length) { box.innerHTML = '<p class="empty">沒有符合的紀錄</p>'; return; }
+
+      box.innerHTML = data.map((r) => {
+        const ok = r.ok === true;
+        const detail = [
+          r.temp != null ? `溫度 <b>${escapeHtml(String(r.temp))}°C</b>` : null,
+          r.rawTemp != null && !ok ? `rawTemp=${escapeHtml(String(r.rawTemp))}` : null,
+          r.httpStatus != null ? `http=${escapeHtml(String(r.httpStatus))}` : null,
+          r.stationCount != null ? `站數=${escapeHtml(String(r.stationCount))}` : null,
+          (r.stationFound === false) ? `找不到測站` : null,
+          r.obsTime ? `觀測 ${escapeHtml(r.obsTime)}` : null,
+          r.recordId ? `rec=${escapeHtml(r.recordId)}` : null,
+        ].filter(Boolean).join(" ・ ");
+        return `<div class="rec ${ok ? "ok" : "bad"}">
+          <div class="rec-top">
+            <span class="rec-when">${whenStr(r)}</span>
+            <span class="rec-reason ${ok ? "ok" : "bad"}">${ok ? "✔ ok" : "✘ " + escapeHtml(r.reason || "(無)")}</span>
+          </div>
+          ${detail ? `<div class="rec-detail">${detail}</div>` : ""}
+        </div>`;
+      }).join("");
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, (c) =>
+        ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+    }
+
+    // 篩選切換
+    $("#filterRow").addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-f]");
+      if (!btn) return;
+      filter = btn.dataset.f;
+      [...$("#filterRow").children].forEach((b) => b.classList.toggle("active", b === btn));
+      renderList();
+    });
+
+    init();
+  </script>
+</body>
+</html>

@@ -2,7 +2,7 @@
 //  魚塭紀錄 — 主程式
 // ============================================================
 import { firebaseConfig } from "./firebase-config.js";
-import { fetchWeather, RETRY_WINDOW_MIN } from "./weather.js";
+import { fetchWeather, fetchWeatherDebug, RETRY_WINDOW_MIN } from "./weather.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
   getFirestore, collection, doc, addDoc, setDoc, updateDoc, deleteDoc,
@@ -789,7 +789,9 @@ async function onSaveRecord(e) {
 // 對單一紀錄抓一次即時氣溫;成功就寫回該 doc 的 weather 欄位,失敗保持 pending(不動 doc)。
 async function attachWeather(recordId) {
   if (!db || !recordId) return;
-  const w = await fetchWeather();
+  const d = await fetchWeatherDebug();
+  logWeatherDebug(recordId, d);   // [DEBUG-TEMP] 每次嘗試都記一筆,觀察完移除
+  const w = d.ok ? d.result : null;
   if (!w) return;   // 抓不到:維持 { pending:true },留待之後重試
   try {
     await updateDoc(doc(db, "records", recordId), {
@@ -802,6 +804,28 @@ async function attachWeather(recordId) {
       }
     });
   } catch (e) { console.error(e); }   // 寫回失敗就讓它維持 pending,下次再補
+}
+
+// [DEBUG-TEMP] 暫時觀察用:把每次抓溫度的完整結果記到獨立的 weather_debug collection。
+// 不動原本 records 格式。觀察完直接刪掉這個函式、其呼叫處、以及 weather_debug 整個 collection。
+function logWeatherDebug(recordId, d) {
+  if (!db || demoMode) return;
+  try {
+    addDoc(collection(db, "weather_debug"), {
+      recordId,
+      ok: d.ok,
+      reason: d.reason,
+      httpStatus: d.httpStatus,
+      stationFound: d.stationFound,
+      stationCount: d.stationCount,
+      rawTemp: d.rawTemp,
+      obsTime: d.obsTime,
+      temp: d.result ? d.result.temp : null,
+      attemptAt: serverTimestamp(),
+      attemptAtLocal: new Date().toISOString(),
+      ua: navigator.userAgent,
+    }).catch((e) => console.error("[DEBUG-TEMP] log fail", e));
+  } catch (e) { console.error("[DEBUG-TEMP] log fail", e); }
 }
 
 // 仍待補抓的紀錄:weather 還 pending、且建立未超過重試時窗。

@@ -26,29 +26,44 @@ const API_URL =
 // 抓文安站的即時氣溫。
 // 成功回 { temp:Number, obsTime:String, station, stationName };抓不到/缺值回 null。
 export async function fetchWeather() {
+  const d = await fetchWeatherDebug();
+  return d.ok ? d.result : null;
+}
+
+// [DEBUG-TEMP] 觀察用:回傳完整抓取結果與失敗原因,方便釐清「為何常抓不到」。
+// 觀察結束後連同 app.js 的 weather_debug 寫入一併移除即可。
+// 回傳 { ok, reason, result, httpStatus, stationFound, stationCount, rawTemp, obsTime }
+export async function fetchWeatherDebug() {
+  const out = { ok: false, reason: "", result: null, httpStatus: null,
+    stationFound: false, stationCount: null, rawTemp: null, obsTime: "" };
   try {
     const r = await fetch(API_URL);
-    if (!r.ok) return null;
+    out.httpStatus = r.status;
+    if (!r.ok) { out.reason = "http-not-ok"; return out; }
+
     const j = await r.json();
     const stations = j?.records?.Station;
-    if (!Array.isArray(stations)) return null;
+    if (!Array.isArray(stations)) { out.reason = "no-station-array"; return out; }
+    out.stationCount = stations.length;
 
     const s = stations.find((x) => x.StationId === STATION_ID);
-    if (!s) return null;
+    if (!s) { out.reason = "station-not-found"; return out; }
+    out.stationFound = true;
 
     const raw = s?.WeatherElement?.AirTemperature;
+    out.rawTemp = raw === undefined ? null : raw;
+    out.obsTime = s?.ObsTime?.DateTime || "";
     const temp = Number(raw);
     // CWA 缺測以 -99 表示;NaN/缺值都視為抓不到
-    if (!Number.isFinite(temp) || temp <= -90) return null;
+    if (!Number.isFinite(temp) || temp <= -90) { out.reason = "missing-value"; return out; }
 
-    return {
-      temp,
-      obsTime: s?.ObsTime?.DateTime || "",
-      station: STATION_ID,
-      stationName: STATION_NAME
-    };
+    out.ok = true;
+    out.reason = "ok";
+    out.result = { temp, obsTime: out.obsTime, station: STATION_ID, stationName: STATION_NAME };
+    return out;
   } catch (e) {
     // 網路錯誤 / CORS / JSON 解析失敗 → 視為抓不到(不丟例外,不擋存檔)
-    return null;
+    out.reason = "exception:" + (e && e.message ? e.message : String(e));
+    return out;
   }
 }
