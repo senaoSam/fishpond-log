@@ -209,6 +209,45 @@ select { appearance: none; background-image: url("data:image/svg+xml;utf8,<svg x
 
 .combo { display: flex; flex-direction: column; gap: 6px; }
 
+/* 螢幕外隱藏(保留可被程式讀寫的原生 select 作為真值來源) */
+.visually-hidden {
+  position: absolute !important;
+  width: 1px; height: 1px;
+  margin: -1px; padding: 0; border: 0;
+  clip: rect(0 0 0 0); clip-path: inset(50%);
+  overflow: hidden; white-space: nowrap;
+}
+
+/* ====== 池塘選取:觸發鈕 + 置中 modal(取代原生 select,避免手機滿版)====== */
+.pond-picker-btn {
+  width: 100%; margin-top: 6px;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 12px; font-size: 1rem; text-align: left;
+  border: 1px solid var(--border); border-radius: 10px;
+  background: var(--field); color: var(--text); cursor: pointer;
+}
+.pond-picker-btn:focus { outline: 2px solid var(--primary); border-color: var(--primary); }
+.pond-picker-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pond-picker-label.placeholder { color: var(--muted); }
+.pond-picker-caret { flex: 0 0 auto; color: var(--muted); font-size: 0.8rem; }
+
+/* 選取 modal:沿用 .modal 的置中、限高、可捲動;清單填滿可捲區 */
+.pond-modal { padding: 16px 14px 14px; }
+.pond-modal .preview-head { flex: 0 0 auto; margin-bottom: 8px; }
+.pond-picker-list {
+  list-style: none; margin: 0; padding: 0;
+  overflow-y: auto; flex: 1 1 auto; -webkit-overflow-scrolling: touch;
+}
+.pond-picker-item {
+  padding: 13px 12px; cursor: pointer; font-size: 1rem;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* 斑馬紋:交替底色,讓每列範圍一目了然 */
+.pond-picker-item:nth-child(odd) { background: var(--th-bg); }
+.pond-picker-item:active, .pond-picker-item.active { background: var(--total-bg); }
+.pond-picker-item.selected { color: var(--primary); font-weight: 700; box-shadow: inset 3px 0 0 var(--primary); }
+.pond-picker-empty { padding: 14px 12px; color: var(--muted); font-size: 0.9rem; text-align: center; }
+
 /* segmented control */
 .seg { display: flex; gap: 8px; margin: 6px 0 14px; }
 .seg-btn {

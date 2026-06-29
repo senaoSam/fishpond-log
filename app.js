@@ -528,6 +528,70 @@ function renderOptionSelects() {
   fillSelect($("#disinfectantSelect"), options.disinfectants, { allowEmpty: true });
   // 選項(重新)載入後,非編輯模式下把飼料帶回上次用的(若該飼料仍存在)
   applyLastFeed();
+  renderPondPicker();   // 池塘自訂下拉:同步清單與顯示文字
+}
+
+// ---------- 池塘選取(置中 modal,取代原生 select)----------
+// 設計:隱藏的 #pondSelect 仍是真值來源(沿用既有 .value 讀寫與 change 連動);
+// 這個 modal 只負責「好按的選取體驗」,選定後寫回 select.value 並觸發 change。
+function setupPondPicker() {
+  const btn = $("#pondPickerBtn"), overlay = $("#pondPickerOverlay");
+  if (!btn) return;
+  btn.addEventListener("click", openPondPicker);
+  $("#pondPickerClose").addEventListener("click", closePondPicker);
+  // 點遮罩(modal 外)關閉
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) closePondPicker(); });
+  // Esc 關閉
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !overlay.hidden) { closePondPicker(); btn.focus(); }
+  });
+}
+
+function openPondPicker() {
+  const overlay = $("#pondPickerOverlay");
+  renderPondPickerList();
+  overlay.hidden = false;
+  $("#pondPickerBtn").setAttribute("aria-expanded", "true");
+}
+function closePondPicker() {
+  const overlay = $("#pondPickerOverlay");
+  if (overlay.hidden) return;
+  overlay.hidden = true;
+  $("#pondPickerBtn").setAttribute("aria-expanded", "false");
+}
+
+// 依目前 select.value 更新觸發鈕的顯示文字(及空值 placeholder 樣式)
+function renderPondPicker() {
+  const sel = $("#pondSelect"), label = $("#pondPickerLabel");
+  if (!sel || !label) return;
+  const v = sel.value;
+  if (v) { label.textContent = pondLabel(v); label.classList.remove("placeholder"); }
+  else { label.textContent = "— 選擇或在下方輸入 —"; label.classList.add("placeholder"); }
+}
+
+// 重建 modal 內的池塘清單;點項目 → 寫回 select 並觸發 change
+function renderPondPickerList() {
+  const sel = $("#pondSelect"), list = $("#pondPickerList");
+  if (!sel || !list) return;
+  // 來源就是隱藏 select 的 options(去掉「不選」空項,維持與既有資料一致)
+  const opts = [...sel.options].filter((o) => o.value !== "");
+  if (!opts.length) {
+    list.innerHTML = `<li class="pond-picker-empty">尚無池塘,請在下方輸入新名稱</li>`;
+    return;
+  }
+  list.innerHTML = opts.map((o) =>
+    `<li class="pond-picker-item${o.value === sel.value ? " selected" : ""}" role="option"
+        data-val="${escapeHtml(o.value)}">${escapeHtml(o.textContent)}</li>`).join("");
+  list.querySelectorAll("[data-val]").forEach((li) =>
+    li.addEventListener("click", () => choosePond(li.dataset.val)));
+}
+
+function choosePond(id) {
+  const sel = $("#pondSelect");
+  sel.value = id;
+  sel.dispatchEvent(new Event("change"));   // 觸發既有連動(輸入框顯隱、群組標籤、按鈕防呆)
+  renderPondPicker();
+  closePondPicker();
 }
 
 // 把飼料下拉設成上次使用的(僅在新增模式、且該飼料仍在清單中時)
@@ -592,6 +656,7 @@ function setupRecordForm() {
     syncPondInputVisibility();
     renderRecordTags();
   });
+  setupPondPicker();   // 池塘可搜尋自訂下拉(隱藏 select 仍為真值來源)
   // 手打池塘名也即時更新標籤區,並連動「新增」按鈕可否按
   $("#pondInput").addEventListener("input", () => { renderRecordTags(); updateSaveDisabled(); });
 
@@ -948,6 +1013,7 @@ function resetForm(opts = {}) {
     currentPeriod = ctx.period || "morning";
     $$("#periodSeg .seg-btn").forEach((b) => b.classList.toggle("active", b.dataset.period === currentPeriod));
   }
+  renderPondPicker();          // 同步池塘自訂下拉顯示文字
   syncPondInputVisibility();   // 同步池塘輸入框顯隱
   renderRecordTags();          // 池塘可能變動或清空,更新標籤區
   renderTodayList();           // 日期可能重設,更新當日清單
@@ -963,6 +1029,7 @@ function startEdit(id) {
   // 池塘:id 仍在清單中用下拉;否則(已被刪)把名稱填回輸入框讓使用者重選
   if (options.ponds.some((p) => p.id === r.pondId)) { $("#pondSelect").value = r.pondId; $("#pondInput").value = ""; }
   else { $("#pondSelect").value = ""; $("#pondInput").value = pondName(r.pondId); }
+  renderPondPicker();          // 直接設了 select.value,同步自訂下拉顯示
   syncPondInputVisibility();
   renderRecordTags();
   renderTodayList();           // 日期可能改變,更新當日清單

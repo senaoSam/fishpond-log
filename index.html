@@ -36,7 +36,12 @@
         <label>
           池塘名稱
           <div class="combo">
-            <select id="pondSelect"></select>
+            <!-- 來源真值:隱藏的原生 select(沿用既有讀寫/change 連動);畫面上用下方按鈕開啟 modal 選取 -->
+            <select id="pondSelect" class="visually-hidden" tabindex="-1" aria-hidden="true"></select>
+            <button type="button" class="pond-picker-btn" id="pondPickerBtn" aria-haspopup="dialog" aria-expanded="false">
+              <span class="pond-picker-label" id="pondPickerLabel">— 選擇或在下方輸入 —</span>
+              <span class="pond-picker-caret" aria-hidden="true">▾</span>
+            </button>
             <input id="pondInput" type="text" placeholder="或輸入新池塘名稱" autocomplete="off" />
           </div>
         </label>
@@ -218,6 +223,17 @@
         <button type="button" class="btn-ghost" id="modalCancel">取消</button>
         <button type="button" class="btn-primary" id="modalOk">確定</button>
       </div>
+    </div>
+  </div>
+
+  <!-- 池塘選取 modal(置中、不滿版;內容過多時內部捲動) -->
+  <div id="pondPickerOverlay" class="modal-overlay" hidden>
+    <div class="modal pond-modal" role="dialog" aria-modal="true" aria-labelledby="pondPickerTitle">
+      <div class="preview-head">
+        <h3 id="pondPickerTitle" class="preview-title">選擇池塘</h3>
+        <button type="button" class="preview-x" id="pondPickerClose" aria-label="關閉">×</button>
+      </div>
+      <ul class="pond-picker-list" id="pondPickerList" role="listbox"></ul>
     </div>
   </div>
 
