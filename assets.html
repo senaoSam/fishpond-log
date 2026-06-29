@@ -259,16 +259,26 @@
     }
 
     // ---------- 深色模式 ----------
+    const THEME_COLOR = { light: "#0b7285", dark: "#1a222b" }; // 對應 header 色,給手機狀態列
     function applyTheme(dark) {
       document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
       $("#themeToggle").textContent = dark ? "☀️" : "🌙";
+      const meta = document.querySelector('meta[name="theme-color"]');
+      if (meta) meta.setAttribute("content", dark ? THEME_COLOR.dark : THEME_COLOR.light);
     }
-    applyTheme(localStorage.getItem(THEME_KEY) === "dark");
+    // 優先用使用者上次的選擇;沒有的話跟隨系統偏好(與魚塭頁一致)
+    const savedTheme = localStorage.getItem(THEME_KEY);
+    const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+    applyTheme(savedTheme ? savedTheme === "dark" : prefersDark);
     $("#themeToggle").addEventListener("click", () => {
       const dark = document.documentElement.getAttribute("data-theme") !== "dark";
       localStorage.setItem(THEME_KEY, dark ? "dark" : "light");
       applyTheme(dark);
       render();   // 重畫圖以套用新色
+    });
+    // 使用者沒手動選過時,跟著系統設定即時變化
+    window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", (e) => {
+      if (!localStorage.getItem(THEME_KEY)) { applyTheme(e.matches); render(); }
     });
 
     // ---------- 狀態 ----------
