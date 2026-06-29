@@ -787,13 +787,19 @@ async function onSaveRecord(e) {
 
 // ---------- 天氣:建立當下抓即時氣溫(文安站),抓不到則保持 pending ----------
 // 對單一紀錄抓一次即時氣溫;成功就寫回該 doc 的 weather 欄位,失敗保持 pending(不動 doc)。
+// fetchingWeather:正在抓的 recordId。attachWeather 是 async,await fetch 期間 doc 仍是
+// pending,期間若被 onSnapshot 觸發的 retryPendingWeather 再呼叫一次會重複抓(同筆同時間
+// 兩筆 log)。用此 Set 上鎖,確保同一筆同時間只抓一次。
+const fetchingWeather = new Set();
 async function attachWeather(recordId) {
   if (!db || !recordId) return;
-  const d = await fetchWeatherDebug();
-  logWeatherDebug(recordId, d);   // [DEBUG-TEMP] 每次嘗試都記一筆,觀察完移除
-  const w = d.ok ? d.result : null;
-  if (!w) return;   // 抓不到:維持 { pending:true },留待之後重試
+  if (fetchingWeather.has(recordId)) return;   // 已在抓 → 跳過,避免重複
+  fetchingWeather.add(recordId);
   try {
+    const d = await fetchWeatherDebug();
+    logWeatherDebug(recordId, d);   // [DEBUG-TEMP] 每次嘗試都記一筆,觀察完移除
+    const w = d.ok ? d.result : null;
+    if (!w) return;   // 抓不到:維持 { pending:true },留待之後重試
     await updateDoc(doc(db, "records", recordId), {
       weather: {
         temp: w.temp,
@@ -804,6 +810,7 @@ async function attachWeather(recordId) {
       }
     });
   } catch (e) { console.error(e); }   // 寫回失敗就讓它維持 pending,下次再補
+  finally { fetchingWeather.delete(recordId); }
 }
 
 // [DEBUG-TEMP] 暫時觀察用:把每次抓溫度的完整結果記到獨立的 weather_debug collection。
