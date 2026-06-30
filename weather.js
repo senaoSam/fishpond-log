@@ -32,10 +32,10 @@ export async function fetchWeather() {
 
 // [DEBUG-TEMP] 觀察用:回傳完整抓取結果與失敗原因,方便釐清「為何常抓不到」。
 // 觀察結束後連同 app.js 的 weather_debug 寫入一併移除即可。
-// 回傳 { ok, reason, result, httpStatus, stationFound, stationCount, rawTemp, obsTime }
+// 回傳 { ok, reason, result, httpStatus, stationFound, stationCount, rawTemp, obsTime, errorName }
 export async function fetchWeatherDebug() {
   const out = { ok: false, reason: "", result: null, httpStatus: null,
-    stationFound: false, stationCount: null, rawTemp: null, obsTime: "" };
+    stationFound: false, stationCount: null, rawTemp: null, obsTime: "", errorName: "" };
   try {
     const r = await fetch(API_URL);
     out.httpStatus = r.status;
@@ -63,6 +63,8 @@ export async function fetchWeatherDebug() {
     return out;
   } catch (e) {
     // 網路錯誤 / CORS / JSON 解析失敗 → 視為抓不到(不丟例外,不擋存檔)
+    // errorName 區分 TypeError(fetch 連線/CORS/混合內容失敗)與 SyntaxError(JSON 壞)等
+    out.errorName = (e && e.name) ? e.name : "";
     out.reason = "exception:" + (e && e.message ? e.message : String(e));
     return out;
   }

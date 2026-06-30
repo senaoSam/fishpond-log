@@ -901,6 +901,7 @@ function logWeatherDebug(recordId, d) {
       recordId,
       ok: d.ok,
       reason: d.reason,
+      errorName: d.errorName || "",        // TypeError=連線/CORS/混合內容;SyntaxError=JSON 壞
       httpStatus: d.httpStatus,
       stationFound: d.stationFound,
       stationCount: d.stationCount,
@@ -910,6 +911,12 @@ function logWeatherDebug(recordId, d) {
       attemptAt: serverTimestamp(),
       attemptAtLocal: new Date().toISOString(),
       ua: navigator.userAgent,
+      // 一眼判讀環境(失敗只在手機/特定環境發生,這幾欄用來分群)
+      device: /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) ? "mobile" : "desktop",
+      protocol: location.protocol,         // https: / http:(混合內容相關)
+      swControlled: !!(navigator.serviceWorker && navigator.serviceWorker.controller), // SW 是否介入此頁
+      standalone: window.matchMedia("(display-mode: standalone)").matches
+        || window.navigator.standalone === true,   // 是否 PWA 獨立視窗(非分頁)
     }).catch((e) => console.error("[DEBUG-TEMP] log fail", e));
   } catch (e) { console.error("[DEBUG-TEMP] log fail", e); }
 }
@@ -925,11 +932,19 @@ function pendingWeatherTargets() {
   });
 }
 
+// [DEBUG-TEMP] 是否手機。重抓 pending 只在手機做:避免「手機建立後一小時內開電腦,
+// 電腦替手機補抓成功」污染 weather_debug,讓手機抓不到的問題難以觀察。
+// (判斷規則與 logWeatherDebug 的 device 欄一致。觀察結束後若要恢復電腦補抓,移除此限制即可。)
+function isMobileDevice() {
+  return /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
+}
+
 // 機會式重試:掃「pending 且建立 +RETRY_WINDOW_MIN 分鐘內」的紀錄補抓即時氣溫。
 // 觸發時機:App 回前景 / 取得焦點 / 同步完成 / 前景定時器(見 ensureWeatherTimer)。
 let retryingWeather = false;
 async function retryPendingWeather() {
   if (!db || demoMode || retryingWeather) return;
+  if (!isMobileDevice()) return;   // [DEBUG-TEMP] 電腦不補抓,保持 debug 資料乾淨
   const targets = pendingWeatherTargets();
   if (!targets.length) return;
   retryingWeather = true;
@@ -951,6 +966,7 @@ let weatherTimer = null;
 function ensureWeatherTimer() {
   const needed =
     !demoMode &&
+    isMobileDevice() &&   // [DEBUG-TEMP] 電腦不啟動補抓定時器,保持 debug 資料乾淨
     document.visibilityState === "visible" &&
     pendingWeatherTargets().length > 0;
 

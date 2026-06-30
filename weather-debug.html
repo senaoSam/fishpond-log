@@ -79,6 +79,12 @@
       </div>
     </div>
 
+    <!-- 裝置別成敗(手機 vs 電腦) -->
+    <div class="card" id="deviceCard" hidden>
+      <p class="card-title">裝置別成敗</p>
+      <div class="reason-list" id="deviceList"></div>
+    </div>
+
     <!-- 失敗原因分佈 -->
     <div class="card" id="reasonCard" hidden>
       <p class="card-title">原因分佈</p>
@@ -174,8 +180,33 @@
     // ---------- 渲染 ----------
     function render() {
       renderSummary();
+      renderDevices();
       renderReasons();
       renderList();
+    }
+
+    // 依裝置別(手機/電腦)統計成功/失敗,一眼看出失敗是否集中在某種裝置
+    function renderDevices() {
+      const card = $("#deviceCard");
+      if (!rows.length) { card.hidden = true; return; }
+      card.hidden = false;
+      const devOf = (r) => r.device || (/Mobi|Android|iPhone|iPad/i.test(r.ua || "") ? "mobile" : "desktop");
+      const agg = {};   // { mobile:{ok,fail}, desktop:{ok,fail} }
+      rows.forEach((r) => {
+        const d = devOf(r) === "mobile" ? "📱 手機" : "💻 電腦";
+        (agg[d] = agg[d] || { ok: 0, fail: 0 })[r.ok === true ? "ok" : "fail"]++;
+      });
+      const entries = Object.entries(agg).sort((a, b) => (b[1].ok + b[1].fail) - (a[1].ok + a[1].fail));
+      const max = Math.max(1, ...entries.map((e) => e[1].ok + e[1].fail));
+      $("#deviceList").innerHTML = entries.map(([k, v]) => {
+        const tot = v.ok + v.fail, w = (tot / max) * 100;
+        const rate = tot ? Math.round((v.ok / tot) * 100) : 0;
+        return `<div class="reason-row">
+          <span class="lbl">${escapeHtml(k)} <small style="color:var(--muted)">成功率 ${rate}%</small></span>
+          <span class="bar"><i style="width:${w}%;background:${v.fail ? "var(--danger)" : "var(--ok)"}"></i></span>
+          <span class="cnt">${v.ok}/${tot}</span>
+        </div>`;
+      }).join("");
     }
 
     function renderSummary() {
@@ -222,8 +253,15 @@
 
       box.innerHTML = data.map((r) => {
         const ok = r.ok === true;
+        // device 欄新舊相容:新資料有 r.device;舊資料用 ua 推斷
+        const dev = r.device || (/Mobi|Android|iPhone|iPad/i.test(r.ua || "") ? "mobile" : "desktop");
         const detail = [
+          dev ? (dev === "mobile" ? "📱 手機" : "💻 電腦") : null,
           r.temp != null ? `溫度 <b>${escapeHtml(String(r.temp))}°C</b>` : null,
+          r.errorName ? `err=${escapeHtml(r.errorName)}` : null,
+          r.protocol ? `${escapeHtml(r.protocol)}` : null,
+          r.swControlled === true ? `SW介入` : null,
+          r.standalone === true ? `PWA` : null,
           r.rawTemp != null && !ok ? `rawTemp=${escapeHtml(String(r.rawTemp))}` : null,
           r.httpStatus != null ? `http=${escapeHtml(String(r.httpStatus))}` : null,
           r.stationCount != null ? `站數=${escapeHtml(String(r.stationCount))}` : null,
