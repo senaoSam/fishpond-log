@@ -32,10 +32,10 @@ export async function fetchWeather() {
 
 // [DEBUG-TEMP] 觀察用:回傳完整抓取結果與失敗原因,方便釐清「為何常抓不到」。
 // 觀察結束後連同 app.js 的 weather_debug 寫入一併移除即可。
-// 回傳 { ok, reason, result, httpStatus, stationFound, stationCount, rawTemp, obsTime, errorName }
+// 回傳 { ok, reason, result, httpStatus, stationFound, stationCount, rawTemp, obsTime, errorName, probe }
 export async function fetchWeatherDebug() {
   const out = { ok: false, reason: "", result: null, httpStatus: null,
-    stationFound: false, stationCount: null, rawTemp: null, obsTime: "", errorName: "" };
+    stationFound: false, stationCount: null, rawTemp: null, obsTime: "", errorName: "", probe: null };
   try {
     const r = await fetch(API_URL);
     out.httpStatus = r.status;
@@ -66,6 +66,43 @@ export async function fetchWeatherDebug() {
     // errorName 區分 TypeError(fetch 連線/CORS/混合內容失敗)與 SyntaxError(JSON 壞)等
     out.errorName = (e && e.name) ? e.name : "";
     out.reason = "exception:" + (e && e.message ? e.message : String(e));
+    // [DEBUG-TEMP] 一般 fetch 失敗才自動跑診斷探針,結果一併記錄(使用者零操作)。
+    // 靠「哪種方式能成功」分辨病因:no-cors 成功→CORS/header 被擋;XHR 成功→fetch/SW 攔截層。
+    // 觀察結束後移除此區塊即可。
+    out.probe = await runProbes();
     return out;
   }
+}
+
+// [DEBUG-TEMP] 診斷探針:在一般 fetch 失敗後,用其他方式再試一次同一支 API,
+// 純粹為了觀察「哪種方式連得到」,不影響 fetchWeather 的成功/失敗判定。
+// 回傳精簡結果字串,方便寫進 weather_debug 一眼判讀。
+async function runProbes() {
+  const bust = "&_p=" + (new Date().getTime());
+  const probe = { noCors: "", xhr: "" };
+
+  // 1) no-cors:能回(type=opaque)代表連得到,失敗代表是 CORS/預檢/header 被擋
+  try {
+    const r = await fetch(API_URL, { mode: "no-cors" });
+    probe.noCors = "ok:type=" + r.type;
+  } catch (e) {
+    probe.noCors = "fail:" + (e && e.name ? e.name : "") + " " + (e && e.message ? e.message : "");
+  }
+
+  // 2) XMLHttpRequest:走與 fetch 不同的底層路徑。若 fetch 掛而 XHR 成功 → fetch 實作/SW 攔截層問題
+  probe.xhr = await new Promise((resolve) => {
+    try {
+      const xhr = new XMLHttpRequest();
+      xhr.open("GET", API_URL + bust);
+      xhr.timeout = 15000;
+      xhr.onload = () => resolve("ok:status=" + xhr.status);
+      xhr.onerror = () => resolve("fail:onerror");
+      xhr.ontimeout = () => resolve("fail:timeout");
+      xhr.send();
+    } catch (e) {
+      resolve("fail:" + (e && e.name ? e.name : "") + " " + (e && e.message ? e.message : ""));
+    }
+  });
+
+  return probe;
 }

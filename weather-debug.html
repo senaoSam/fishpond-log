@@ -259,6 +259,8 @@
           dev ? (dev === "mobile" ? "📱 手機" : "💻 電腦") : null,
           r.temp != null ? `溫度 <b>${escapeHtml(String(r.temp))}°C</b>` : null,
           r.errorName ? `err=${escapeHtml(r.errorName)}` : null,
+          r.probeNoCors ? `no-cors探針=${escapeHtml(r.probeNoCors)}` : null,
+          r.probeXhr ? `XHR探針=${escapeHtml(r.probeXhr)}` : null,
           r.protocol ? `${escapeHtml(r.protocol)}` : null,
           r.swControlled === true ? `SW介入` : null,
           r.standalone === true ? `PWA` : null,

@@ -902,6 +902,8 @@ function logWeatherDebug(recordId, d) {
       ok: d.ok,
       reason: d.reason,
       errorName: d.errorName || "",        // TypeError=連線/CORS/混合內容;SyntaxError=JSON 壞
+      probeNoCors: d.probe ? d.probe.noCors : "",   // [DEBUG-TEMP] no-cors 探針:ok→CORS/header 被擋
+      probeXhr: d.probe ? d.probe.xhr : "",         // [DEBUG-TEMP] XHR 探針:ok→fetch/SW 攔截層問題
       httpStatus: d.httpStatus,
       stationFound: d.stationFound,
       stationCount: d.stationCount,
