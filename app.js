@@ -1925,23 +1925,27 @@ function buildExportData(records, { byMonth = false } = {}) {
   Object.entries(byFeed).sort((a, b) => b[1] - a[1]).forEach(([k, v]) => summary.push({ A: k, B: v }));
   summary.push({ A: "合計", B: total });
 
-  // 各池塘飼料明細:每池列出各飼料包數,再附該池小計(與統計頁的明細卡同源)
-  const pondFeed = {};   // { 池名: { total, feeds:{飼料名:包數} } }
+  // 各池塘飼料明細:每池列出各飼料包數 + 小計(與統計頁的明細卡同源)。
+  // 獨立成「各池塘明細」工作表/分頁,不再塞進「統計」表(見 pondFeedSheet)。
+  // key 用 pondId;label 用 pondLabel(含群組,如「民雄(南區)」),與統計頁卡片一致。
+  const pondFeed = {};   // { pondId: { label, total, feeds:{飼料名:包數} } }
   for (const r of recs) {
     const b = Number(r.bags) || 0;
-    const pondNm = pondName(r.pondId);
     const feedNm = feedName(r.feedNoId) || "(未填)";
-    const e = (pondFeed[pondNm] ||= { total: 0, feeds: {} });
+    const e = (pondFeed[r.pondId] ||= { label: pondLabel(r.pondId), total: 0, feeds: {} });
     e.total += b;
     e.feeds[feedNm] = (e.feeds[feedNm] || 0) + b;
   }
-  summary.push({ A: "", B: "" });
-  summary.push({ A: "各池塘飼料明細", B: "" });
-  Object.entries(pondFeed).sort((a, b) => b[1].total - a[1].total).forEach(([pondNm, info]) => {
+  // Excel 用:每池一區塊(池名(群組)標題→各飼料逐行→小計),區塊間空一行,模擬卡片堆疊。
+  const pondFeedSheet = [];
+  Object.values(pondFeed).sort((a, b) => b.total - a.total).forEach((info, idx) => {
+    if (idx > 0) pondFeedSheet.push({ A: "", B: "" });   // 區塊間空行
+    pondFeedSheet.push({ A: info.label, B: "" });         // 池名(群組)(區塊標題)
     Object.entries(info.feeds).sort((a, b) => b[1] - a[1])
-      .forEach(([f, v]) => summary.push({ A: `${pondNm} - ${f}`, B: v }));
-    summary.push({ A: `${pondNm} 小計`, B: info.total });
+      .forEach(([f, v]) => pondFeedSheet.push({ A: `　${f}`, B: v }));   // 全形空格縮排
+    pondFeedSheet.push({ A: "　小計", B: info.total });
   });
+  if (!pondFeedSheet.length) pondFeedSheet.push({ A: "(無資料)", B: "" });
 
   // 工作表 3:分類統計(以標籤為視角;一筆記錄計入其池塘的每個標籤)
   const byTag = {};
@@ -1972,7 +1976,25 @@ function buildExportData(records, { byMonth = false } = {}) {
     monthRows.push({ "月份": "合計", "總包數": total, "筆數": recs.length });
   }
 
-  return { detail, summary, tagSummary, monthRows };
+  return { detail, summary, tagSummary, monthRows, pondFeed, pondFeedSheet };
+}
+
+// 各池塘飼料明細的卡片 HTML(與統計頁的明細卡同款樣式 .pf-card)。
+// pondFeed:{ pondId: { label, total, feeds:{飼料名:包數} } }。label 含群組。供匯出預覽用。
+function pondFeedCardsHtml(pondFeed) {
+  const entries = Object.values(pondFeed || {}).sort((a, b) => b.total - a.total);
+  if (!entries.length) return '<p class="hint">(無資料)</p>';
+  const cards = entries.map((info) => {
+    const feedLines = Object.entries(info.feeds).sort((a, b) => b[1] - a[1])
+      .map(([f, v]) => `<div class="pf-feed"><span>${escapeHtml(f)}</span><span class="num">${fmt(v)}包</span></div>`).join("");
+    return `
+      <div class="pf-card">
+        <div class="pf-pond">${escapeHtml(info.label)}</div>
+        ${feedLines}
+        <div class="pf-total"><span>總共</span><span class="num">${fmt(info.total)}包</span></div>
+      </div>`;
+  }).join("");
+  return `<div class="pf-cards">${cards}</div>`;
 }
 
 // 通用匯出:records=要匯的紀錄,label=檔名標籤,byMonth=是否附「月分總覽」表
@@ -1980,7 +2002,7 @@ function exportToExcel(records, label, { byMonth = false } = {}) {
   if (typeof XLSX === "undefined") { showToast("Excel 函式庫尚未載入,請檢查網路後重試", true); return; }
   const data = buildExportData(records, { byMonth });
   if (!data) { showToast("這個範圍沒有資料可匯出", true); return; }
-  const { detail, summary, tagSummary, monthRows } = data;
+  const { detail, summary, tagSummary, monthRows, pondFeedSheet } = data;
 
   const wb = XLSX.utils.book_new();
   const wsDetail = XLSX.utils.json_to_sheet(detail);
@@ -1990,6 +2012,11 @@ function exportToExcel(records, label, { byMonth = false } = {}) {
   const wsSum = XLSX.utils.json_to_sheet(summary, { skipHeader: true });
   wsSum["!cols"] = [{ wch: 18 }, { wch: 10 }];
   XLSX.utils.book_append_sheet(wb, wsSum, "統計");
+
+  // 各池塘明細:每池一區塊、空行隔開(卡片式堆疊)
+  const wsPondFeed = XLSX.utils.json_to_sheet(pondFeedSheet, { skipHeader: true });
+  wsPondFeed["!cols"] = [{ wch: 18 }, { wch: 10 }];
+  XLSX.utils.book_append_sheet(wb, wsPondFeed, "各池塘明細");
 
   const wsTag = XLSX.utils.json_to_sheet(tagSummary, { skipHeader: true });
   wsTag["!cols"] = [{ wch: 18 }, { wch: 10 }];
@@ -2078,12 +2105,13 @@ function openExportPreview(data, records, label, { byMonth = false } = {}) {
   // 其他分頁固定用全部資料(只重算一次)
   const staticSheets = {
     "統計": rowsToTable(data.summary, { headerless: true, rowClass: summaryRowClass }),
+    "各池塘明細": pondFeedCardsHtml(data.pondFeed),   // 卡片樣式,與統計頁同款
     "群組統計": rowsToTable(data.tagSummary, { headerless: true, rowClass: summaryRowClass }),
     "月分總覽": data.monthRows
       ? rowsToTable(data.monthRows, { rowClass: (r) => (r["月份"] === "合計" ? "row-total" : "") })
       : null,
   };
-  const sheetNames = ["明細", "統計", "群組統計"].concat(data.monthRows ? ["月分總覽"] : []);
+  const sheetNames = ["明細", "統計", "各池塘明細", "群組統計"].concat(data.monthRows ? ["月分總覽"] : []);
 
   // 取得篩選後的紀錄與明細表 HTML
   const filteredRecords = () => applyPreviewFilters(records, sel);
