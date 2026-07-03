@@ -1,0 +1,1636 @@
+{
+ "exportedAt": "2026-07-03T15:18:47.886Z",
+ "recordCount": 92,
+ "options": {
+  "disinfectants": [
+   {
+    "id": "4b71c4df-6dd3-47fd-afba-947727a0131d",
+    "name": "二氧化氯10%"
+   },
+   {
+    "name": "二氧化氯50%",
+    "id": "1ae8f0a8-8733-40a0-a60d-c15155317768"
+   },
+   {
+    "name": "三氯20G",
+    "id": "97c57509-eb39-4806-a1b6-a3752b0dc583"
+   },
+   {
+    "id": "5fc331c8-7a6e-460d-a900-8f8376159b0b",
+    "name": "三氯90%"
+   }
+  ],
+  "pondTags": {
+   "dbe1c670-42e7-4788-9d39-71e3b0c659bd": [
+    "文安"
+   ],
+   "df4c7739-b5a4-4a1d-a0a2-53010f33f118": [
+    "龍雲場"
+   ],
+   "af57b1a5-ff09-41a4-8da8-87d46b112888": [
+    "文安"
+   ],
+   "8de70ab2-5802-42e3-ba93-506779b03ec0": [
+    "文安"
+   ],
+   "99c07a62-f6c0-475a-8ef1-fbac34e1e733": [
+    "文安"
+   ],
+   "a3e88e2c-0e56-4eb1-9044-d2946cc635c8": [
+    "龍雲場"
+   ],
+   "e2d4aedf-fa31-4b2f-a9c0-391a9f3cbbf5": [
+    "文安"
+   ],
+   "a5e5e91f-9756-452f-b93e-8a73ef48ebd4": [
+    "文安"
+   ],
+   "6be357aa-4540-4ec8-93b6-ee515c840722": [
+    "文安"
+   ]
+  },
+  "ponds": [
+   {
+    "id": "99c07a62-f6c0-475a-8ef1-fbac34e1e733",
+    "name": "文安1池"
+   },
+   {
+    "name": "文安2池",
+    "id": "af57b1a5-ff09-41a4-8da8-87d46b112888"
+   },
+   {
+    "id": "8de70ab2-5802-42e3-ba93-506779b03ec0",
+    "name": "文安3池"
+   },
+   {
+    "name": "文安4池",
+    "id": "e2d4aedf-fa31-4b2f-a9c0-391a9f3cbbf5"
+   },
+   {
+    "name": "文安5池",
+    "id": "6be357aa-4540-4ec8-93b6-ee515c840722"
+   },
+   {
+    "name": "文安6池",
+    "id": "a5e5e91f-9756-452f-b93e-8a73ef48ebd4"
+   },
+   {
+    "id": "dbe1c670-42e7-4788-9d39-71e3b0c659bd",
+    "name": "文安7池"
+   },
+   {
+    "name": "北",
+    "id": "a3e88e2c-0e56-4eb1-9044-d2946cc635c8"
+   },
+   {
+    "name": "南",
+    "id": "df4c7739-b5a4-4a1d-a0a2-53010f33f118"
+   }
+  ],
+  "mixes": [
+   {
+    "name": "安蒙20%",
+    "id": "51347066-8803-4bf6-8a5c-23cd02d725a8"
+   },
+   {
+    "name": "安蒙50%",
+    "id": "3476e60c-2560-4d96-97e9-8a1ddd75265d"
+   },
+   {
+    "name": "弗洛得",
+    "id": "e3b3350c-56c5-4ead-8a5c-87deb50f06ed"
+   },
+   {
+    "id": "b97f9753-448e-4fe0-8351-ef35de585e20",
+    "name": "OTC"
+   }
+  ],
+  "tags": [
+   "龍雲場",
+   "文安",
+   "鹽埕"
+  ],
+  "feedNos": [
+   {
+    "name": "0.8號",
+    "id": "f356172b-de5d-4157-a170-45bf56cb8882"
+   },
+   {
+    "id": "a4768907-d2a1-421d-a977-1fea0b36fdbd",
+    "name": "000號"
+   },
+   {
+    "id": "61814195-067f-4e52-b0c1-94d6d852b9a4",
+    "name": "00號"
+   },
+   {
+    "id": "8cbadfe0-c66b-46d1-ad76-085501af437d",
+    "name": "0號"
+   },
+   {
+    "id": "7e41834f-8616-439a-b405-4d80ba553088",
+    "name": "1號"
+   },
+   {
+    "name": "2號",
+    "id": "3b6c5cd2-9147-4a8e-b778-348b3c0cace6"
+   },
+   {
+    "name": "3號",
+    "id": "da6384b6-601b-45e3-973a-ce0db50e5037"
+   },
+   {
+    "name": "4號",
+    "id": "ebfd3a3d-2ce2-4821-a450-32200b1aa97e"
+   },
+   {
+    "name": "5號",
+    "id": "7ae47c01-14a8-4a65-b0db-39b8995e5b23"
+   },
+   {
+    "id": "0a30e259-612e-48eb-99a6-0fc127835be6",
+    "name": "6號"
+   },
+   {
+    "id": "826d9a86-a63b-4d16-bdbf-4950d0fc4897",
+    "name": "7號"
+   }
+  ]
+ },
+ "records": [
+  {
+   "id": "gGvVfuCoQijepP9q3cYt",
+   "pondId": "df4c7739-b5a4-4a1d-a0a2-53010f33f118",
+   "bags": 1,
+   "mixId": "",
+   "createdAt": "2026-07-03T14:43:56.204Z",
+   "note": "",
+   "disinfectantId": "",
+   "date": "2026-06-08",
+   "feedNoId": "a4768907-d2a1-421d-a977-1fea0b36fdbd",
+   "weather": {
+    "stationName": "文安",
+    "obsTime": "2026-07-03T22:00:00+08:00",
+    "pending": false,
+    "temp": 30,
+    "station": "C0V870"
+   },
+   "period": "morning"
+  },
+  {
+   "id": "gkspXZRyxVDldn7cjW0j",
+   "date": "2026-06-08",
+   "disinfectantId": "",
+   "bags": 1,
+   "createdAt": "2026-07-03T14:43:02.781Z",
+   "note": "",
+   "mixId": "",
+   "pondId": "a3e88e2c-0e56-4eb1-9044-d2946cc635c8",
+   "period": "morning",
+   "weather": {
+    "pending": false,
+    "stationName": "文安",
+    "obsTime": "2026-07-03T22:00:00+08:00",
+    "station": "C0V870",
+    "temp": 30
+   },
+   "feedNoId": "a4768907-d2a1-421d-a977-1fea0b36fdbd"
+  },
+  {
+   "id": "9ZeoUQu4a2RQa0DPP35K",
+   "weather": {
+    "pending": false,
+    "stationName": "文安",
+    "obsTime": "2026-07-03T22:00:00+08:00",
+    "station": "C0V870",
+    "temp": 30
+   },
+   "feedNoId": "61814195-067f-4e52-b0c1-94d6d852b9a4",
+   "period": "morning",
+   "bags": 1,
+   "mixId": "",
+   "createdAt": "2026-07-03T14:44:01.733Z",
+   "note": "",
+   "pondId": "df4c7739-b5a4-4a1d-a0a2-53010f33f118",
+   "date": "2026-06-12",
+   "disinfectantId": ""
+  },
+  {
+   "id": "ippQgKT14WpLtsAarWA8",
+   "weather": {
+    "stationName": "文安",
+    "obsTime": "2026-07-03T22:00:00+08:00",
+    "pending": false,
+    "temp": 30,
+    "station": "C0V870"
+   },
+   "feedNoId": "a4768907-d2a1-421d-a977-1fea0b36fdbd",
+   "period": "morning",
+   "createdAt": "2026-07-03T14:43:09.114Z",
+   "note": "",
+   "mixId": "",
+   "bags": 1,
+   "pondId": "a3e88e2c-0e56-4eb1-9044-d2946cc635c8",
+   "date": "2026-06-12",
+   "disinfectantId": ""
+  },
+  {
+   "id": "5Bdg5QuzMxKAaBJqut2U",
+   "date": "2026-06-13",
+   "disinfectantId": "",
+   "createdAt": "2026-07-03T14:44:05.333Z",
+   "note": "",
+   "mixId": "",
+   "bags": 1,
+   "pondId": "df4c7739-b5a4-4a1d-a0a2-53010f33f118",
+   "period": "morning",
+   "weather": {
+    "station": "C0V870",
+    "temp": 30,
+    "pending": false,
+    "obsTime": "2026-07-03T22:00:00+08:00",
+    "stationName": "文安"
+   },
+   "feedNoId": "61814195-067f-4e52-b0c1-94d6d852b9a4"
+  },
+  {
+   "id": "EyFUxFhX90e5zjC9o3nI",
+   "feedNoId": "61814195-067f-4e52-b0c1-94d6d852b9a4",
+   "weather": {
+    "stationName": "文安",
+    "obsTime": "2026-07-03T22:00:00+08:00",
+    "pending": false,
+    "temp": 30,
+    "station": "C0V870"
+   },
+   "period": "morning",
+   "pondId": "a3e88e2c-0e56-4eb1-9044-d2946cc635c8",
+   "bags": 1,
+   "createdAt": "2026-07-03T14:43:17.899Z",
+   "note": "",
+   "mixId": "",
+   "disinfectantId": "",
+   "date": "2026-06-15"
+  },
+  {
+   "id": "D4wLFgyqyAcwacc34tju",
+   "pondId": "df4c7739-b5a4-4a1d-a0a2-53010f33f118",
+   "createdAt": "2026-07-03T14:44:09.692Z",
+   "note": "",
+   "mixId": "",
+   "bags": 1,
+   "disinfectantId": "",
+   "date": "2026-06-18",
+   "feedNoId": "8cbadfe0-c66b-46d1-ad76-085501af437d",
+   "weather": {
+    "obsTime": "2026-07-03T22:00:00+08:00",
+    "stationName": "文安",
+    "pending": false,
+    "temp": 30,
+    "station": "C0V870"
+   },
+   "period": "morning"
+  },
+  {
+   "id": "vlpSpx7Wa5HNa4Z6aUrO",
+   "weather": {
+    "pending": false,
+    "obsTime": "2026-07-03T22:00:00+08:00",
+    "stationName": "文安",
+    "station": "C0V870",
+    "temp": 30
+   },
+   "feedNoId": "61814195-067f-4e52-b0c1-94d6d852b9a4",
+   "period": "morning",
+   "bags": 1,
+   "createdAt": "2026-07-03T14:43:20.942Z",
+   "note": "",
+   "mixId": "",
+   "pondId": "a3e88e2c-0e56-4eb1-9044-d2946cc635c8",
+   "date": "2026-06-18",
+   "disinfectantId": ""
+  },
+  {
+   "id": "Y5mXziVlMTUWVnIXJm0A",
+   "feedNoId": "8cbadfe0-c66b-46d1-ad76-085501af437d",
+   "weather": {
+    "pending": false,
+    "stationName": "文安",
+    "obsTime": "2026-07-03T22:00:00+08:00",
+    "station": "C0V870",
+    "temp": 30
+   },
+   "period": "morning",
+   "pondId": "df4c7739-b5a4-4a1d-a0a2-53010f33f118",
+   "createdAt": "2026-07-03T14:44:13.451Z",
+   "note": "",
+   "mixId": "",
+   "bags": 1,
+   "disinfectantId": "",
+   "date": "2026-06-20"
+  },
+  {
+   "id": "zy6b8MGlEgg257eDzqDx",
+   "weather": {
+    "station": "C0V870",
+    "temp": 30,
+    "pending": false,
+    "obsTime": "2026-07-03T22:00:00+08:00",
+    "stationName": "文安"
+   },
+   "feedNoId": "61814195-067f-4e52-b0c1-94d6d852b9a4",
+   "period": "morning",
+   "bags": 1,
+   "createdAt": "2026-07-03T14:43:26.045Z",
+   "note": "",
+   "mixId": "",
+   "pondId": "a3e88e2c-0e56-4eb1-9044-d2946cc635c8",
+   "date": "2026-06-21",
+   "disinfectantId": ""
+  },
+  {
+   "id": "wmPiDOlDggclTeZJEdLG",
+   "date": "2026-06-22",
+   "disinfectantId": "",
+   "mixId": "",
+   "createdAt": "2026-07-03T14:44:16.619Z",
+   "note": "",
+   "bags": 1,
+   "pondId": "df4c7739-b5a4-4a1d-a0a2-53010f33f118",
+   "period": "morning",
+   "weather": {
+    "temp": 30,
+    "station": "C0V870",
+    "stationName": "文安",
+    "obsTime": "2026-07-03T22:00:00+08:00",
+    "pending": false
+   },
+   "feedNoId": "8cbadfe0-c66b-46d1-ad76-085501af437d"
+  },
+  {
+   "id": "cwhUwXNyPrHNEva5eFtD",
+   "feedNoId": "8cbadfe0-c66b-46d1-ad76-085501af437d",
+   "weather": {
+    "station": "C0V870",
+    "temp": 30,
+    "pending": false,
+    "obsTime": "2026-07-03T22:00:00+08:00",
+    "stationName": "文安"
+   },
+   "period": "morning",
+   "pondId": "df4c7739-b5a4-4a1d-a0a2-53010f33f118",
+   "note": "",
+   "createdAt": "2026-07-03T14:44:19.642Z",
+   "mixId": "",
+   "bags": 1,
+   "disinfectantId": "",
+   "date": "2026-06-24"
+  },
+  {
+   "id": "oufSUE9mX3QGLozeyMxR",
+   "disinfectantId": "",
+   "date": "2026-06-24",
+   "pondId": "a3e88e2c-0e56-4eb1-9044-d2946cc635c8",
+   "createdAt": "2026-07-03T14:43:34.763Z",
+   "note": "",
+   "mixId": "",
+   "bags": 1,
+   "period": "morning",
+   "feedNoId": "8cbadfe0-c66b-46d1-ad76-085501af437d",
+   "weather": {
+    "station": "C0V870",
+    "temp": 30,
+    "pending": false,
+    "stationName": "文安",
+    "obsTime": "2026-07-03T22:00:00+08:00"
+   }
+  },
+  {
+   "id": "aTkTdBuIbaeGhJmTdKyJ",
+   "disinfectantId": "",
+   "date": "2026-06-25",
+   "pondId": "e2d4aedf-fa31-4b2f-a9c0-391a9f3cbbf5",
+   "mixId": "",
+   "createdAt": "2026-06-26T12:09:39.056Z",
+   "note": "",
+   "bags": 3,
+   "period": "afternoon",
+   "feedNoId": "3b6c5cd2-9147-4a8e-b778-348b3c0cace6"
+  },
+  {
+   "id": "bEaw72puwcmhJATK2Q07",
+   "disinfectantId": "",
+   "date": "2026-06-25",
+   "pondId": "8de70ab2-5802-42e3-ba93-506779b03ec0",
+   "bags": 3,
+   "createdAt": "2026-06-24T23:27:48.866Z",
+   "mixId": "",
+   "note": "",
+   "period": "morning",
+   "feedNoId": "ebfd3a3d-2ce2-4821-a450-32200b1aa97e"
+  },
+  {
+   "id": "ssdCppWaJadHpZnPOnm9",
+   "feedNoId": "0a30e259-612e-48eb-99a6-0fc127835be6",
+   "period": "afternoon",
+   "pondId": "6be357aa-4540-4ec8-93b6-ee515c840722",
+   "createdAt": "2026-06-26T12:18:00.018Z",
+   "note": "",
+   "mixId": "51347066-8803-4bf6-8a5c-23cd02d725a8",
+   "bags": 2,
+   "disinfectantId": "1ae8f0a8-8733-40a0-a60d-c15155317768",
+   "date": "2026-06-25"
+  },
+  {
+   "id": "WxbjLZ0Dt49qhDiGFrUY",
+   "disinfectantId": "",
+   "date": "2026-06-25",
+   "pondId": "a3e88e2c-0e56-4eb1-9044-d2946cc635c8",
+   "mixId": "",
+   "note": "",
+   "createdAt": "2026-07-03T14:47:44.074Z",
+   "bags": 1,
+   "period": "morning",
+   "feedNoId": "8cbadfe0-c66b-46d1-ad76-085501af437d",
+   "weather": {
+    "temp": 30,
+    "station": "C0V870",
+    "obsTime": "2026-07-03T22:00:00+08:00",
+    "stationName": "文安",
+    "pending": false
+   }
+  },
+  {
+   "id": "4ZZJgUH451HKcqfUuZ9H",
+   "date": "2026-06-26",
+   "disinfectantId": "",
+   "createdAt": "2026-06-26T12:47:52.946Z",
+   "mixId": "",
+   "note": "",
+   "bags": 6,
+   "pondId": "dbe1c670-42e7-4788-9d39-71e3b0c659bd",
+   "period": "afternoon",
+   "feedNoId": "0a30e259-612e-48eb-99a6-0fc127835be6"
+  },
+  {
+   "id": "epn2oOUkiuQWzl6mdzA5",
+   "period": "morning",
+   "feedNoId": "0a30e259-612e-48eb-99a6-0fc127835be6",
+   "disinfectantId": "",
+   "date": "2026-06-26",
+   "pondId": "99c07a62-f6c0-475a-8ef1-fbac34e1e733",
+   "mixId": "",
+   "createdAt": "2026-06-26T02:41:42.404Z",
+   "note": "",
+   "bags": 3
+  },
+  {
+   "id": "NsVZMpdPZ7vicN7dwYD8",
+   "period": "morning",
+   "feedNoId": "3b6c5cd2-9147-4a8e-b778-348b3c0cace6",
+   "date": "2026-06-26",
+   "disinfectantId": "",
+   "bags": 3,
+   "note": "",
+   "mixId": "",
+   "createdAt": "2026-06-26T09:15:26.005Z",
+   "pondId": "e2d4aedf-fa31-4b2f-a9c0-391a9f3cbbf5",
+   "updatedAt": "2026-06-26T22:41:01.228Z"
+  },
+  {
+   "id": "pLO8l0NaorS68gHjv7uT",
+   "pondId": "a5e5e91f-9756-452f-b93e-8a73ef48ebd4",
+   "mixId": "3476e60c-2560-4d96-97e9-8a1ddd75265d",
+   "createdAt": "2026-06-26T02:35:24.670Z",
+   "note": "",
+   "bags": 4,
+   "disinfectantId": "",
+   "date": "2026-06-26",
+   "feedNoId": "0a30e259-612e-48eb-99a6-0fc127835be6",
+   "period": "morning"
+  },
+  {
+   "id": "T6FOrLJYE56kqroEP2mE",
+   "feedNoId": "ebfd3a3d-2ce2-4821-a450-32200b1aa97e",
+   "period": "morning",
+   "pondId": "8de70ab2-5802-42e3-ba93-506779b03ec0",
+   "bags": 3,
+   "createdAt": "2026-06-26T12:06:18.603Z",
+   "mixId": "",
+   "note": "",
+   "disinfectantId": "",
+   "date": "2026-06-26"
+  },
+  {
+   "id": "xxkwOfXldumIWzGoYR8q",
+   "disinfectantId": "",
+   "date": "2026-06-26",
+   "pondId": "dbe1c670-42e7-4788-9d39-71e3b0c659bd",
+   "mixId": "",
+   "createdAt": "2026-06-26T09:15:33.513Z",
+   "note": "",
+   "bags": 3,
+   "period": "morning",
+   "feedNoId": "0a30e259-612e-48eb-99a6-0fc127835be6"
+  },
+  {
+   "id": "12WgTcC6L4ETBSmCIfdf",
+   "period": "afternoon",
+   "feedNoId": "0a30e259-612e-48eb-99a6-0fc127835be6",
+   "date": "2026-06-27",
+   "disinfectantId": "",
+   "bags": 4,
+   "note": "",
+   "createdAt": "2026-06-27T09:22:29.347Z",
+   "mixId": "3476e60c-2560-4d96-97e9-8a1ddd75265d",
+   "pondId": "a5e5e91f-9756-452f-b93e-8a73ef48ebd4",
+   "updatedAt": "2026-06-27T09:32:25.019Z"
+  },
+  {
+   "id": "1LAdg1ZmrGjDZJf55RBj",
+   "pondId": "6be357aa-4540-4ec8-93b6-ee515c840722",
+   "updatedAt": "2026-07-01T14:40:02.450Z",
+   "bags": 4,
+   "createdAt": "2026-06-27T10:48:40.207Z",
+   "note": "",
+   "mixId": "",
+   "disinfectantId": "",
+   "date": "2026-06-27",
+   "feedNoId": "0a30e259-612e-48eb-99a6-0fc127835be6",
+   "period": "afternoon"
+  },
+  {
+   "id": "5ihuK2llKPPX1ErP4aeJ",
+   "pondId": "e2d4aedf-fa31-4b2f-a9c0-391a9f3cbbf5",
+   "bags": 3,
+   "createdAt": "2026-06-27T11:54:45.133Z",
+   "note": "",
+   "mixId": "",
+   "disinfectantId": "",
+   "date": "2026-06-27",
+   "feedNoId": "3b6c5cd2-9147-4a8e-b778-348b3c0cace6",
+   "period": "afternoon"
+  },
+  {
+   "id": "AyluaZJ6jVYTQC4trWV1",
+   "disinfectantId": "",
+   "date": "2026-06-27",
+   "pondId": "dbe1c670-42e7-4788-9d39-71e3b0c659bd",
+   "mixId": "",
+   "createdAt": "2026-06-27T10:47:15.219Z",
+   "note": "",
+   "bags": 4,
+   "period": "afternoon",
+   "feedNoId": "0a30e259-612e-48eb-99a6-0fc127835be6"
+  },
+  {
+   "id": "CpkkRCZ940sNX6F5MAQn",
+   "updatedAt": "2026-06-26T22:41:40.159Z",
+   "pondId": "a5e5e91f-9756-452f-b93e-8a73ef48ebd4",
+   "mixId": "3476e60c-2560-4d96-97e9-8a1ddd75265d",
+   "createdAt": "2026-06-26T22:39:39.457Z",
+   "note": "",
+   "bags": 3,
+   "disinfectantId": "",
+   "date": "2026-06-27",
+   "feedNoId": "0a30e259-612e-48eb-99a6-0fc127835be6",
+   "period": "morning"
+  },
+  {
+   "id": "Dff2VExxYRQs30kiTbYo",
+   "disinfectantId": "",
+   "date": "2026-06-27",
+   "pondId": "99c07a62-f6c0-475a-8ef1-fbac34e1e733",
+   "mixId": "",
+   "note": "",
+   "createdAt": "2026-06-26T22:52:19.873Z",
+   "bags": 1,
+   "period": "morning",
+   "feedNoId": "0a30e259-612e-48eb-99a6-0fc127835be6"
+  },
+  {
+   "id": "JUx3L0t0uhYUBLt0Z69d",
+   "period": "afternoon",
+   "feedNoId": "ebfd3a3d-2ce2-4821-a450-32200b1aa97e",
+   "disinfectantId": "",
+   "date": "2026-06-27",
+   "pondId": "99c07a62-f6c0-475a-8ef1-fbac34e1e733",
+   "bags": 4,
+   "createdAt": "2026-06-27T11:00:05.688Z",
+   "note": "",
+   "mixId": ""
+  },
+  {
+   "id": "LbzcfdYFl9PqNgAp5KMX",
+   "period": "afternoon",
+   "feedNoId": "ebfd3a3d-2ce2-4821-a450-32200b1aa97e",
+   "disinfectantId": "",
+   "date": "2026-06-27",
+   "pondId": "8de70ab2-5802-42e3-ba93-506779b03ec0",
+   "updatedAt": "2026-06-27T11:43:07.109Z",
+   "bags": 6,
+   "createdAt": "2026-06-27T10:54:10.557Z",
+   "note": "",
+   "mixId": ""
+  },
+  {
+   "id": "OxMPro61EXoKwaMTE9li",
+   "feedNoId": "8cbadfe0-c66b-46d1-ad76-085501af437d",
+   "weather": {
+    "temp": 30,
+    "station": "C0V870",
+    "stationName": "文安",
+    "obsTime": "2026-07-03T22:00:00+08:00",
+    "pending": false
+   },
+   "period": "morning",
+   "pondId": "df4c7739-b5a4-4a1d-a0a2-53010f33f118",
+   "bags": 1,
+   "mixId": "",
+   "createdAt": "2026-07-03T14:44:25.167Z",
+   "note": "",
+   "disinfectantId": "",
+   "date": "2026-06-27"
+  },
+  {
+   "id": "UbGvPlfREjZUOQgHFh3L",
+   "date": "2026-06-27",
+   "disinfectantId": "",
+   "bags": 1,
+   "note": "",
+   "createdAt": "2026-07-03T14:43:40.300Z",
+   "mixId": "",
+   "pondId": "a3e88e2c-0e56-4eb1-9044-d2946cc635c8",
+   "period": "morning",
+   "weather": {
+    "stationName": "文安",
+    "obsTime": "2026-07-03T22:00:00+08:00",
+    "pending": false,
+    "temp": 30,
+    "station": "C0V870"
+   },
+   "feedNoId": "8cbadfe0-c66b-46d1-ad76-085501af437d"
+  },
+  {
+   "id": "YCOayhAvf762OTm6JzB4",
+   "period": "afternoon",
+   "feedNoId": "8cbadfe0-c66b-46d1-ad76-085501af437d",
+   "disinfectantId": "",
+   "date": "2026-06-27",
+   "pondId": "af57b1a5-ff09-41a4-8da8-87d46b112888",
+   "bags": 3,
+   "createdAt": "2026-06-27T09:22:56.275Z",
+   "note": "",
+   "mixId": ""
+  },
+  {
+   "id": "BcXGWsBFVsVTiAho7CzV",
+   "pondId": "8de70ab2-5802-42e3-ba93-506779b03ec0",
+   "bags": 3,
+   "createdAt": "2026-06-27T22:38:02.277Z",
+   "note": "",
+   "mixId": "",
+   "disinfectantId": "",
+   "date": "2026-06-28",
+   "feedNoId": "ebfd3a3d-2ce2-4821-a450-32200b1aa97e",
+   "weather": {
+    "pending": false,
+    "obsTime": "2026-06-28T06:00:00+08:00",
+    "stationName": "文安",
+    "station": "C0V870",
+    "temp": 26.8
+   },
+   "period": "morning"
+  },
+  {
+   "id": "G8k9WXcaPdQqG5c7xfcP",
+   "disinfectantId": "",
+   "date": "2026-06-28",
+   "pondId": "dbe1c670-42e7-4788-9d39-71e3b0c659bd",
+   "bags": 4,
+   "createdAt": "2026-06-28T14:20:35.922Z",
+   "note": "",
+   "mixId": "",
+   "period": "afternoon",
+   "feedNoId": "0a30e259-612e-48eb-99a6-0fc127835be6",
+   "weather": {
+    "pending": true
+   }
+  },
+  {
+   "id": "h4N9VMtnRCRmXrunNvHs",
+   "feedNoId": "ebfd3a3d-2ce2-4821-a450-32200b1aa97e",
+   "weather": {
+    "pending": true
+   },
+   "period": "afternoon",
+   "pondId": "8de70ab2-5802-42e3-ba93-506779b03ec0",
+   "bags": 3,
+   "mixId": "",
+   "note": "",
+   "createdAt": "2026-06-28T11:38:16.419Z",
+   "disinfectantId": "",
+   "date": "2026-06-28"
+  },
+  {
+   "id": "msAbx1ps07RFRxTsHYhj",
+   "pondId": "6be357aa-4540-4ec8-93b6-ee515c840722",
+   "bags": 4,
+   "createdAt": "2026-06-28T10:50:58.605Z",
+   "note": "",
+   "mixId": "",
+   "disinfectantId": "",
+   "date": "2026-06-28",
+   "feedNoId": "0a30e259-612e-48eb-99a6-0fc127835be6",
+   "weather": {
+    "pending": true
+   },
+   "period": "afternoon"
+  },
+  {
+   "id": "tsWknWyRfAWq0bqJkbTi",
+   "mixId": "3476e60c-2560-4d96-97e9-8a1ddd75265d",
+   "note": "",
+   "createdAt": "2026-06-27T22:56:48.365Z",
+   "bags": 6,
+   "updatedAt": "2026-06-28T14:20:14.764Z",
+   "pondId": "dbe1c670-42e7-4788-9d39-71e3b0c659bd",
+   "date": "2026-06-28",
+   "disinfectantId": "",
+   "weather": {
+    "pending": false,
+    "stationName": "文安",
+    "obsTime": "2026-06-28T06:00:00+08:00",
+    "station": "C0V870",
+    "temp": 26.8
+   },
+   "feedNoId": "0a30e259-612e-48eb-99a6-0fc127835be6",
+   "period": "morning"
+  },
+  {
+   "id": "uXzahxQoUI5T7FOngk7M",
+   "bags": 4,
+   "mixId": "",
+   "note": "",
+   "createdAt": "2026-06-28T11:38:26.202Z",
+   "pondId": "e2d4aedf-fa31-4b2f-a9c0-391a9f3cbbf5",
+   "date": "2026-06-28",
+   "disinfectantId": "",
+   "weather": {
+    "pending": true
+   },
+   "feedNoId": "3b6c5cd2-9147-4a8e-b778-348b3c0cace6",
+   "period": "afternoon"
+  },
+  {
+   "id": "dQX41CLdiKGUTfTIfVqR",
+   "feedNoId": "0a30e259-612e-48eb-99a6-0fc127835be6",
+   "weather": {
+    "temp": 29.6,
+    "station": "C0V870",
+    "stationName": "文安",
+    "obsTime": "2026-06-29T19:00:00+08:00",
+    "pending": false
+   },
+   "period": "morning",
+   "updatedAt": "2026-06-29T11:27:54.505Z",
+   "pondId": "a5e5e91f-9756-452f-b93e-8a73ef48ebd4",
+   "note": "",
+   "createdAt": "2026-06-29T11:26:44.770Z",
+   "mixId": "3476e60c-2560-4d96-97e9-8a1ddd75265d",
+   "bags": 8,
+   "disinfectantId": "",
+   "date": "2026-06-29"
+  },
+  {
+   "id": "exXv7XRKKHlK5U5rDYEA",
+   "weather": {
+    "pending": true
+   },
+   "feedNoId": "0a30e259-612e-48eb-99a6-0fc127835be6",
+   "period": "morning",
+   "bags": 4,
+   "createdAt": "2026-06-28T23:06:30.082Z",
+   "note": "",
+   "mixId": "3476e60c-2560-4d96-97e9-8a1ddd75265d",
+   "pondId": "6be357aa-4540-4ec8-93b6-ee515c840722",
+   "updatedAt": "2026-07-01T14:39:55.516Z",
+   "date": "2026-06-29",
+   "disinfectantId": ""
+  },
+  {
+   "id": "NIrY5H8EuHacefVL13vz",
+   "pondId": "6be357aa-4540-4ec8-93b6-ee515c840722",
+   "createdAt": "2026-06-29T12:04:02.889Z",
+   "note": "",
+   "mixId": "",
+   "bags": 1,
+   "disinfectantId": "",
+   "date": "2026-06-29",
+   "feedNoId": "0a30e259-612e-48eb-99a6-0fc127835be6",
+   "weather": {
+    "temp": 29.6,
+    "station": "C0V870",
+    "obsTime": "2026-06-29T19:00:00+08:00",
+    "stationName": "文安",
+    "pending": false
+   },
+   "period": "afternoon"
+  },
+  {
+   "id": "qh31CqQvhjkdpLpeVqIM",
+   "feedNoId": "8cbadfe0-c66b-46d1-ad76-085501af437d",
+   "weather": {
+    "obsTime": "2026-07-03T22:00:00+08:00",
+    "stationName": "文安",
+    "pending": false,
+    "temp": 30,
+    "station": "C0V870"
+   },
+   "period": "morning",
+   "pondId": "df4c7739-b5a4-4a1d-a0a2-53010f33f118",
+   "mixId": "",
+   "createdAt": "2026-07-03T14:44:28.107Z",
+   "note": "",
+   "bags": 1,
+   "disinfectantId": "",
+   "date": "2026-06-29"
+  },
+  {
+   "id": "qUQdTJqXH6hgyYv22cZC",
+   "period": "morning",
+   "feedNoId": "8cbadfe0-c66b-46d1-ad76-085501af437d",
+   "weather": {
+    "obsTime": "2026-07-03T22:00:00+08:00",
+    "stationName": "文安",
+    "pending": false,
+    "temp": 30,
+    "station": "C0V870"
+   },
+   "disinfectantId": "",
+   "date": "2026-06-29",
+   "pondId": "a3e88e2c-0e56-4eb1-9044-d2946cc635c8",
+   "bags": 1,
+   "mixId": "",
+   "note": "",
+   "createdAt": "2026-07-03T14:43:43.076Z"
+  },
+  {
+   "id": "rvxt7GUXYByyR8ipctPU",
+   "disinfectantId": "",
+   "date": "2026-06-29",
+   "updatedAt": "2026-06-29T12:03:13.696Z",
+   "pondId": "a5e5e91f-9756-452f-b93e-8a73ef48ebd4",
+   "note": "",
+   "createdAt": "2026-06-29T09:32:22.848Z",
+   "mixId": "3476e60c-2560-4d96-97e9-8a1ddd75265d",
+   "bags": 4,
+   "period": "morning",
+   "feedNoId": "0a30e259-612e-48eb-99a6-0fc127835be6",
+   "weather": {
+    "obsTime": "2026-06-29T17:00:00+08:00",
+    "stationName": "文安",
+    "pending": false,
+    "temp": 30.4,
+    "station": "C0V870"
+   }
+  },
+  {
+   "id": "uc7KyHqHKL2RB8G1kEUF",
+   "weather": {
+    "pending": true
+   },
+   "feedNoId": "0a30e259-612e-48eb-99a6-0fc127835be6",
+   "period": "morning",
+   "bags": 4,
+   "createdAt": "2026-06-28T23:06:22.733Z",
+   "note": "",
+   "mixId": "",
+   "pondId": "dbe1c670-42e7-4788-9d39-71e3b0c659bd",
+   "updatedAt": "2026-07-01T08:30:47.098Z",
+   "date": "2026-06-29",
+   "disinfectantId": ""
+  },
+  {
+   "id": "yegBPNwREcEqjIHEOwLG",
+   "weather": {
+    "pending": true
+   },
+   "feedNoId": "ebfd3a3d-2ce2-4821-a450-32200b1aa97e",
+   "period": "morning",
+   "mixId": "",
+   "createdAt": "2026-06-28T21:58:46.640Z",
+   "note": "",
+   "bags": 3,
+   "pondId": "8de70ab2-5802-42e3-ba93-506779b03ec0",
+   "date": "2026-06-29",
+   "disinfectantId": ""
+  },
+  {
+   "id": "ZAuPQMxcaYH5T2giKDA4",
+   "period": "morning",
+   "feedNoId": "3b6c5cd2-9147-4a8e-b778-348b3c0cace6",
+   "weather": {
+    "pending": true
+   },
+   "disinfectantId": "",
+   "date": "2026-06-29",
+   "pondId": "e2d4aedf-fa31-4b2f-a9c0-391a9f3cbbf5",
+   "bags": 3,
+   "mixId": "3476e60c-2560-4d96-97e9-8a1ddd75265d",
+   "note": "",
+   "createdAt": "2026-06-29T01:29:49.670Z"
+  },
+  {
+   "id": "ZSttgnyrR2OrPnSgSdWM",
+   "period": "afternoon",
+   "feedNoId": "0a30e259-612e-48eb-99a6-0fc127835be6",
+   "weather": {
+    "temp": 29.6,
+    "station": "C0V870",
+    "obsTime": "2026-06-29T19:00:00+08:00",
+    "stationName": "文安",
+    "pending": false
+   },
+   "disinfectantId": "",
+   "date": "2026-06-29",
+   "pondId": "dbe1c670-42e7-4788-9d39-71e3b0c659bd",
+   "bags": 3,
+   "createdAt": "2026-06-29T12:03:47.648Z",
+   "note": "",
+   "mixId": "3476e60c-2560-4d96-97e9-8a1ddd75265d"
+  },
+  {
+   "id": "2Z8twAcXeM3bKhXihdoW",
+   "weather": {
+    "stationName": "文安",
+    "obsTime": "2026-06-30T12:00:00+08:00",
+    "pending": false,
+    "temp": 30.5,
+    "station": "C0V870"
+   },
+   "feedNoId": "0a30e259-612e-48eb-99a6-0fc127835be6",
+   "period": "morning",
+   "mixId": "",
+   "createdAt": "2026-06-30T03:50:17.333Z",
+   "note": "",
+   "bags": 1,
+   "pondId": "99c07a62-f6c0-475a-8ef1-fbac34e1e733",
+   "date": "2026-06-30",
+   "disinfectantId": ""
+  },
+  {
+   "id": "5p4R6aniTpontBqbqw75",
+   "feedNoId": "0a30e259-612e-48eb-99a6-0fc127835be6",
+   "weather": {
+    "pending": false,
+    "obsTime": "2026-06-30T12:00:00+08:00",
+    "stationName": "文安",
+    "station": "C0V870",
+    "temp": 30.5
+   },
+   "period": "morning",
+   "pondId": "a5e5e91f-9756-452f-b93e-8a73ef48ebd4",
+   "createdAt": "2026-06-30T03:50:08.209Z",
+   "note": "",
+   "mixId": "",
+   "bags": 4,
+   "disinfectantId": "",
+   "date": "2026-06-30"
+  },
+  {
+   "id": "BxcQDWYddsw1lIfQRVRS",
+   "updatedAt": "2026-06-30T12:41:18.654Z",
+   "pondId": "6be357aa-4540-4ec8-93b6-ee515c840722",
+   "mixId": "3476e60c-2560-4d96-97e9-8a1ddd75265d",
+   "createdAt": "2026-06-30T12:38:21.865Z",
+   "note": "",
+   "bags": 4,
+   "disinfectantId": "",
+   "date": "2026-06-30",
+   "feedNoId": "0a30e259-612e-48eb-99a6-0fc127835be6",
+   "weather": {
+    "pending": true
+   },
+   "period": "afternoon"
+  },
+  {
+   "id": "easie9rULylfbUIZVt7P",
+   "bags": 3,
+   "createdAt": "2026-06-30T12:37:58.823Z",
+   "note": "",
+   "mixId": "",
+   "pondId": "e2d4aedf-fa31-4b2f-a9c0-391a9f3cbbf5",
+   "updatedAt": "2026-06-30T12:38:12.719Z",
+   "date": "2026-06-30",
+   "disinfectantId": "",
+   "weather": {
+    "pending": true
+   },
+   "feedNoId": "3b6c5cd2-9147-4a8e-b778-348b3c0cace6",
+   "period": "afternoon"
+  },
+  {
+   "id": "fwa1YbW5j9WvqSHfu684",
+   "weather": {
+    "obsTime": "2026-07-03T22:00:00+08:00",
+    "stationName": "文安",
+    "pending": false,
+    "temp": 30,
+    "station": "C0V870"
+   },
+   "feedNoId": "8cbadfe0-c66b-46d1-ad76-085501af437d",
+   "period": "morning",
+   "createdAt": "2026-07-03T14:44:31.100Z",
+   "note": "",
+   "mixId": "",
+   "bags": 1,
+   "pondId": "df4c7739-b5a4-4a1d-a0a2-53010f33f118",
+   "date": "2026-06-30",
+   "disinfectantId": ""
+  },
+  {
+   "id": "gbRsE7m7tdrqd7ecTuMa",
+   "createdAt": "2026-06-30T10:58:21.369Z",
+   "note": "",
+   "mixId": "",
+   "bags": 2,
+   "pondId": "8de70ab2-5802-42e3-ba93-506779b03ec0",
+   "date": "2026-06-30",
+   "disinfectantId": "",
+   "weather": {
+    "pending": true
+   },
+   "feedNoId": "ebfd3a3d-2ce2-4821-a450-32200b1aa97e",
+   "period": "afternoon"
+  },
+  {
+   "id": "kehoWXAIJRvE62tAHbZR",
+   "bags": 1,
+   "note": "",
+   "createdAt": "2026-07-03T14:43:45.620Z",
+   "mixId": "",
+   "pondId": "a3e88e2c-0e56-4eb1-9044-d2946cc635c8",
+   "date": "2026-06-30",
+   "disinfectantId": "",
+   "weather": {
+    "pending": false,
+    "obsTime": "2026-07-03T22:00:00+08:00",
+    "stationName": "文安",
+    "station": "C0V870",
+    "temp": 30
+   },
+   "feedNoId": "8cbadfe0-c66b-46d1-ad76-085501af437d",
+   "period": "morning"
+  },
+  {
+   "id": "LbYJBPtmjvtTHDcDuAAV",
+   "weather": {
+    "pending": true
+   },
+   "feedNoId": "ebfd3a3d-2ce2-4821-a450-32200b1aa97e",
+   "period": "morning",
+   "bags": 5,
+   "createdAt": "2026-06-30T21:55:55.579Z",
+   "note": "",
+   "mixId": "",
+   "pondId": "8de70ab2-5802-42e3-ba93-506779b03ec0",
+   "updatedAt": "2026-06-30T22:53:20.853Z",
+   "date": "2026-06-30",
+   "disinfectantId": ""
+  },
+  {
+   "id": "O9YtuKxyAwvewqgpS7aP",
+   "feedNoId": "3b6c5cd2-9147-4a8e-b778-348b3c0cace6",
+   "weather": {
+    "obsTime": "2026-06-30T12:00:00+08:00",
+    "stationName": "文安",
+    "pending": false,
+    "temp": 30.5,
+    "station": "C0V870"
+   },
+   "period": "morning",
+   "pondId": "e2d4aedf-fa31-4b2f-a9c0-391a9f3cbbf5",
+   "updatedAt": "2026-06-30T04:36:26.523Z",
+   "bags": 3,
+   "createdAt": "2026-06-30T03:50:33.677Z",
+   "note": "",
+   "mixId": "",
+   "disinfectantId": "",
+   "date": "2026-06-30"
+  },
+  {
+   "id": "Vqwx8j1SagKzIafnfmuN",
+   "feedNoId": "0a30e259-612e-48eb-99a6-0fc127835be6",
+   "weather": {
+    "pending": true
+   },
+   "period": "afternoon",
+   "pondId": "a5e5e91f-9756-452f-b93e-8a73ef48ebd4",
+   "updatedAt": "2026-06-30T12:41:23.407Z",
+   "bags": 3,
+   "mixId": "3476e60c-2560-4d96-97e9-8a1ddd75265d",
+   "createdAt": "2026-06-30T12:38:30.253Z",
+   "note": "",
+   "disinfectantId": "",
+   "date": "2026-06-30"
+  },
+  {
+   "id": "xHShPdfMwMVTtOugjt7N",
+   "disinfectantId": "",
+   "date": "2026-06-30",
+   "pondId": "af57b1a5-ff09-41a4-8da8-87d46b112888",
+   "bags": 2,
+   "createdAt": "2026-06-30T11:20:30.417Z",
+   "note": "",
+   "mixId": "",
+   "period": "afternoon",
+   "feedNoId": "8cbadfe0-c66b-46d1-ad76-085501af437d",
+   "weather": {
+    "pending": true
+   }
+  },
+  {
+   "id": "XIhxnSZdWFKtWjRJoUmw",
+   "disinfectantId": "",
+   "date": "2026-06-30",
+   "pondId": "dbe1c670-42e7-4788-9d39-71e3b0c659bd",
+   "updatedAt": "2026-06-30T12:41:29.693Z",
+   "bags": 1,
+   "mixId": "3476e60c-2560-4d96-97e9-8a1ddd75265d",
+   "createdAt": "2026-06-30T12:38:40.132Z",
+   "note": "",
+   "period": "afternoon",
+   "feedNoId": "0a30e259-612e-48eb-99a6-0fc127835be6",
+   "weather": {
+    "pending": true
+   }
+  },
+  {
+   "id": "2yAl8MtJ8uK3fiUF9mlm",
+   "period": "afternoon",
+   "weather": {
+    "pending": true
+   },
+   "feedNoId": "3b6c5cd2-9147-4a8e-b778-348b3c0cace6",
+   "date": "2026-07-01",
+   "disinfectantId": "",
+   "createdAt": "2026-07-01T11:56:08.234Z",
+   "note": "",
+   "mixId": "",
+   "bags": 3,
+   "pondId": "e2d4aedf-fa31-4b2f-a9c0-391a9f3cbbf5"
+  },
+  {
+   "id": "6rQP81VDiNwpmmfTInvs",
+   "mixId": "3476e60c-2560-4d96-97e9-8a1ddd75265d",
+   "createdAt": "2026-06-30T23:13:02.869Z",
+   "note": "",
+   "bags": 6,
+   "pondId": "dbe1c670-42e7-4788-9d39-71e3b0c659bd",
+   "date": "2026-07-01",
+   "disinfectantId": "",
+   "weather": {
+    "pending": true
+   },
+   "feedNoId": "0a30e259-612e-48eb-99a6-0fc127835be6",
+   "period": "morning"
+  },
+  {
+   "id": "bbDIi1T2mnlPk7cYLoNE",
+   "feedNoId": "0a30e259-612e-48eb-99a6-0fc127835be6",
+   "weather": {
+    "pending": true
+   },
+   "period": "morning",
+   "updatedAt": "2026-06-30T23:12:45.882Z",
+   "pondId": "6be357aa-4540-4ec8-93b6-ee515c840722",
+   "mixId": "3476e60c-2560-4d96-97e9-8a1ddd75265d",
+   "createdAt": "2026-06-30T23:12:31.569Z",
+   "note": "",
+   "bags": 1,
+   "disinfectantId": "",
+   "date": "2026-07-01"
+  },
+  {
+   "id": "Be1DbZvcwFVarGmrZRT8",
+   "disinfectantId": "",
+   "date": "2026-07-01",
+   "pondId": "a5e5e91f-9756-452f-b93e-8a73ef48ebd4",
+   "updatedAt": "2026-06-30T23:12:40.162Z",
+   "bags": 4,
+   "createdAt": "2026-06-30T23:12:25.982Z",
+   "mixId": "3476e60c-2560-4d96-97e9-8a1ddd75265d",
+   "note": "",
+   "period": "morning",
+   "feedNoId": "0a30e259-612e-48eb-99a6-0fc127835be6",
+   "weather": {
+    "pending": true
+   }
+  },
+  {
+   "id": "FCu6CJibSqrrgm82KK3N",
+   "period": "afternoon",
+   "weather": {
+    "pending": true
+   },
+   "feedNoId": "0a30e259-612e-48eb-99a6-0fc127835be6",
+   "date": "2026-07-01",
+   "disinfectantId": "",
+   "bags": 1,
+   "mixId": "3476e60c-2560-4d96-97e9-8a1ddd75265d",
+   "createdAt": "2026-07-01T11:58:45.511Z",
+   "note": "",
+   "pondId": "a5e5e91f-9756-452f-b93e-8a73ef48ebd4",
+   "updatedAt": "2026-07-01T11:58:56.313Z"
+  },
+  {
+   "id": "mw8YzGdNVpFS3FE5urW0",
+   "disinfectantId": "",
+   "date": "2026-07-01",
+   "pondId": "dbe1c670-42e7-4788-9d39-71e3b0c659bd",
+   "createdAt": "2026-07-01T12:00:13.195Z",
+   "note": "",
+   "mixId": "",
+   "bags": 1,
+   "period": "afternoon",
+   "feedNoId": "0a30e259-612e-48eb-99a6-0fc127835be6",
+   "weather": {
+    "pending": true
+   }
+  },
+  {
+   "id": "MzSyBMqTRxRUFGF0IR15",
+   "pondId": "8de70ab2-5802-42e3-ba93-506779b03ec0",
+   "mixId": "",
+   "createdAt": "2026-07-01T11:41:12.452Z",
+   "note": "",
+   "bags": 3,
+   "disinfectantId": "",
+   "date": "2026-07-01",
+   "feedNoId": "ebfd3a3d-2ce2-4821-a450-32200b1aa97e",
+   "weather": {
+    "pending": true
+   },
+   "period": "afternoon"
+  },
+  {
+   "id": "OI0boECuaHjWmDjEz4g8",
+   "bags": 2,
+   "createdAt": "2026-07-01T11:56:58.110Z",
+   "note": "",
+   "mixId": "",
+   "pondId": "6be357aa-4540-4ec8-93b6-ee515c840722",
+   "date": "2026-07-01",
+   "disinfectantId": "",
+   "weather": {
+    "pending": true
+   },
+   "feedNoId": "0a30e259-612e-48eb-99a6-0fc127835be6",
+   "period": "afternoon"
+  },
+  {
+   "id": "SqLhGTzrFaGv5IygmYpp",
+   "updatedAt": "2026-06-30T23:13:41.713Z",
+   "pondId": "e2d4aedf-fa31-4b2f-a9c0-391a9f3cbbf5",
+   "note": "",
+   "createdAt": "2026-06-30T23:12:10.595Z",
+   "mixId": "",
+   "bags": 2,
+   "disinfectantId": "",
+   "date": "2026-07-01",
+   "feedNoId": "ebfd3a3d-2ce2-4821-a450-32200b1aa97e",
+   "weather": {
+    "pending": true
+   },
+   "period": "morning"
+  },
+  {
+   "id": "UEeAZxlJ5ZKj0qMIR8yR",
+   "feedNoId": "ebfd3a3d-2ce2-4821-a450-32200b1aa97e",
+   "weather": {
+    "pending": true
+   },
+   "period": "morning",
+   "pondId": "8de70ab2-5802-42e3-ba93-506779b03ec0",
+   "bags": 5,
+   "createdAt": "2026-06-30T23:13:56.623Z",
+   "note": "",
+   "mixId": "",
+   "disinfectantId": "",
+   "date": "2026-07-01"
+  },
+  {
+   "id": "vSoPJYwEAvMiDcfpZQUZ",
+   "period": "afternoon",
+   "weather": {
+    "pending": true
+   },
+   "feedNoId": "0a30e259-612e-48eb-99a6-0fc127835be6",
+   "date": "2026-07-01",
+   "disinfectantId": "",
+   "bags": 1,
+   "createdAt": "2026-07-01T11:02:11.336Z",
+   "note": "",
+   "mixId": "",
+   "pondId": "99c07a62-f6c0-475a-8ef1-fbac34e1e733"
+  },
+  {
+   "id": "1RKGdgqTnpJpIUYhgTD1",
+   "feedNoId": "0a30e259-612e-48eb-99a6-0fc127835be6",
+   "weather": {
+    "pending": true
+   },
+   "period": "morning",
+   "pondId": "dbe1c670-42e7-4788-9d39-71e3b0c659bd",
+   "bags": 5,
+   "mixId": "",
+   "note": "",
+   "createdAt": "2026-07-01T23:12:46.186Z",
+   "disinfectantId": "",
+   "date": "2026-07-02"
+  },
+  {
+   "id": "4utYV2JXVbI7LTHcfD47",
+   "feedNoId": "ebfd3a3d-2ce2-4821-a450-32200b1aa97e",
+   "weather": {
+    "pending": false,
+    "stationName": "文安",
+    "obsTime": "2026-07-02T05:00:00+08:00",
+    "station": "C0V870",
+    "temp": 28.3
+   },
+   "period": "morning",
+   "pondId": "8de70ab2-5802-42e3-ba93-506779b03ec0",
+   "updatedAt": "2026-07-01T22:07:20.908Z",
+   "bags": 4,
+   "mixId": "",
+   "note": "",
+   "createdAt": "2026-07-01T21:44:14.938Z",
+   "disinfectantId": "",
+   "date": "2026-07-02"
+  },
+  {
+   "id": "BNOdxjU06OyhhccyNmlr",
+   "note": "",
+   "createdAt": "2026-07-02T12:11:52.383Z",
+   "mixId": "",
+   "bags": 3,
+   "pondId": "8de70ab2-5802-42e3-ba93-506779b03ec0",
+   "date": "2026-07-02",
+   "disinfectantId": "",
+   "weather": {
+    "pending": true
+   },
+   "feedNoId": "ebfd3a3d-2ce2-4821-a450-32200b1aa97e",
+   "period": "afternoon"
+  },
+  {
+   "id": "e3rb7hZrvEWEOqv8cCfG",
+   "disinfectantId": "",
+   "date": "2026-07-02",
+   "pondId": "6be357aa-4540-4ec8-93b6-ee515c840722",
+   "mixId": "",
+   "note": "",
+   "createdAt": "2026-07-02T12:08:46.390Z",
+   "bags": 1,
+   "period": "afternoon",
+   "feedNoId": "0a30e259-612e-48eb-99a6-0fc127835be6",
+   "weather": {
+    "pending": true
+   }
+  },
+  {
+   "id": "eJuxp73UmbcvMWrRUPFF",
+   "pondId": "dbe1c670-42e7-4788-9d39-71e3b0c659bd",
+   "bags": 3,
+   "mixId": "",
+   "note": "",
+   "createdAt": "2026-07-02T12:08:01.369Z",
+   "disinfectantId": "",
+   "date": "2026-07-02",
+   "feedNoId": "0a30e259-612e-48eb-99a6-0fc127835be6",
+   "weather": {
+    "pending": true
+   },
+   "period": "afternoon"
+  },
+  {
+   "id": "f5QTpqDwFqq91EmvI8kK",
+   "feedNoId": "0a30e259-612e-48eb-99a6-0fc127835be6",
+   "weather": {
+    "obsTime": "2026-07-02T05:00:00+08:00",
+    "stationName": "文安",
+    "pending": false,
+    "temp": 28.3,
+    "station": "C0V870"
+   },
+   "period": "morning",
+   "pondId": "a5e5e91f-9756-452f-b93e-8a73ef48ebd4",
+   "updatedAt": "2026-07-01T23:12:37.795Z",
+   "bags": 6,
+   "createdAt": "2026-07-01T21:44:06.173Z",
+   "note": "",
+   "mixId": "3476e60c-2560-4d96-97e9-8a1ddd75265d",
+   "disinfectantId": "",
+   "date": "2026-07-02"
+  },
+  {
+   "id": "IzziZBsagB4COGMwSjn6",
+   "disinfectantId": "",
+   "date": "2026-07-02",
+   "pondId": "e2d4aedf-fa31-4b2f-a9c0-391a9f3cbbf5",
+   "bags": 2,
+   "createdAt": "2026-07-02T12:08:30.839Z",
+   "note": "",
+   "mixId": "",
+   "period": "afternoon",
+   "feedNoId": "3b6c5cd2-9147-4a8e-b778-348b3c0cace6",
+   "weather": {
+    "pending": true
+   }
+  },
+  {
+   "id": "n9xGufTKjCgBm0OVKoS3",
+   "period": "afternoon",
+   "weather": {
+    "pending": true
+   },
+   "feedNoId": "8cbadfe0-c66b-46d1-ad76-085501af437d",
+   "date": "2026-07-02",
+   "disinfectantId": "",
+   "createdAt": "2026-07-02T12:12:10.837Z",
+   "note": "",
+   "mixId": "",
+   "bags": 2,
+   "updatedAt": "2026-07-02T12:21:05.363Z",
+   "pondId": "af57b1a5-ff09-41a4-8da8-87d46b112888"
+  },
+  {
+   "id": "QK1H0km6GUDHdoo64CuF",
+   "period": "afternoon",
+   "weather": {
+    "pending": true
+   },
+   "feedNoId": "0a30e259-612e-48eb-99a6-0fc127835be6",
+   "date": "2026-07-02",
+   "disinfectantId": "",
+   "bags": 1,
+   "createdAt": "2026-07-02T12:14:54.922Z",
+   "note": "",
+   "mixId": "",
+   "pondId": "a5e5e91f-9756-452f-b93e-8a73ef48ebd4"
+  },
+  {
+   "id": "rAcbnAr7vX4v5g2kBIiZ",
+   "date": "2026-07-02",
+   "disinfectantId": "",
+   "mixId": "3476e60c-2560-4d96-97e9-8a1ddd75265d",
+   "createdAt": "2026-07-01T22:15:52.089Z",
+   "note": "",
+   "bags": 4,
+   "pondId": "6be357aa-4540-4ec8-93b6-ee515c840722",
+   "period": "morning",
+   "weather": {
+    "pending": true
+   },
+   "feedNoId": "0a30e259-612e-48eb-99a6-0fc127835be6"
+  },
+  {
+   "id": "5g7JM5Oesm7E3BGeuqai",
+   "weather": {
+    "pending": true
+   },
+   "feedNoId": "0a30e259-612e-48eb-99a6-0fc127835be6",
+   "period": "morning",
+   "bags": 4,
+   "mixId": "",
+   "note": "",
+   "createdAt": "2026-07-02T23:00:42.446Z",
+   "pondId": "6be357aa-4540-4ec8-93b6-ee515c840722",
+   "date": "2026-07-03",
+   "disinfectantId": ""
+  },
+  {
+   "id": "5MI068X7XwO3AkrM0sUv",
+   "feedNoId": "3b6c5cd2-9147-4a8e-b778-348b3c0cace6",
+   "weather": {
+    "pending": true
+   },
+   "period": "morning",
+   "pondId": "e2d4aedf-fa31-4b2f-a9c0-391a9f3cbbf5",
+   "bags": 1,
+   "createdAt": "2026-07-02T23:23:39.565Z",
+   "note": "",
+   "mixId": "",
+   "disinfectantId": "",
+   "date": "2026-07-03"
+  },
+  {
+   "id": "BR94xLTRfbqvHzXU9txP",
+   "feedNoId": "0a30e259-612e-48eb-99a6-0fc127835be6",
+   "weather": {
+    "pending": true
+   },
+   "period": "afternoon",
+   "pondId": "a5e5e91f-9756-452f-b93e-8a73ef48ebd4",
+   "mixId": "",
+   "createdAt": "2026-07-03T12:31:58.096Z",
+   "note": "",
+   "bags": 2,
+   "disinfectantId": "",
+   "date": "2026-07-03"
+  },
+  {
+   "id": "bRAwX2ZAQpNrGkqIFCId",
+   "period": "morning",
+   "weather": {
+    "pending": true
+   },
+   "feedNoId": "0a30e259-612e-48eb-99a6-0fc127835be6",
+   "date": "2026-07-03",
+   "disinfectantId": "",
+   "bags": 4,
+   "mixId": "",
+   "note": "",
+   "createdAt": "2026-07-02T23:00:37.780Z",
+   "pondId": "dbe1c670-42e7-4788-9d39-71e3b0c659bd"
+  },
+  {
+   "id": "iQFhFa0Q9YkmI1dDO6vr",
+   "weather": {
+    "pending": true
+   },
+   "feedNoId": "ebfd3a3d-2ce2-4821-a450-32200b1aa97e",
+   "period": "morning",
+   "mixId": "",
+   "createdAt": "2026-07-02T23:00:50.656Z",
+   "note": "",
+   "bags": 3,
+   "pondId": "8de70ab2-5802-42e3-ba93-506779b03ec0",
+   "date": "2026-07-03",
+   "disinfectantId": ""
+  },
+  {
+   "id": "Kuyjx16k9F80Fi4eIDBm",
+   "pondId": "a5e5e91f-9756-452f-b93e-8a73ef48ebd4",
+   "createdAt": "2026-07-02T22:13:27.015Z",
+   "note": "",
+   "mixId": "",
+   "bags": 5,
+   "disinfectantId": "",
+   "date": "2026-07-03",
+   "feedNoId": "0a30e259-612e-48eb-99a6-0fc127835be6",
+   "weather": {
+    "pending": true
+   },
+   "period": "morning"
+  },
+  {
+   "id": "N0sF87fnXnD82xCNYu3k",
+   "period": "afternoon",
+   "feedNoId": "0a30e259-612e-48eb-99a6-0fc127835be6",
+   "weather": {
+    "pending": true
+   },
+   "disinfectantId": "",
+   "date": "2026-07-03",
+   "pondId": "6be357aa-4540-4ec8-93b6-ee515c840722",
+   "updatedAt": "2026-07-03T12:31:18.780Z",
+   "bags": 1,
+   "note": "",
+   "createdAt": "2026-07-03T12:30:56.341Z",
+   "mixId": ""
+  },
+  {
+   "id": "REi0vAaSq3iebxRn337V",
+   "pondId": "8de70ab2-5802-42e3-ba93-506779b03ec0",
+   "bags": 2,
+   "mixId": "",
+   "note": "",
+   "createdAt": "2026-07-03T12:30:45.035Z",
+   "disinfectantId": "",
+   "date": "2026-07-03",
+   "feedNoId": "ebfd3a3d-2ce2-4821-a450-32200b1aa97e",
+   "weather": {
+    "pending": true
+   },
+   "period": "afternoon"
+  },
+  {
+   "id": "sM3LB5f9zAU1VT50bZL9",
+   "feedNoId": "0a30e259-612e-48eb-99a6-0fc127835be6",
+   "weather": {
+    "pending": true
+   },
+   "period": "afternoon",
+   "pondId": "dbe1c670-42e7-4788-9d39-71e3b0c659bd",
+   "bags": 3,
+   "createdAt": "2026-07-03T11:56:45.741Z",
+   "note": "",
+   "mixId": "",
+   "disinfectantId": "",
+   "date": "2026-07-03"
+  }
+ ]
+}
