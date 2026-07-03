@@ -1,0 +1,91 @@
+name: DB backup
+
+# 每月自動備份:把 Firestore 的 records + settings/options 匯成 JSON,
+# commit 進 repo 的 backups/。兩個目的:
+#   1. 異地備份(防誤刪 / 帳號出事;容量不是問題,見 weather.js 註解)
+#   2. 每月的備份 commit = repo 活動,重置 GitHub「60 天無活動即停用排程」
+#      的計時器,讓氣溫中繼(weather-relay.yml)與本備份自身永遠不會被停用。
+#      (檔案內含 exportedAt,就算當月沒新紀錄也保證有 commit。)
+on:
+  schedule:
+    - cron: "0 0 1 * *"   # 每月 1 號 00:00 UTC = 台灣早上 8 點
+  workflow_dispatch:       # 可手動觸發(測試或臨時備份)
+
+permissions:
+  contents: write
+
+concurrency:
+  group: db-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      # 規則全公開設計(SPEC §6),帶 key 走 REST 即可讀全部資料
+      - name: Dump Firestore to backups/firestore-backup.json
+        run: |
+          node - << 'EOF'
+          const fs = require("fs");
+          const KEY = "AIzaSyByR0BzPrlN8ZGw-ZeS7-2HShw9ZLx7y6Y";
+          const BASE = "https://firestore.googleapis.com/v1/projects/fishpond-log-e4c57/databases/(default)/documents";
+
+          // Firestore REST 值 → 普通 JS 值(遞迴處理 map / array)
+          function dec(v) {
+            if ("stringValue" in v) return v.stringValue;
+            if ("integerValue" in v) return Number(v.integerValue);
+            if ("doubleValue" in v) return v.doubleValue;
+            if ("booleanValue" in v) return v.booleanValue;
+            if ("nullValue" in v) return null;
+            if ("timestampValue" in v) return v.timestampValue;
+            if ("mapValue" in v) return decFields(v.mapValue.fields || {});
+            if ("arrayValue" in v) return (v.arrayValue.values || []).map(dec);
+            return v;
+          }
+          function decFields(fields) {
+            const o = {};
+            for (const k of Object.keys(fields)) o[k] = dec(fields[k]);
+            return o;
+          }
+
+          (async () => {
+            // records:分頁撈全部
+            const records = [];
+            let tok = "";
+            do {
+              const url = `${BASE}/records?pageSize=300&key=${KEY}${tok ? "&pageToken=" + tok : ""}`;
+              const j = await (await fetch(url)).json();
+              for (const d of j.documents || [])
+                records.push({ id: d.name.split("/").pop(), ...decFields(d.fields || {}) });
+              tok = j.nextPageToken || "";
+            } while (tok);
+            // 依日期排序,讓每月備份的 diff 穩定可讀
+            records.sort((a, b) => String(a.date).localeCompare(String(b.date)) || String(a.id).localeCompare(String(b.id)));
+
+            // settings/options:單一文件(池塘/料號/拌料/消毒劑/群組設定)
+            const oj = await (await fetch(`${BASE}/settings/options?key=${KEY}`)).json();
+            const options = oj.fields ? decFields(oj.fields) : null;
+
+            const out = {
+              exportedAt: new Date().toISOString(),
+              recordCount: records.length,
+              options,
+              records
+            };
+            fs.mkdirSync("backups", { recursive: true });
+            fs.writeFileSync("backups/firestore-backup.json", JSON.stringify(out, null, 1));
+            console.log(`records=${records.length}, options=${options ? "ok" : "missing"}`);
+          })();
+          EOF
+
+      - name: Commit backup
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add backups/
+          git commit -m "自動備份 Firestore($(TZ='Asia/Taipei' date '+%Y-%m-%d'))"
+          git push

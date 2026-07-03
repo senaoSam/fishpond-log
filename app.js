@@ -2,7 +2,7 @@
 //  魚塭紀錄 — 主程式
 // ============================================================
 import { firebaseConfig } from "./firebase-config.js";
-import { fetchWeather, fetchWeatherDebug, RETRY_WINDOW_MIN } from "./weather.js";
+import { fetchWeather, RETRY_WINDOW_MIN } from "./weather.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
   getFirestore, collection, doc, addDoc, setDoc, updateDoc, deleteDoc,
@@ -865,19 +865,23 @@ async function onSaveRecord(e) {
 }
 
 // ---------- 天氣:建立當下抓即時氣溫(文安站),抓不到則保持 pending ----------
+// [2026-07-03] App 端補抓「暫時停用」:改由 GitHub Actions(weather-relay.yml)
+// 每 10 分鐘伺服器端補抓 pending 紀錄,與裝置無關,不用等使用者開 App。
+// 這裡保留整套邏輯不刪,靠此開關關閉;日後要恢復「開著 App 就即時補」只需改回 true。
+const APP_SIDE_WEATHER_ATTACH = false;
+
 // 對單一紀錄抓一次即時氣溫;成功就寫回該 doc 的 weather 欄位,失敗保持 pending(不動 doc)。
 // fetchingWeather:正在抓的 recordId。attachWeather 是 async,await fetch 期間 doc 仍是
 // pending,期間若被 onSnapshot 觸發的 retryPendingWeather 再呼叫一次會重複抓(同筆同時間
 // 兩筆 log)。用此 Set 上鎖,確保同一筆同時間只抓一次。
 const fetchingWeather = new Set();
 async function attachWeather(recordId) {
+  if (!APP_SIDE_WEATHER_ATTACH) return;   // 停用:改由 GitHub Actions 伺服器端補抓
   if (!db || !recordId) return;
   if (fetchingWeather.has(recordId)) return;   // 已在抓 → 跳過,避免重複
   fetchingWeather.add(recordId);
   try {
-    const d = await fetchWeatherDebug();
-    logWeatherDebug(recordId, d);   // [DEBUG-TEMP] 每次嘗試都記一筆,觀察完移除
-    const w = d.ok ? d.result : null;
+    const w = await fetchWeather();
     if (!w) return;   // 抓不到:維持 { pending:true },留待之後重試
     await updateDoc(doc(db, "records", recordId), {
       weather: {
@@ -892,37 +896,6 @@ async function attachWeather(recordId) {
   finally { fetchingWeather.delete(recordId); }
 }
 
-// [DEBUG-TEMP] 暫時觀察用:把每次抓溫度的完整結果記到獨立的 weather_debug collection。
-// 不動原本 records 格式。觀察完直接刪掉這個函式、其呼叫處、以及 weather_debug 整個 collection。
-function logWeatherDebug(recordId, d) {
-  if (!db || demoMode) return;
-  try {
-    addDoc(collection(db, "weather_debug"), {
-      recordId,
-      ok: d.ok,
-      reason: d.reason,
-      errorName: d.errorName || "",        // TypeError=連線/CORS/混合內容;SyntaxError=JSON 壞
-      probeNoCors: d.probe ? d.probe.noCors : "",   // [DEBUG-TEMP] no-cors 探針:ok→CORS/header 被擋
-      probeXhr: d.probe ? d.probe.xhr : "",         // [DEBUG-TEMP] XHR 探針:ok→fetch/SW 攔截層問題
-      httpStatus: d.httpStatus,
-      stationFound: d.stationFound,
-      stationCount: d.stationCount,
-      rawTemp: d.rawTemp,
-      obsTime: d.obsTime,
-      temp: d.result ? d.result.temp : null,
-      attemptAt: serverTimestamp(),
-      attemptAtLocal: new Date().toISOString(),
-      ua: navigator.userAgent,
-      // 一眼判讀環境(失敗只在手機/特定環境發生,這幾欄用來分群)
-      device: /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) ? "mobile" : "desktop",
-      protocol: location.protocol,         // https: / http:(混合內容相關)
-      swControlled: !!(navigator.serviceWorker && navigator.serviceWorker.controller), // SW 是否介入此頁
-      standalone: window.matchMedia("(display-mode: standalone)").matches
-        || window.navigator.standalone === true,   // 是否 PWA 獨立視窗(非分頁)
-    }).catch((e) => console.error("[DEBUG-TEMP] log fail", e));
-  } catch (e) { console.error("[DEBUG-TEMP] log fail", e); }
-}
-
 // 仍待補抓的紀錄:weather 還 pending、且建立未超過重試時窗。
 function pendingWeatherTargets() {
   const now = Date.now();
@@ -934,19 +907,13 @@ function pendingWeatherTargets() {
   });
 }
 
-// [DEBUG-TEMP] 是否手機。重抓 pending 只在手機做:避免「手機建立後一小時內開電腦,
-// 電腦替手機補抓成功」污染 weather_debug,讓手機抓不到的問題難以觀察。
-// (判斷規則與 logWeatherDebug 的 device 欄一致。觀察結束後若要恢復電腦補抓,移除此限制即可。)
-function isMobileDevice() {
-  return /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
-}
-
-// 機會式重試:掃「pending 且建立 +RETRY_WINDOW_MIN 分鐘內」的紀錄補抓即時氣溫。
+// 機會式重試:掃「pending 且建立 +RETRY_WINDOW_MIN 分鐘內」的紀錄補抓氣溫。
 // 觸發時機:App 回前景 / 取得焦點 / 同步完成 / 前景定時器(見 ensureWeatherTimer)。
+// (改走 Firestore 中繼後,任何裝置補抓皆可;原 debug 期「電腦不補抓」限制已移除。)
 let retryingWeather = false;
 async function retryPendingWeather() {
+  if (!APP_SIDE_WEATHER_ATTACH) return;   // 停用:補抓改由 GitHub Actions 做
   if (!db || demoMode || retryingWeather) return;
-  if (!isMobileDevice()) return;   // [DEBUG-TEMP] 電腦不補抓,保持 debug 資料乾淨
   const targets = pendingWeatherTargets();
   if (!targets.length) return;
   retryingWeather = true;
@@ -967,8 +934,8 @@ const WEATHER_RETRY_INTERVAL_MS = 60 * 1000;   // 1 分鐘
 let weatherTimer = null;
 function ensureWeatherTimer() {
   const needed =
+    APP_SIDE_WEATHER_ATTACH &&   // 停用時不啟動前景定時器
     !demoMode &&
-    isMobileDevice() &&   // [DEBUG-TEMP] 電腦不啟動補抓定時器,保持 debug 資料乾淨
     document.visibilityState === "visible" &&
     pendingWeatherTargets().length > 0;
 

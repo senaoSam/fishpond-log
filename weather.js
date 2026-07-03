@@ -1,108 +1,60 @@
 // ============================================================
-//  天氣 — 建立紀錄當下抓中央氣象署(CWA)氣溫
+//  天氣 — 讀取 GitHub Actions 中繼寫入 Firestore 的最新氣溫
 // ============================================================
-// 設計(已與使用者確認、API 皆實測驗證):
-//   - 只抓「氣溫」,來源固定為「文安自動氣象站 C0V870」(高雄彌陀,離魚塭最近)。
-//   - 用 opendata 即時資料集 O-A0001-001(CORS 開放、可純前端 fetch)。
-//   - 這支 API 的 ?StationId= 參數無效,必須抓全部測站再用 JS 找 C0V870。
-//   - 雨量不抓(此即時 API 只有「當日累積」,無「過去N小時」,對魚塭意義不大)。
-//   - 抓不到不擋存檔;由 app.js 在「建立 +1 小時內、每次開 App」做機會式重試。
-//   - 超過 1 小時不做歷史補抓(投報率低,使用者已確認),留空即可。
+// 架構(2026-07-03 定案):
+//   GitHub Actions(.github/workflows/weather-relay.yml)每 10 分鐘抓
+//   CWA 文安站(C0V870)氣溫 → 覆寫 Firestore 的 meta/latestWeather →
+//   App 建立紀錄時只讀這個文件,完全不直連 CWA。
 //
-// CWA 授權碼放在前端是明文公開的 —— 此 App 採完全公開設計(見 SPEC §6),
-// 且 CWA 金鑰只讀公開氣象資料、可隨時於 opendata.cwa.gov.tw 重新產生,風險低。
+// 為什麼不直連 CWA(2026-07 實測定案):部分手機從 App 網頁 fetch
+//   opendata.cwa.gov.tw 必失敗(fetch / no-cors / XHR 三種皆然),但同一支
+//   手機用瀏覽器直開同網址正常、寫 Firestore 也正常。特定裝置對「App網域 ×
+//   CWA主機」的連線層問題,前端無法自救;Firestore(googleapis)則所有裝置
+//   100% 可連,故以它為唯一通道。附帶好處:原本每次抓溫度要下載 CWA 整包
+//   850KB(該 API 不能只查單站),改讀中繼文件後每次僅約 0.3KB。
+//
+// 這裡用 Firestore REST 讀(免拉 SDK 進來),規則全公開、帶 key 即可。
 
-export const CWA_KEY = "CWA-3496C7B9-DDC8-4FF0-A8F2-D4104C4B4DDF";
+import { firebaseConfig } from "./firebase-config.js";
+
 export const STATION_ID = "C0V870";       // 文安(高雄彌陀)
 export const STATION_NAME = "文安";
 
-// 建立 +N 分鐘內才值得重試即時(超過此時窗,即時值已不代表建立當下)
+// 建立 +N 分鐘內才值得重試(超過此時窗,「現在的氣溫」已不代表建立當下)
 export const RETRY_WINDOW_MIN = 60;
 
-const API_URL =
-  "https://opendata.cwa.gov.tw/api/v1/rest/datastore/O-A0001-001" +
-  "?Authorization=" + CWA_KEY + "&format=JSON";
+// 觀測時間超過此分鐘數視為過期,不寫進紀錄:
+// 測站每 ~10 分鐘觀測 + 中繼每 10 分鐘抓 + GitHub 排程抖動(可達 ~10 分)
+export const MAX_OBS_AGE_MIN = 45;
 
-// 抓文安站的即時氣溫。
-// 成功回 { temp:Number, obsTime:String, station, stationName };抓不到/缺值回 null。
+const DOC_URL =
+  `https://firestore.googleapis.com/v1/projects/${firebaseConfig.projectId}` +
+  `/databases/(default)/documents/meta/latestWeather?key=${firebaseConfig.apiKey}`;
+
+// 讀最新氣溫。成功回 { temp:Number, obsTime:String, station, stationName };
+// 讀不到 / 缺值 / 資料過期都回 null(不丟例外,不擋存檔)。
 export async function fetchWeather() {
-  const d = await fetchWeatherDebug();
-  return d.ok ? d.result : null;
-}
-
-// [DEBUG-TEMP] 觀察用:回傳完整抓取結果與失敗原因,方便釐清「為何常抓不到」。
-// 觀察結束後連同 app.js 的 weather_debug 寫入一併移除即可。
-// 回傳 { ok, reason, result, httpStatus, stationFound, stationCount, rawTemp, obsTime, errorName, probe }
-export async function fetchWeatherDebug() {
-  const out = { ok: false, reason: "", result: null, httpStatus: null,
-    stationFound: false, stationCount: null, rawTemp: null, obsTime: "", errorName: "", probe: null };
   try {
-    const r = await fetch(API_URL);
-    out.httpStatus = r.status;
-    if (!r.ok) { out.reason = "http-not-ok"; return out; }
+    const r = await fetch(DOC_URL, { cache: "no-store" });
+    if (!r.ok) return null;   // 含 404:中繼還沒寫入過
 
-    const j = await r.json();
-    const stations = j?.records?.Station;
-    if (!Array.isArray(stations)) { out.reason = "no-station-array"; return out; }
-    out.stationCount = stations.length;
+    const f = (await r.json()).fields || {};
+    const temp = Number(f.temp?.doubleValue ?? f.temp?.integerValue);
+    const obsTime = f.obsTime?.stringValue || "";
+    if (!Number.isFinite(temp) || !obsTime) return null;
 
-    const s = stations.find((x) => x.StationId === STATION_ID);
-    if (!s) { out.reason = "station-not-found"; return out; }
-    out.stationFound = true;
+    // 過期檢查:中繼若停擺(如 GitHub 排程被停用),不拿舊溫度充數
+    const age = Date.now() - Date.parse(obsTime);
+    if (!Number.isFinite(age) || age > MAX_OBS_AGE_MIN * 60 * 1000) return null;
 
-    const raw = s?.WeatherElement?.AirTemperature;
-    out.rawTemp = raw === undefined ? null : raw;
-    out.obsTime = s?.ObsTime?.DateTime || "";
-    const temp = Number(raw);
-    // CWA 缺測以 -99 表示;NaN/缺值都視為抓不到
-    if (!Number.isFinite(temp) || temp <= -90) { out.reason = "missing-value"; return out; }
-
-    out.ok = true;
-    out.reason = "ok";
-    out.result = { temp, obsTime: out.obsTime, station: STATION_ID, stationName: STATION_NAME };
-    return out;
-  } catch (e) {
-    // 網路錯誤 / CORS / JSON 解析失敗 → 視為抓不到(不丟例外,不擋存檔)
-    // errorName 區分 TypeError(fetch 連線/CORS/混合內容失敗)與 SyntaxError(JSON 壞)等
-    out.errorName = (e && e.name) ? e.name : "";
-    out.reason = "exception:" + (e && e.message ? e.message : String(e));
-    // [DEBUG-TEMP] 一般 fetch 失敗才自動跑診斷探針,結果一併記錄(使用者零操作)。
-    // 靠「哪種方式能成功」分辨病因:no-cors 成功→CORS/header 被擋;XHR 成功→fetch/SW 攔截層。
-    // 觀察結束後移除此區塊即可。
-    out.probe = await runProbes();
-    return out;
+    return {
+      temp,
+      obsTime,
+      station: f.station?.stringValue || STATION_ID,
+      stationName: f.stationName?.stringValue || STATION_NAME
+    };
+  } catch {
+    // 網路 / JSON 解析失敗 → 視為抓不到(不擋存檔,之後重試)
+    return null;
   }
-}
-
-// [DEBUG-TEMP] 診斷探針:在一般 fetch 失敗後,用其他方式再試一次同一支 API,
-// 純粹為了觀察「哪種方式連得到」,不影響 fetchWeather 的成功/失敗判定。
-// 回傳精簡結果字串,方便寫進 weather_debug 一眼判讀。
-async function runProbes() {
-  const bust = "&_p=" + (new Date().getTime());
-  const probe = { noCors: "", xhr: "" };
-
-  // 1) no-cors:能回(type=opaque)代表連得到,失敗代表是 CORS/預檢/header 被擋
-  try {
-    const r = await fetch(API_URL, { mode: "no-cors" });
-    probe.noCors = "ok:type=" + r.type;
-  } catch (e) {
-    probe.noCors = "fail:" + (e && e.name ? e.name : "") + " " + (e && e.message ? e.message : "");
-  }
-
-  // 2) XMLHttpRequest:走與 fetch 不同的底層路徑。若 fetch 掛而 XHR 成功 → fetch 實作/SW 攔截層問題
-  probe.xhr = await new Promise((resolve) => {
-    try {
-      const xhr = new XMLHttpRequest();
-      xhr.open("GET", API_URL + bust);
-      xhr.timeout = 15000;
-      xhr.onload = () => resolve("ok:status=" + xhr.status);
-      xhr.onerror = () => resolve("fail:onerror");
-      xhr.ontimeout = () => resolve("fail:timeout");
-      xhr.send();
-    } catch (e) {
-      resolve("fail:" + (e && e.name ? e.name : "") + " " + (e && e.message ? e.message : ""));
-    }
-  });
-
-  return probe;
 }

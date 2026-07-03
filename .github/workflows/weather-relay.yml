@@ -1,0 +1,133 @@
+name: Weather relay
+
+# 氣溫中繼 + 伺服器端補抓:每 10 分鐘
+#   (1) 抓 CWA 文安站(C0V870)氣溫 → 覆寫 Firestore meta/latestWeather
+#   (2) 掃 records 裡「weather.pending 且建立在 60 分鐘內」的紀錄,直接補上氣溫
+# App 端只讀 meta/latestWeather、不直連 CWA;補抓也由這裡做(App 端已停用)。
+#
+# 為什麼需要中繼:2026-07 以 weather_debug 544 筆實測定案 —— 部分手機從
+# App 網頁 fetch opendata.cwa.gov.tw 必失敗(連線層問題,與程式無關;同一支
+# 手機用瀏覽器直開同網址卻正常)。Firestore(googleapis)則所有裝置都通,
+# 所以由 GitHub 代抓 + 代補,與使用者裝置是否開著 App 完全無關。詳見 weather.js。
+#
+# 關於 GitHub「60 天無活動即停用排程」:db-backup.yml 每月自動 commit 一次
+# 備份,持續重置這個計時器,所以正常情況下本排程不會被停用。若備份也被手動
+# 停掉導致收到停用通知信,到 Actions 頁面按 Enable 重新啟用即可。
+on:
+  schedule:
+    - cron: "*/10 * * * *"   # UTC 時區;對「每 10 分鐘」無影響
+  workflow_dispatch:          # 可手動觸發(測試用)
+
+permissions:
+  contents: read
+
+# 排程若堆疊(前一輪還沒跑完),不需要重複跑
+concurrency:
+  group: weather-relay
+  cancel-in-progress: false
+
+jobs:
+  relay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # 不需 checkout:此 App 採完全公開設計(SPEC §6),CWA 金鑰與 Firebase
+      # 設定本就明文公開在前端程式裡,這裡直接內嵌同一組值。
+      - name: Relay temperature and backfill pending records
+        run: |
+          node - << 'EOF'
+          const CWA_KEY = "CWA-3496C7B9-DDC8-4FF0-A8F2-D4104C4B4DDF";
+          const FB_KEY  = "AIzaSyByR0BzPrlN8ZGw-ZeS7-2HShw9ZLx7y6Y";
+          const BASE = "https://firestore.googleapis.com/v1/projects/fishpond-log-e4c57/databases/(default)/documents";
+          const RETRY_WINDOW_MIN = 60;   // 與 weather.js 一致:只補建立 60 分鐘內的 pending
+
+          (async () => {
+            // ---- (1) 抓 CWA 文安站氣溫 ----
+            // O-A0001 的 ?StationId= 無效,必須整包抓(約 850KB)再自己挑 C0V870
+            const cwa = await (await fetch(
+              `https://opendata.cwa.gov.tw/api/v1/rest/datastore/O-A0001-001?Authorization=${CWA_KEY}&format=JSON`
+            )).json();
+            const st = (cwa.records?.Station || []).find((x) => x.StationId === "C0V870");
+            const temp = st ? Number(st.WeatherElement?.AirTemperature) : NaN;
+            const obs = st?.ObsTime?.DateTime || "";
+            console.log(`C0V870 temp=${temp} obs=${obs}`);
+
+            // 缺站/非數字/缺測(-99):不覆寫、也不補抓(沒有有效值可用)
+            if (!Number.isFinite(temp) || temp <= -90 || !obs) {
+              console.log("no valid reading, skip");
+              return;
+            }
+
+            // ---- (2) 覆寫 meta/latestWeather ----
+            const weatherFields = {
+              temp:        { doubleValue: temp },
+              obsTime:     { stringValue: obs },
+              station:     { stringValue: "C0V870" },
+              stationName: { stringValue: "文安" },
+              fetchedAt:   { timestampValue: new Date().toISOString() },
+            };
+            const metaRes = await fetch(`${BASE}/meta/latestWeather?key=${FB_KEY}`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ fields: weatherFields }),
+            });
+            console.log("meta/latestWeather write:", metaRes.status);
+
+            // ---- (3) 補抓 pending 且建立 60 分鐘內的紀錄 ----
+            // 用 runQuery 只撈 weather.pending == true(欄位路徑帶點,用 field mask 表示)
+            const q = {
+              structuredQuery: {
+                from: [{ collectionId: "records" }],
+                where: {
+                  fieldFilter: {
+                    field: { fieldPath: "weather.pending" },
+                    op: "EQUAL",
+                    value: { booleanValue: true },
+                  },
+                },
+                limit: 300,
+              },
+            };
+            const rows = await (await fetch(`${BASE}:runQuery?key=${FB_KEY}`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(q),
+            })).json();
+
+            const now = Date.now();
+            const windowMs = RETRY_WINDOW_MIN * 60 * 1000;
+            const docs = rows.filter((r) => r.document);
+            let filled = 0, skippedOld = 0;
+
+            for (const r of docs) {
+              const d = r.document;
+              const createdAt = d.fields?.createdAt?.timestampValue;   // serverTimestamp
+              const createdMs = createdAt ? Date.parse(createdAt) : NaN;
+              // 建立超過 60 分鐘:依定案放棄(不補歷史),留 pending 讓它自然過期
+              if (!Number.isFinite(createdMs) || (now - createdMs) > windowMs) { skippedOld++; continue; }
+
+              const name = d.name;   // 完整資源路徑
+              // 只更新 weather 欄位(PATCH + updateMask 精準覆寫,不動其他欄位)
+              const url = `https://firestore.googleapis.com/v1/${name}?key=${FB_KEY}`
+                + `&updateMask.fieldPaths=weather`;
+              const patchRes = await fetch(url, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  fields: {
+                    weather: { mapValue: { fields: {
+                      temp:        { doubleValue: temp },
+                      obsTime:     { stringValue: obs },
+                      station:     { stringValue: "C0V870" },
+                      stationName: { stringValue: "文安" },
+                      pending:     { booleanValue: false },
+                    } } },
+                  },
+                }),
+              });
+              if (patchRes.ok) filled++;
+              else console.log("backfill fail", name.split("/").pop(), patchRes.status);
+            }
+            console.log(`pending found=${docs.length}, filled=${filled}, skipped(>60min)=${skippedOld}`);
+          })().catch((e) => { console.error(e); process.exit(1); });
+          EOF
