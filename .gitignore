@@ -13,9 +13,13 @@ yarn.lock
 # Claude Code 個人本地設定(權限偏好,不進 repo);.mcp.json 則保留進 repo
 .claude/settings.local.json
 
-# Firestore 備份 / 遷移中間產物(含真實資料,不進公開 repo)
-backups/
+# 遷移中間產物(不進 repo)
 scripts/_migration-preview.json
+# backups/ 下「帶時間戳的遷移資料夾」(如 20260627-013258/)是本機一次性產物,不進 repo
+backups/[0-9]*/
+# 注意:backups/firestore-backup.json 刻意「不」忽略 —— db-backup.yml 每月自動把
+# Firestore 備份 commit 進此檔(兼作 repo 活動、續命排程)。repo 為 public,備份內含
+# 真實資料會公開可見;此為與 Firebase 全公開設計一致的取捨(見 weather.js 註解)。
 
 # Playwright MCP 測試暫存
 .playwright-mcp/
