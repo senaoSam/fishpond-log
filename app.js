@@ -1324,6 +1324,8 @@ function setupStats() {
   $("#statsPondFilter").addEventListener("change", renderStatsView);
   $("#exportBtn").addEventListener("click", exportExcel);
   $("#exportRangeBtn").addEventListener("click", exportRange);
+  $("#exportPdfBtn").addEventListener("click", exportPdf);
+  $("#exportRangePdfBtn").addEventListener("click", exportRangePdf);
   $("#previewBtn").addEventListener("click", previewExcel);
   $("#previewRangeBtn").addEventListener("click", previewRange);
   setupChartTooltip();
@@ -1619,7 +1621,15 @@ function renderStats() {
   const recs = statsRecords();
   const c = $("#statsContainer");
   if (!recs.length) { c.innerHTML = '<p class="empty">這個月沒有紀錄</p>'; return; }
+  const month = $("#statsMonth").value;
+  c.innerHTML = buildStatsCardsHtml(recs, month ? [month] : []) +
+    `<p class="hint">本月共 ${recs.length} 筆紀錄。</p>`;
+}
 
+// 依一組紀錄組出統計八卡 HTML(池塘堆疊圖/池塘明細卡/料號總量/群組總量/每日日曆/群組表/池塘表/料號表)。
+// months=要畫日曆的月份陣列(單月詳細傳一個;PDF 區間匯出傳多個,每月一張日曆)。
+// 統計頁畫面與 PDF 匯出共用,確保兩邊內容一致。
+function buildStatsCardsHtml(recs, months = [], { pdf = false } = {}) {
   // (1) 各池塘總包數
   const byPond = {};
   // (2) 各飼料編號包數
@@ -1710,8 +1720,9 @@ function renderStats() {
       <p class="hint">每個群組獨立計算,不同群組不應相加。</p>
     </div>` : "";
 
-  // 各池塘 × 飼料明細:每池做成一張小卡(卡內直式條列各飼料 + 總共),多張卡自動換行並排
-  const pondFeedRows = pondEntries.map(([pondId, info]) => {
+  // 各池塘 × 飼料明細:每池做成一張小卡(卡內直式條列各飼料 + 總共),多張卡自動換行並排。
+  // PDF 時改為三張一列包成 .pf-row(不可跨頁的單位,避免同列小卡被頁界切到)。
+  const pondFeedCards = pondEntries.map(([pondId, info]) => {
     const feedLines = Object.entries(info.feeds).sort((a, b) => b[1] - a[1])
       .map(([f, v]) => `<div class="pf-feed"><span>${escapeHtml(f)}</span><span class="num">${fmt(v)}包</span></div>`).join("");
     return `
@@ -1720,21 +1731,33 @@ function renderStats() {
         ${feedLines}
         <div class="pf-total"><span>總共</span><span class="num">${fmt(info.total)}包</span></div>
       </div>`;
-  }).join("");
+  });
+  let pondFeedBody;
+  if (pdf) {
+    const rows = [];
+    for (let i = 0; i < pondFeedCards.length; i += 3) rows.push(`<div class="pf-row">${pondFeedCards.slice(i, i + 3).join("")}</div>`);
+    pondFeedBody = rows.join("");
+  } else {
+    pondFeedBody = `<div class="pf-cards">${pondFeedCards.join("")}</div>`;
+  }
   const pondFeedCard = pondEntries.length ? `
-    <div class="card">
+    <div class="card pdf-flow">
       <div class="stats-title">🐟 各池塘飼料明細</div>
-      <div class="pf-cards">${pondFeedRows}</div>
+      ${pondFeedBody}
     </div>` : "";
 
-  // 當月日曆熱力圖
-  const heatCard = `
-    <div class="card">
-      <div class="stats-title">🗓️ 當月每日包數</div>
-      ${calendarHeatmap(recs, $("#statsMonth").value)}
-    </div>`;
+  // 每日日曆熱力圖(單月一張;多月各一張,PDF 區間匯出用)
+  const heatCard = months.length ? `
+    <div class="card pdf-flow">
+      <div class="stats-title">🗓️ ${months.length > 1 ? "各月每日包數" : "當月每日包數"}</div>
+      ${months.map((m) => {
+        const mRecs = recs.filter((r) => (r.date || "").slice(0, 7) === m);
+        const head = months.length > 1 ? `<div class="cal-month-head">${escapeHtml(m)}</div>` : "";
+        return `<div class="cal-block">${head}${calendarHeatmap(mRecs, m)}</div>`;
+      }).join("")}
+    </div>` : "";
 
-  c.innerHTML = `
+  return `
     ${barCard}
     ${pondFeedCard}
     ${feedBarCard}
@@ -1761,7 +1784,6 @@ function renderStats() {
         </tbody>
       </table>
     </div>
-    <p class="hint">本月共 ${recs.length} 筆紀錄。</p>
   `;
 }
 
@@ -1880,6 +1902,22 @@ function exportRange() {
 function previewRange() {
   const c = collectRange();
   previewExport(c.recs, c.label, { byMonth: true });
+}
+
+// 一組紀錄涵蓋的月份(舊→新),供 PDF 決定要畫幾張日曆
+function monthsOf(recs) {
+  return [...new Set(recs.map((r) => (r.date || "").slice(0, 7)).filter(Boolean))].sort();
+}
+
+// 單月詳細頁:匯出 PDF(日曆只有當月一張)
+function exportPdf() {
+  const c = collectMonth(); if (!c) return;
+  exportToPdf(c.recs, c.label, [$("#statsMonth").value]);
+}
+// 總覽頁:匯出 PDF(統計卡算整個區間;日曆每月一張)
+function exportRangePdf() {
+  const c = collectRange();
+  exportToPdf(c.recs, c.label, monthsOf(c.recs));
 }
 
 // 組出各工作表的資料(明細 / 統計 / 群組統計 / 月分總覽),供匯出與預覽共用。
@@ -2031,6 +2069,50 @@ function exportToExcel(records, label, { byMonth = false } = {}) {
   XLSX.writeFile(wb, `魚塭紀錄_${label}.xlsx`);
 }
 
+// ============================================================
+//  匯出 PDF (html2pdf.js:html2canvas 轉圖 + jsPDF 出檔)
+//  內容=統計頁的八張卡(與畫面同一份 buildStatsCardsHtml),
+//  走轉圖路線是為了中文與 CSS 圖表不需另外嵌字型/重畫。
+// ============================================================
+async function exportToPdf(records, label, months = []) {
+  if (typeof html2pdf === "undefined") { showToast("PDF 函式庫尚未載入,請檢查網路後重試", true); return; }
+  if (!records.length) { showToast("這個範圍沒有資料可匯出", true); return; }
+
+  // 報表容器:固定 A4 寬、強制淺色(樣式見 style.css 的 .pdf-root)。
+  // offscreen 定位放外層 wrapper:html2pdf 只複製 host 子樹,
+  // 若定位寫在 host 上會一起被複製進擷取視窗,產出整份空白。
+  const host = document.createElement("div");
+  host.className = "pdf-root";
+  host.innerHTML = `
+    <div class="pdf-head">
+      <div class="pdf-title">魚塭紀錄統計</div>
+      <div class="pdf-sub">${escapeHtml(label.replaceAll("_", "　"))}・共 ${records.length} 筆</div>
+    </div>
+    ${buildStatsCardsHtml(records, months, { pdf: true })}`;
+  const wrapper = document.createElement("div");
+  wrapper.style.cssText = "position:absolute;left:-10000px;top:0;width:733px;";
+  wrapper.appendChild(host);
+  document.body.appendChild(wrapper);
+
+  showToast("正在產生 PDF…");
+  try {
+    await html2pdf().set({
+      margin: [10, 8, 12, 8],
+      filename: `魚塭紀錄_${label}.pdf`,
+      image: { type: "jpeg", quality: 0.95 },
+      html2canvas: { scale: 2, backgroundColor: "#ffffff" },
+      jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
+      pagebreak: { mode: ["css", "legacy"] },
+    }).from(host).save();
+    showToast("PDF 已下載");
+  } catch (err) {
+    console.error("exportToPdf failed", err);
+    showToast("PDF 產生失敗,請重試", true);
+  } finally {
+    wrapper.remove();
+  }
+}
+
 // 預覽:用與匯出相同的資料,在網頁 modal 以表格呈現(不下載)。
 function previewExport(records, label, { byMonth = false } = {}) {
   const data = buildExportData(records, { byMonth });
@@ -2125,9 +2207,10 @@ function openExportPreview(data, records, label, { byMonth = false } = {}) {
     const name = sheetNames[activeSheet];
     const isDetail = name === "明細";
     bodyEl.innerHTML = isDetail ? detailHtml() : staticSheets[name];
-    // 篩選器與「下載篩選結果」只在明細分頁出現(篩選只影響明細)
+    // 篩選器與「篩選結果」下載鈕只在明細分頁出現(篩選只影響明細)
     filtersEl.hidden = !isDetail;
     $("#previewDownloadFiltered").hidden = !isDetail;
+    $("#previewPdfFiltered").hidden = !isDetail;
   };
 
   // 分頁
@@ -2170,18 +2253,25 @@ function openExportPreview(data, records, label, { byMonth = false } = {}) {
     $("#previewClose").removeEventListener("click", close);
     $("#previewDownloadAll").removeEventListener("click", onDownloadAll);
     $("#previewDownloadFiltered").removeEventListener("click", onDownloadFiltered);
+    $("#previewPdfAll").removeEventListener("click", onPdfAll);
+    $("#previewPdfFiltered").removeEventListener("click", onPdfFiltered);
   };
   const onBackdrop = (e) => { if (e.target === overlay) close(); };
   const onKey = (e) => { if (e.key === "Escape") close(); };
-  // 下載走完整的 SheetJS 路徑,與直接匯出一致
+  // 下載走完整的匯出路徑(Excel=SheetJS / PDF=html2pdf),與直接匯出一致;
+  // 「篩選結果」用當下勾選條件過濾後的紀錄重算整份內容
   const onDownloadAll = () => { exportToExcel(records, label, { byMonth }); };
   const onDownloadFiltered = () => { exportToExcel(filteredRecords(), `${label}_篩選`, { byMonth }); };
+  const onPdfAll = () => { exportToPdf(records, label, monthsOf(records)); };
+  const onPdfFiltered = () => { const recs = filteredRecords(); exportToPdf(recs, `${label}_篩選`, monthsOf(recs)); };
 
   overlay.addEventListener("click", onBackdrop);
   document.addEventListener("keydown", onKey);
   $("#previewClose").addEventListener("click", close);
   $("#previewDownloadAll").addEventListener("click", onDownloadAll);
   $("#previewDownloadFiltered").addEventListener("click", onDownloadFiltered);
+  $("#previewPdfAll").addEventListener("click", onPdfAll);
+  $("#previewPdfFiltered").addEventListener("click", onPdfFiltered);
   overlay.hidden = false;
 }
 

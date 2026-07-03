@@ -7,7 +7,7 @@
   <title>魚塭紀錄</title>
   <link rel="manifest" href="manifest.json" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
-  <link rel="stylesheet" href="style.css?v=16" />
+  <link rel="stylesheet" href="style.css?v=17" />
 </head>
 <body>
   <header class="app-header">
@@ -170,6 +170,7 @@
         <div class="export-actions">
           <div class="export-cell"><button type="button" class="act-btn act-btn-ghost" id="previewRangeBtn"><span class="act-ic">👁</span>預覽</button></div>
           <div class="export-cell"><button type="button" class="act-btn act-btn-primary" id="exportRangeBtn"><span class="act-ic">📥</span>匯出 Excel</button></div>
+          <div class="export-cell"><button type="button" class="act-btn act-btn-primary" id="exportRangePdfBtn"><span class="act-ic">🧾</span>匯出 PDF</button></div>
         </div>
       </div>
 
@@ -181,6 +182,7 @@
           </div>
           <div class="export-cell"><button type="button" class="act-btn act-btn-ghost" id="previewBtn"><span class="act-ic">👁</span>預覽</button></div>
           <div class="export-cell"><button type="button" class="act-btn act-btn-primary" id="exportBtn"><span class="act-ic">📥</span>匯出 Excel</button></div>
+          <div class="export-cell"><button type="button" class="act-btn act-btn-primary" id="exportPdfBtn"><span class="act-ic">🧾</span>匯出 PDF</button></div>
         </div>
       </div>
 
@@ -315,8 +317,10 @@
       <div id="previewFilters" class="preview-filters" hidden></div>
       <div id="previewBody" class="preview-body"></div>
       <div class="preview-actions">
-        <button type="button" class="act-btn act-btn-ghost" id="previewDownloadAll"><span class="act-ic">📥</span>下載全部</button>
-        <button type="button" class="act-btn act-btn-primary" id="previewDownloadFiltered"><span class="act-ic">📥</span>下載篩選結果</button>
+        <button type="button" class="act-btn act-btn-ghost" id="previewDownloadAll"><span class="act-ic">📥</span>Excel 全部</button>
+        <button type="button" class="act-btn act-btn-ghost" id="previewPdfAll"><span class="act-ic">🧾</span>PDF 全部</button>
+        <button type="button" class="act-btn act-btn-primary" id="previewDownloadFiltered"><span class="act-ic">📥</span>Excel 篩選結果</button>
+        <button type="button" class="act-btn act-btn-primary" id="previewPdfFiltered"><span class="act-ic">🧾</span>PDF 篩選結果</button>
       </div>
     </div>
   </div>
@@ -326,7 +330,9 @@
 
   <!-- SheetJS for Excel export -->
   <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
+  <!-- html2pdf.js for PDF export(html2canvas + jsPDF bundle)-->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.2/html2pdf.bundle.min.js"></script>
   <!-- App config + logic (ES module) -->
-  <script type="module" src="app.js?v=15"></script>
+  <script type="module" src="app.js?v=16"></script>
 </body>
 </html>

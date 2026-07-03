@@ -810,13 +810,21 @@ body.on-record #main { padding-bottom: 172px; }
 /* 統計頁:月份 / 預覽 / 匯出 等寬一列(底部對齊,因月份格上方多了 label) */
 .export-actions { display: flex; gap: 12px; margin-top: 12px; align-items: flex-end; }
 .export-cell { flex: 1 1 0; min-width: 0; }
+/* 窄螢幕:加上 PDF 後一列 4 顆塞不下,改兩顆一行 */
+@media (max-width: 520px) {
+  .export-actions { flex-wrap: wrap; }
+  .export-cell { flex: 1 1 calc(50% - 6px); }
+}
 /* 月份格子:label 在上、input 在下,input 高度與按鈕一致 */
 .month-cell { display: flex; flex-direction: column; gap: 6px; margin: 0; font-weight: 600; font-size: 0.85rem; color: var(--muted); }
 .month-cell input { margin-top: 0; height: 46px; box-sizing: border-box; }
 
-/* 預覽 modal:下載按鈕列(同一套 .act-btn,等寬) */
-.preview-actions { display: flex; gap: 12px; }
+/* 預覽 modal:下載按鈕列(同一套 .act-btn,等寬;Excel/PDF 各兩顆,窄螢幕兩顆一行) */
+.preview-actions { display: flex; gap: 12px; flex-wrap: wrap; }
 .preview-actions .act-btn { flex: 1 1 0; min-width: 0; }
+@media (max-width: 640px) {
+  .preview-actions .act-btn { flex: 1 1 calc(50% - 6px); }
+}
 
 /* ---------- 匯出預覽 modal ---------- */
 .preview-modal {
@@ -972,3 +980,50 @@ body.on-record #main { padding-bottom: 172px; }
   /* 月份總覽快速範圍(.chip-btn 已涵蓋) / 日曆格 */
   .cal-l1:hover, .cal-l2:hover, .cal-l3:hover, .cal-l4:hover { outline: 2px solid var(--primary); outline-offset: -2px; }
 }
+
+/* ============================================================
+   PDF 匯出(.pdf-root:離螢幕渲染容器,html2canvas 轉圖用)
+   - 固定 A4 直式寬度,不受手機視窗影響
+   - 強制淺色:覆寫主題變數,深色模式匯出的 PDF 仍為白底
+   - 日曆格深淺改用寫死色值:html2canvas 不支援 color-mix()
+   ============================================================ */
+/* 注意:offscreen 定位放在外層 wrapper(見 app.js exportToPdf),
+   不能放這裡 —— html2pdf 會連同定位複製進擷取視窗,導致整份空白。 */
+.pdf-root {
+  width: 733px;              /* A4 直式 210mm − 左右邊距 16mm @96dpi;超過會被 html2pdf 裁掉右側 */
+  padding: 4px;
+  background: #ffffff;
+  color-scheme: light;
+  --bg: #ffffff;
+  --card: #ffffff;
+  --field: #ffffff;
+  --primary: #0b7285;
+  --primary-dark: #095c6b;
+  --text: #1a2733;
+  --muted: #6b7785;
+  --border: #d7dde3;
+  --th-bg: #eef3f5;
+  --total-bg: #f1f7f9;
+  --chip-x-bg: #d7dde3;
+  color: var(--text);
+}
+.pdf-head { padding: 2px 2px 10px; }
+.pdf-title { font-size: 1.35rem; font-weight: 800; color: var(--primary); }
+.pdf-sub { margin-top: 2px; font-size: 0.9rem; color: var(--muted); }
+/* 分頁規則:卡片不跨頁;長卡(池塘明細/多月日曆)可跨頁,改以內部列/單月日曆為不拆單位。
+   注意:avoid 只能放在「獨占一整行」的元素上 —— html2pdf 是對個別元素加 margin 往下推,
+   flex 並排的兄弟元素不會跟著動,會被頁界切到;所以池塘小卡在 PDF 改包成 .pf-row 再 avoid。 */
+.pdf-root .card { break-inside: avoid; page-break-inside: avoid; box-shadow: none; border: 1px solid var(--border); }
+.pdf-root .card.pdf-flow { break-inside: auto; page-break-inside: auto; }
+.pdf-root .cal-block { break-inside: avoid; page-break-inside: avoid; }
+.pdf-root .pf-row { display: flex; gap: 10px; margin-top: 10px; break-inside: avoid; page-break-inside: avoid; }
+.pdf-root .pf-row .pf-card { flex: 1 1 0; min-width: 0; }
+/* 日曆格顏色:等同 color-mix(primary X%, th-bg) 的固定值 */
+.pdf-root .cal-l1 { background: #aecfd6; }
+.pdf-root .cal-l2 { background: #7db3bd; }
+.pdf-root .cal-l3 { background: #4b96a4; }
+.pdf-root .cal-l4 { background: #0b7285; }
+
+/* 多月日曆:每月小標(統計頁單月不會出現) */
+.cal-month-head { font-weight: 700; margin: 12px 0 4px; color: var(--primary); }
+.cal-block:first-of-type .cal-month-head { margin-top: 4px; }
