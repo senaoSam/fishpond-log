@@ -15,7 +15,7 @@ name: Weather relay
 # 停掉導致收到停用通知信,到 Actions 頁面按 Enable 重新啟用即可。
 on:
   schedule:
-    - cron: "*/10 * * * *"   # UTC 時區;對「每 10 分鐘」無影響
+    - cron: "*/25 * * * *"   # UTC 時區;對間隔無影響。25 分:GitHub 高頻排程易被稀釋/跳過,調低頻反而較穩
   workflow_dispatch:          # 可手動觸發(測試用)
 
 permissions:
@@ -39,7 +39,7 @@ jobs:
           const CWA_KEY = "CWA-3496C7B9-DDC8-4FF0-A8F2-D4104C4B4DDF";
           const FB_KEY  = "AIzaSyByR0BzPrlN8ZGw-ZeS7-2HShw9ZLx7y6Y";
           const BASE = "https://firestore.googleapis.com/v1/projects/fishpond-log-e4c57/databases/(default)/documents";
-          const RETRY_WINDOW_MIN = 60;   // 與 weather.js 一致:只補建立 60 分鐘內的 pending
+          const RETRY_WINDOW_MIN = 90;   // 與 weather.js 一致:只補建立 90 分鐘內的 pending
 
           (async () => {
             // ---- (1) 抓 CWA 文安站氣溫 ----

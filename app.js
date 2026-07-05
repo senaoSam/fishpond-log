@@ -1,7 +1,7 @@
 // ============================================================
 //  魚塭紀錄 — 主程式
 // ============================================================
-import { firebaseConfig } from "./firebase-config.js";
+import { firebaseConfig, githubDispatch } from "./firebase-config.js";
 import { fetchWeather, RETRY_WINDOW_MIN } from "./weather.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
@@ -851,7 +851,10 @@ async function onSaveRecord(e) {
   const ref = addDoc(collection(db, "records"), {
     ...rec, createdAt: serverTimestamp(), weather: { pending: true }
   });
-  ref.then((docRef) => attachWeather(docRef.id))
+  ref.then((docRef) => {
+    attachWeather(docRef.id);       // App 端補抓(目前開關關閉,保留備援)
+    triggerWeatherRelay();          // 主力:戳 GitHub relay 立刻跑一輪補抓此筆
+  })
     .catch((err) => { console.error(err); showToast("新增失敗:" + err.message, true); });
 
   if (cloudSynced) {
@@ -869,6 +872,39 @@ async function onSaveRecord(e) {
 // 每 10 分鐘伺服器端補抓 pending 紀錄,與裝置無關,不用等使用者開 App。
 // 這裡保留整套邏輯不刪,靠此開關關閉;日後要恢復「開著 App 就即時補」只需改回 true。
 const APP_SIDE_WEATHER_ATTACH = false;
+
+// ---------- 天氣:建立當下「戳」GitHub relay 立刻補抓(主力機制)----------
+// [2026-07-05] 手機只發一個請求給 api.github.com(已實測壞手機可通),叫
+// weather-relay workflow 立刻跑一輪 → 抓 CWA + 補這筆 pending。不必等下一次
+// 定時排程(schedule 常被延遲/跳過)。定時 */25 仍保留當保底。
+// 失敗完全不擋存檔、不提示(與抓不到氣溫一樣寬容);月統計只需 1~2 小時內補上即可。
+// 60 秒內去重:連記多池時短時間多次觸發沒意義(一輪 relay 會掃所有 pending)。
+let lastRelayTrigger = 0;
+async function triggerWeatherRelay() {
+  const g = githubDispatch;
+  // 只有注入了真正的 PAT 才觸發;佔位符/空字串 = 停用(本機開發、或部署未注入),不影響存檔
+  if (!g || !g.token || !g.token.startsWith("github_pat_")) return;
+  if (Date.now() - lastRelayTrigger < 60 * 1000) return;   // 60 秒內只戳一次
+  lastRelayTrigger = Date.now();
+  try {
+    await fetch(
+      `https://api.github.com/repos/${g.owner}/${g.repo}/actions/workflows/${g.workflow}/dispatches`,
+      {
+        method: "POST",
+        headers: {
+          "Accept": "application/vnd.github+json",
+          "Authorization": `Bearer ${g.token}`,
+          "X-GitHub-Api-Version": "2022-11-28",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ ref: g.ref }),
+      }
+    );
+    // 成功回 204 No Content;失敗也不處理 —— 定時排程與 App 端備援仍會補
+  } catch (e) {
+    console.warn("weather relay dispatch failed (忽略,靠定時排程補):", e);
+  }
+}
 
 // 對單一紀錄抓一次即時氣溫;成功就寫回該 doc 的 weather 欄位,失敗保持 pending(不動 doc)。
 // fetchingWeather:正在抓的 recordId。attachWeather 是 async,await fetch 期間 doc 仍是

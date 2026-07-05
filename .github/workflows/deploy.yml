@@ -41,6 +41,20 @@ jobs:
           grep -n 'const BUILD_TIME' app.js
           grep -n 'const BUILD' service-worker.js
 
+      # 注入天氣 relay 觸發用的 GitHub PAT(不寫死在 repo，避免 Push Protection 擋、避免留在
+      # git 歷史；日後換 token 只需改 Secret)。token 用 perl 逐字替換,不經 shell 展開,
+      # 避免 token 內含 sed 特殊字元(/、& 等)出錯。缺 Secret 時佔位符保留 = App 端停用觸發。
+      - name: Inject weather relay token
+        env:
+          GH_DISPATCH_TOKEN: ${{ secrets.GH_DISPATCH_TOKEN }}
+        run: |
+          if [ -z "$GH_DISPATCH_TOKEN" ]; then
+            echo "::warning::GH_DISPATCH_TOKEN 未設定,前端 dispatch 觸發將停用(不影響存檔與定時排程)"
+          else
+            perl -i -pe 's/__GH_DISPATCH_TOKEN__/$ENV{GH_DISPATCH_TOKEN}/g' firebase-config.js
+            echo "GH_DISPATCH_TOKEN injected (長度 ${#GH_DISPATCH_TOKEN})"
+          fi
+
       # 純前端、無 build。直接把整個專案當成靜態網站上傳。
       - name: Setup Pages
         uses: actions/configure-pages@v5

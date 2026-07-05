@@ -21,11 +21,11 @@ export const STATION_ID = "C0V870";       // 文安(高雄彌陀)
 export const STATION_NAME = "文安";
 
 // 建立 +N 分鐘內才值得重試(超過此時窗,「現在的氣溫」已不代表建立當下)
-export const RETRY_WINDOW_MIN = 60;
+export const RETRY_WINDOW_MIN = 90;
 
 // 觀測時間超過此分鐘數視為過期,不寫進紀錄:
-// 測站每 ~10 分鐘觀測 + 中繼每 10 分鐘抓 + GitHub 排程抖動(可達 ~10 分)
-export const MAX_OBS_AGE_MIN = 45;
+// 測站每 ~10 分鐘觀測 + 中繼每 25 分鐘抓 + GitHub 排程抖動(可達 ~15 分)
+export const MAX_OBS_AGE_MIN = 60;
 
 const DOC_URL =
   `https://firestore.googleapis.com/v1/projects/${firebaseConfig.projectId}` +
