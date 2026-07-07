@@ -2,7 +2,7 @@
 //  魚塭紀錄 — 主程式
 // ============================================================
 import { firebaseConfig, githubDispatch } from "./firebase-config.js";
-import { fetchWeather, RETRY_WINDOW_MIN } from "./weather.js";
+import { fetchWeather, reusableWeather, RETRY_WINDOW_MIN } from "./weather.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
   getFirestore, collection, doc, addDoc, setDoc, updateDoc, deleteDoc,
@@ -845,15 +845,30 @@ async function onSaveRecord(e) {
   const saveBtn = $("#saveBtn");
   saveBtn.disabled = true;
 
+  // 天氣:連續新增時「沿用」剛抓到的溫度,避免每筆各自觸發 relay 重複抓。
+  //   先讀 meta 現成溫度(reusableWeather 只在觀測時間 ≤ REUSE_OBS_AGE_MIN(15分)才回值):
+  //   - 夠新 → 直接把溫度寫進這筆(pending:false),不再打 dispatch(第 2~N 筆走這條,秒完成)。
+  //   - 太舊/讀不到/離線 → 標 pending 並打 dispatch 叫 relay 抓新的(第一筆、或久沒建的情況)。
+  // 讀 meta 是輕量 GET(~0.3KB),離線會回 null 自動退回 pending,不影響存檔。
+  const reused = await reusableWeather();
+  const weatherField = reused
+    ? { temp: reused.temp, obsTime: reused.obsTime, station: reused.station,
+        stationName: reused.stationName, pending: false }
+    // requestedAt = 補抓請求時刻,供 relay 判斷 60 分時窗(見 weather-relay.yml)。
+    // 建立當下 requestedAt≈createdAt;編輯重抓時則是「更新此刻」,兩者統一用這欄。
+    : { pending: true, requestedAt: new Date().toISOString() };
+
   // 注意:離線時 Firestore 的寫入 promise 要等連線才 resolve,不能 await(會卡住)。
   // 改為發出寫入後立即依「目前是否已同步雲端」給提示;真正失敗(如權限)用 catch 補報。
-  // 上方表單只負責「新增」(編輯走獨立 modal)。先標記天氣 pending,寫入後在背景補抓氣溫。
+  // 上方表單只負責「新增」(編輯走獨立 modal)。
   const ref = addDoc(collection(db, "records"), {
-    ...rec, createdAt: serverTimestamp(), weather: { pending: true }
+    ...rec, createdAt: serverTimestamp(), weather: weatherField
   });
   ref.then((docRef) => {
-    attachWeather(docRef.id);       // App 端補抓(目前開關關閉,保留備援)
-    triggerWeatherRelay();          // 主力:戳 GitHub relay 立刻跑一輪補抓此筆
+    if (!reused) {                    // 沒沿用到現成溫度時,才觸發補抓
+      attachWeather(docRef.id);       // App 端補抓(目前開關關閉,保留備援)
+      triggerWeatherRelay();          // 主力:戳 GitHub relay 立刻跑一輪更新 meta + 補此筆
+    }
   })
     .catch((err) => { console.error(err); showToast("新增失敗:" + err.message, true); });
 
@@ -1110,6 +1125,7 @@ function startEdit(id) {
   $("#editMixSelect").value = r.mixId || "";
   $("#editDisinfectantSelect").value = r.disinfectantId || "";
   $("#editNoteInput").value = r.note || "";
+  $("#editUpdateWeather").checked = true;   // 每次開啟預設打勾(modal 重用,需重設避免殘留上次狀態)
 
   renderTodayList();           // 反白「編輯中」那筆
   $("#editOverlay").hidden = false;
@@ -1165,8 +1181,33 @@ async function onSaveEdit(e) {
   };
 
   $("#editSaveBtn").disabled = true;
-  // 編輯不重抓天氣(天氣只在建立當下抓)
-  updateDoc(doc(db, "records", editingId), { ...rec, updatedAt: serverTimestamp() })
+
+  // 天氣:依「更新當下溫度」checkbox 決定。
+  //   打勾 → 重抓「更新此刻」的溫度(用途:清晨建立、上午吃完才更新,溫度應反映更新時刻)。
+  //         沿用與建立相同的機制:先讀 meta 現成值(≤15分沿用),太舊/讀不到才標 pending + 觸發 relay。
+  //   不打勾 → 完全不動 weather 欄(用途:晚上或隔天才補登,不該把溫度改成補登當下)。
+  const updateWeather = $("#editUpdateWeather").checked;
+  const editingRef = editingId;   // closeEditModal 會清 editingId,先存起來給 relay 觸發用
+  const patch = { ...rec, updatedAt: serverTimestamp() };
+  let reused = null;
+  if (updateWeather) {
+    reused = await reusableWeather();
+    patch.weather = reused
+      ? { temp: reused.temp, obsTime: reused.obsTime, station: reused.station,
+          stationName: reused.stationName, pending: false }
+      // 標 pending 時附 requestedAt(補抓請求時刻):編輯舊紀錄時,relay 該用「更新此刻」
+      // 而非「建立時刻」判斷 60 分補抓時窗,否則清晨建立、上午才更新的紀錄會被當太舊跳過。
+      : { pending: true, requestedAt: new Date().toISOString() };
+  }
+  // 不打勾時 patch 不含 weather 欄 → updateDoc 不會動到原本的 weather。
+
+  updateDoc(doc(db, "records", editingRef), patch)
+    .then(() => {
+      if (updateWeather && !reused) {   // 打勾但沒沿用到現成溫度 → 觸發 relay 抓新的
+        attachWeather(editingRef);      // App 端補抓(開關關閉時為 no-op,保留備援)
+        triggerWeatherRelay();
+      }
+    })
     .catch((err) => { console.error(err); showToast("更新失敗:" + err.message, true); });
   $("#editSaveBtn").disabled = false;
 

@@ -264,6 +264,13 @@ select { appearance: none; background-image: url("data:image/svg+xml;utf8,<svg x
 .edit-form > label:first-child { margin-top: 0; }
 .edit-form .seg { margin: 6px 0 0; }
 .edit-form .pond-picker-btn { margin-top: 6px; }
+/* 「更新當下溫度」勾選列:checkbox 與說明文字並排(覆寫上面 label 的 block 排版) */
+.edit-form label.checkbox-row {
+  display: flex; align-items: center; gap: 8px; font-weight: 500; cursor: pointer;
+}
+.edit-form label.checkbox-row input[type="checkbox"] {
+  width: auto; margin: 0; flex: 0 0 auto;
+}
 /* 動作列:取消 / 刪除 / 更新 三顆等寬,固定在 modal 底部 */
 .edit-actions { flex: 0 0 auto; display: flex; gap: 8px; margin-top: 12px; }
 .edit-actions button { flex: 1 1 0; width: auto; margin-top: 0; padding: 12px 8px; }

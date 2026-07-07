@@ -101,10 +101,14 @@ jobs:
 
             for (const r of docs) {
               const d = r.document;
+              // 判斷時窗用「補抓請求時刻」:優先 weather.requestedAt(建立當下=建立時、
+              // 編輯重抓=更新時),沒有才退回 createdAt(兼容改版前的舊 pending 紀錄)。
+              // 這樣清晨建立、上午才「更新當下溫度」的紀錄,不會因 createdAt 太舊被誤判跳過。
+              const reqAt = d.fields?.weather?.mapValue?.fields?.requestedAt?.stringValue;
               const createdAt = d.fields?.createdAt?.timestampValue;   // serverTimestamp
-              const createdMs = createdAt ? Date.parse(createdAt) : NaN;
-              // 建立超過 60 分鐘:依定案放棄(不補歷史),留 pending 讓它自然過期
-              if (!Number.isFinite(createdMs) || (now - createdMs) > windowMs) { skippedOld++; continue; }
+              const refMs = Date.parse(reqAt || createdAt || "");
+              // 超過 60 分鐘:依定案放棄(不補歷史),留 pending 讓它自然過期
+              if (!Number.isFinite(refMs) || (now - refMs) > windowMs) { skippedOld++; continue; }
 
               const name = d.name;   // 完整資源路徑
               // 只更新 weather 欄位(PATCH + updateMask 精準覆寫,不動其他欄位)

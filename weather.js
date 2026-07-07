@@ -27,6 +27,12 @@ export const RETRY_WINDOW_MIN = 90;
 // 測站每 ~10 分鐘觀測 + 中繼每 25 分鐘抓 + GitHub 排程抖動(可達 ~15 分)
 export const MAX_OBS_AGE_MIN = 60;
 
+// 「建立當下沿用 meta 現成溫度」的門檻(比 MAX_OBS_AGE_MIN 緊):
+// 連續新增時,只要 meta 的觀測時間夠新就直接沿用、不再觸發 relay,避免重複抓。
+// 設 15 分 → 沿用到的溫度最舊也只離建立時間 ~15 分,兼顧「省觸發」與「數值準度」。
+// 超過 15 分才重新標 pending + 觸發 relay 抓新的(見 app.js 建立流程)。
+export const REUSE_OBS_AGE_MIN = 15;
+
 const DOC_URL =
   `https://firestore.googleapis.com/v1/projects/${firebaseConfig.projectId}` +
   `/databases/(default)/documents/meta/latestWeather?key=${firebaseConfig.apiKey}`;
@@ -55,6 +61,33 @@ export async function fetchWeather() {
     };
   } catch {
     // 網路 / JSON 解析失敗 → 視為抓不到(不擋存檔,之後重試)
+    return null;
+  }
+}
+
+// 「建立當下沿用」專用:讀 meta,只有觀測時間 ≤ REUSE_OBS_AGE_MIN 才回值,否則 null。
+// 用途:連續新增時,第 2~N 筆若讀到夠新的 meta 就直接沿用、不必再觸發 relay。
+// 與 fetchWeather() 的差別只在「新鮮度門檻更緊」(15 分 vs 60 分),讀的是同一份 meta。
+export async function reusableWeather() {
+  try {
+    const r = await fetch(DOC_URL, { cache: "no-store" });
+    if (!r.ok) return null;
+
+    const f = (await r.json()).fields || {};
+    const temp = Number(f.temp?.doubleValue ?? f.temp?.integerValue);
+    const obsTime = f.obsTime?.stringValue || "";
+    if (!Number.isFinite(temp) || !obsTime) return null;
+
+    const age = Date.now() - Date.parse(obsTime);
+    if (!Number.isFinite(age) || age > REUSE_OBS_AGE_MIN * 60 * 1000) return null;   // 太舊→不沿用
+
+    return {
+      temp,
+      obsTime,
+      station: f.station?.stringValue || STATION_ID,
+      stationName: f.stationName?.stringValue || STATION_NAME
+    };
+  } catch {
     return null;
   }
 }
