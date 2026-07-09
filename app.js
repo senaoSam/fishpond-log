@@ -865,9 +865,9 @@ async function onSaveRecord(e) {
     ...rec, createdAt: serverTimestamp(), weather: weatherField
   });
   ref.then((docRef) => {
-    if (!reused) {                    // 沒沿用到現成溫度時,才觸發補抓
+    if (!reused) {                    // 沒沿用到現成溫度 → 這筆是 pending,必須觸發補抓
       attachWeather(docRef.id);       // App 端補抓(目前開關關閉,保留備援)
-      triggerWeatherRelay();          // 主力:戳 GitHub relay 立刻跑一輪更新 meta + 補此筆
+      triggerWeatherRelay(true);      // force:pending 一律觸發,不被 60 秒去重擋掉(見函式註解)
     }
   })
     .catch((err) => { console.error(err); showToast("新增失敗:" + err.message, true); });
@@ -893,13 +893,20 @@ const APP_SIDE_WEATHER_ATTACH = false;
 // weather-relay workflow 立刻跑一輪 → 抓 CWA + 補這筆 pending。不必等下一次
 // 定時排程(schedule 常被延遲/跳過)。定時 */25 仍保留當保底。
 // 失敗完全不擋存檔、不提示(與抓不到氣溫一樣寬容);月統計只需 1~2 小時內補上即可。
-// 60 秒內去重:連記多池時短時間多次觸發沒意義(一輪 relay 會掃所有 pending)。
+//
+// 去重取捨(2026-07-10 修正):呼叫此函式的時機都是「這筆標了 pending、需要 relay 補」
+// (建立/編輯流程僅在沒沿用到現成溫度時才呼叫)。原本無條件 60 秒去重會誤傷 —— 例如
+// 20:16:44、20:16:50 兩筆 pending 緊接在 20:16:09 觸發後 <60 秒,被去重擋掉沒觸發,
+// 又碰上定時排程延遲 → 90 分時窗內沒任何 relay 跑到 → 永久漏抓。
+// 修法:pending 的紀錄一律 force 觸發(繞過去重);去重只保留給「非必要」的呼叫(目前無,
+// 保留機制供日後擴充)。一輪 relay 會掃所有 pending,force 頂多讓短時間多跑幾輪 relay,
+// 額度綽綽有餘(免費額度用量 <1%),遠比漏抓可接受。
 let lastRelayTrigger = 0;
-async function triggerWeatherRelay() {
+async function triggerWeatherRelay(force = false) {
   const g = githubDispatch;
   // 只有注入了真正的 PAT 才觸發;佔位符/空字串 = 停用(本機開發、或部署未注入),不影響存檔
   if (!g || !g.token || !g.token.startsWith("github_pat_")) return;
-  if (Date.now() - lastRelayTrigger < 60 * 1000) return;   // 60 秒內只戳一次
+  if (!force && Date.now() - lastRelayTrigger < 60 * 1000) return;   // 非強制:60 秒去重
   lastRelayTrigger = Date.now();
   try {
     await fetch(
@@ -1203,9 +1210,9 @@ async function onSaveEdit(e) {
 
   updateDoc(doc(db, "records", editingRef), patch)
     .then(() => {
-      if (updateWeather && !reused) {   // 打勾但沒沿用到現成溫度 → 觸發 relay 抓新的
+      if (updateWeather && !reused) {   // 打勾但沒沿用到 → 這筆是 pending,必須觸發 relay 抓新的
         attachWeather(editingRef);      // App 端補抓(開關關閉時為 no-op,保留備援)
-        triggerWeatherRelay();
+        triggerWeatherRelay(true);      // force:pending 一律觸發,不被 60 秒去重擋掉
       }
     })
     .catch((err) => { console.error(err); showToast("更新失敗:" + err.message, true); });
