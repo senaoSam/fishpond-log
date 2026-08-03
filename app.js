@@ -1798,23 +1798,25 @@ function buildStatsCardsHtml(recs, months = [], { pdf = false } = {}) {
     </div>` : "";
 
   // 每日日曆熱力圖(單月一張;多月各一張,PDF 區間匯出用)
-  const heatCard = months.length ? `
-    <div class="card pdf-flow">
-      <div class="stats-title">🗓️ ${months.length > 1 ? "各月每日包數" : "當月每日包數"}</div>
-      ${months.map((m) => {
-        const mRecs = recs.filter((r) => (r.date || "").slice(0, 7) === m);
-        const head = months.length > 1 ? `<div class="cal-month-head">${escapeHtml(m)}</div>` : "";
-        return `<div class="cal-block">${head}${calendarHeatmap(mRecs, m)}</div>`;
-      }).join("")}
-    </div>` : "";
+  const calBlock = (m, withHead) => {
+    const mRecs = recs.filter((r) => (r.date || "").slice(0, 7) === m);
+    const head = withHead ? `<div class="cal-month-head">${escapeHtml(m)}</div>` : "";
+    return `<div class="cal-block">${head}${calendarHeatmap(mRecs, m)}</div>`;
+  };
+  // PDF 多月:每個月各自一張卡(外層再一卡一頁),避免同一卡塞多月被頁界切開
+  const heatCards = !months.length ? [] : (pdf && months.length > 1)
+    ? months.map((m) => `
+      <div class="card">
+        <div class="stats-title">🗓️ ${escapeHtml(m)} 每日包數</div>
+        ${calBlock(m, false)}
+      </div>`)
+    : [`
+      <div class="card pdf-flow">
+        <div class="stats-title">🗓️ ${months.length > 1 ? "各月每日包數" : "當月每日包數"}</div>
+        ${months.map((m) => calBlock(m, months.length > 1)).join("")}
+      </div>`];
 
-  return `
-    ${barCard}
-    ${pondFeedCard}
-    ${feedBarCard}
-    ${groupBarCard}
-    ${heatCard}
-    ${tagCard}
+  const pondTotalCard = `
     <div class="card">
       <div class="stats-title">🏊 各池塘總包數</div>
       <table>
@@ -1824,7 +1826,8 @@ function buildStatsCardsHtml(recs, months = [], { pdf = false } = {}) {
           <tr class="total"><td>合計</td><td class="num">${fmt(totalBags)}</td></tr>
         </tbody>
       </table>
-    </div>
+    </div>`;
+  const feedTotalCard = `
     <div class="card">
       <div class="stats-title">🥡 各飼料編號包數</div>
       <table>
@@ -1834,8 +1837,14 @@ function buildStatsCardsHtml(recs, months = [], { pdf = false } = {}) {
           <tr class="total"><td>合計</td><td class="num">${fmt(totalBags)}</td></tr>
         </tbody>
       </table>
-    </div>
-  `;
+    </div>`;
+
+  const cards = [barCard, pondFeedCard, feedBarCard, groupBarCard, ...heatCards, tagCard, pondTotalCard, feedTotalCard]
+    .filter((c) => c && c.trim());
+  // PDF:一個統計角度獨占一頁 —— 卡與卡之間插入 html2pdf 的 legacy 分頁標記,
+  // 列印/裁切時不會有圖表被頁界切成兩半(單卡本身仍可能超過一頁,如多月日曆)。
+  if (pdf) return cards.join('<div class="html2pdf__page-break"></div>');
+  return cards.join("\n");
 }
 
 function fmt(n) {

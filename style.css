@@ -1023,6 +1023,9 @@ body.on-record #main { padding-bottom: 172px; }
 .pdf-root .card { break-inside: avoid; page-break-inside: avoid; box-shadow: none; border: 1px solid var(--border); }
 .pdf-root .card.pdf-flow { break-inside: auto; page-break-inside: auto; }
 .pdf-root .cal-block { break-inside: avoid; page-break-inside: avoid; }
+/* 一卡一頁:卡與卡之間的分頁標記(html2pdf legacy mode 會辨識這個 class)。
+   高度 0、不佔版面,只作為換頁訊號。 */
+.pdf-root .html2pdf__page-break { height: 0; margin: 0; padding: 0; border: 0; }
 .pdf-root .pf-row { display: flex; gap: 10px; margin-top: 10px; break-inside: avoid; page-break-inside: avoid; }
 .pdf-root .pf-row .pf-card { flex: 1 1 0; min-width: 0; }
 /* 日曆格顏色:等同 color-mix(primary X%, th-bg) 的固定值 */
