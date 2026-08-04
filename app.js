@@ -1282,12 +1282,13 @@ function filteredRecords() {
 
   if (tag) { const set = pondsWithTag(tag); recs = recs.filter((r) => set.has(r.pondId)); }
   if (pond) recs = recs.filter((r) => r.pondId === pond);
-  // 排序:日期新→舊,同日早上在前
+  // 排序:日期新→舊,同日早上在前,同日同時段再依建立時間新→舊
   recs.sort((a, b) => {
     if (a.date !== b.date) return a.date < b.date ? 1 : -1;
     const pa = a.period === "morning" ? 0 : 1;
     const pb = b.period === "morning" ? 0 : 1;
-    return pa - pb;
+    if (pa !== pb) return pa - pb;
+    return recordTimeMs(b) - recordTimeMs(a);
   });
   return recs;
 }
@@ -1986,7 +1987,9 @@ function buildExportData(records, { byMonth = false } = {}) {
   const recs = records.slice().sort((a, b) => {
     if (a.date !== b.date) return a.date < b.date ? -1 : 1;
     const pa = a.period === "morning" ? 0 : 1, pb = b.period === "morning" ? 0 : 1;
-    return pa - pb;
+    if (pa !== pb) return pa - pb;
+    // 同日同時段依建立時間舊→新(與本表日期升序方向一致)
+    return recordTimeMs(a) - recordTimeMs(b);
   });
   if (!recs.length) return null;
 
