@@ -70,77 +70,7 @@ function saveLastCtx(period, feedNoId) {
   try { localStorage.setItem(LAST_CTX_KEY, JSON.stringify({ period, feedNoId })); } catch {}
 }
 
-// ---------- 假資料模式 ----------
-const DEMO_KEY = "yutun-demo-mode";          // localStorage:'1' = 假資料模式
-let demoMode = false;
-let unsubscribers = [];                       // Firestore 訂閱取消函式(切換時要解除)
-
-// 產生一組示範資料(純前端,不碰 Firestore)。城市=群組,池子各屬其城市,魚種隨機。
-function buildDemoData() {
-  const cities = {
-    "高雄": ["左營", "楠梓", "岡山"],
-    "台南": ["永康", "安平", "新營"],
-    "嘉義": ["太保", "朴子", "民雄"]
-  };
-  const fishTags = ["鱸魚", "鮪魚", "吳郭魚", "鮭魚"];
-  // 帶 id 的選項(假資料用固定 id,方便重現)
-  const feedNos = DEFAULT_OPTIONS.feedNos.map((it, i) => ({ id: `demo-feed-${i}`, name: it.name }));
-  const mixes = DEFAULT_OPTIONS.mixes.map((it, i) => ({ id: `demo-mix-${i}`, name: it.name }));
-  const disinfectants = DEFAULT_OPTIONS.disinfectants.map((it, i) => ({ id: `demo-dis-${i}`, name: it.name }));
-
-  // 用固定種子的偽隨機,讓每次產生的假資料一致(可重現)
-  let seed = 20260501;
-  const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
-  const pick = (arr) => arr[Math.floor(rnd() * arr.length)];
-
-  const ponds = [];          // [{id, name}]
-  const pondTags = {};       // { 池塘id: [標籤...] }
-  let pn = 0;
-  for (const [city, areas] of Object.entries(cities)) {
-    for (const area of areas) {
-      const id = `demo-pond-${pn++}`;
-      ponds.push({ id, name: area });
-      pondTags[id] = [city, pick(fishTags)];   // 自己城市 + 隨機魚種
-    }
-  }
-
-  const demoOptions = {
-    ponds,
-    feedNos,
-    mixes,
-    disinfectants,
-    tags: ["高雄", "台南", "嘉義", ...fishTags],
-    pondTags
-  };
-
-  // 5、6 兩個月,每個池子每月隨機記幾筆
-  const records = [];
-  let idn = 1;
-  const z = (n) => String(n).padStart(2, "0");
-  for (const month of [5, 6]) {
-    const daysInMonth = month === 5 ? 31 : 30;
-    for (const pond of ponds) {
-      const count = 3 + Math.floor(rnd() * 4);   // 每池每月 3~6 筆
-      for (let k = 0; k < count; k++) {
-        const day = 1 + Math.floor(rnd() * daysInMonth);
-        records.push({
-          id: `demo-${idn++}`,
-          pondId: pond.id,
-          date: `2026-${z(month)}-${z(day)}`,
-          period: rnd() < 0.5 ? "morning" : "afternoon",
-          bags: Math.round(1 + rnd() * 5),   // 1~6 整數
-          feedNoId: pick(feedNos).id,
-          mixId: rnd() < 0.5 ? pick(mixes).id : "",
-          disinfectantId: rnd() < 0.4 ? pick(disinfectants).id : "",
-          note: ""
-        });
-      }
-    }
-  }
-  // 依日期新→舊排序(與真實訂閱一致)
-  records.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
-  return { demoOptions, records };
-}
+let unsubscribers = [];                       // Firestore 訂閱取消函式
 
 // ---------- 小工具 ----------
 const $ = (sel) => document.querySelector(sel);
@@ -197,7 +127,7 @@ function recordTimeLabel(r) {
   }
   return parts.join(", ");
 }
-// 由 createdAt 取建立時間 hh:mm:ss(24h);無 createdAt(如假資料)回空字串
+// 由 createdAt 取建立時間 hh:mm:ss(24h);無 createdAt 回空字串
 function recordTimeStr(r) { return fmtTime(recordDate(r)); }
 // 取建立時間毫秒(供排序);無 createdAt 回 0
 function recordTimeMs(r) {
@@ -446,13 +376,17 @@ function subscribeData() {
     cloudSynced = !snap.metadata.fromCache;
     if (cloudSynced) setSync("ok", "已同步DB");
     else setSync("pending", "離線(資料暫存本機)");
+    updateSaveDisabled();   // 連線狀態變了 → 連動新增鈕可否按
     renderList();
     renderStatsView();
     renderPondFilter();
     renderTodayList();
     // 同步到最新後,順手補抓仍 pending 的天氣(只在已連雲端時試,離線無意義)
     if (cloudSynced) retryPendingWeather();
-  }, (err) => { console.error(err); cloudSynced = false; setSync("err", "讀取紀錄失敗"); }));
+  }, (err) => {
+    console.error(err); cloudSynced = false;
+    setSync("err", "讀取紀錄失敗"); updateSaveDisabled();
+  }));
 }
 
 // 解除所有 Firestore 訂閱
@@ -461,43 +395,9 @@ function unsubscribeData() {
   unsubscribers = [];
 }
 
-// ---------- 模式切換:DB / 假資料 ----------
-function applyMode(demo) {
-  demoMode = demo;
-  localStorage.setItem(DEMO_KEY, demo ? "1" : "0");
-  document.body.classList.toggle("demo-mode", demo);
-  updateModeToggle();
-
-  if (demo) {
-    unsubscribeData();                 // 停掉真實訂閱,避免覆蓋畫面
-    const { demoOptions, records } = buildDemoData();
-    options = demoOptions;
-    allRecords = records;
-    setSync("demo", "假資料模式");
-    // 全面重渲染
-    renderOptionSelects(); renderSettings(); renderPondFilter();
-    renderRecordTags(); renderList(); renderStatsView(); renderTodayList();
-  } else {
-    // 回 DB 模式:重新訂閱(會覆蓋掉假資料)
-    if (db) { setSync("", "連線中…"); subscribeData(); }
-  }
-}
-
-function updateModeToggle() {
-  $$("#modeSwitch .mode-opt").forEach((b) =>
-    b.classList.toggle("active", (b.dataset.mode === "demo") === demoMode));
-}
-
-function setupModeToggle() {
-  applyMode(localStorage.getItem(DEMO_KEY) === "1");   // 還原上次模式
-  $$("#modeSwitch .mode-opt").forEach((b) =>
-    b.addEventListener("click", () => applyMode(b.dataset.mode === "demo")));
-}
-
-// 假資料模式為唯讀:攔截所有寫入,回 true 表示「已攔截,不要繼續」
-function blockIfDemo() {
-  if (demoMode) { showToast("假資料模式為唯讀,切回 DB 模式才能編輯", true); return true; }
-  return false;
+// ---------- 啟動資料訂閱 ----------
+function startData() {
+  if (db) { setSync("", "魚塭連線中"); subscribeData(); }
 }
 
 // ============================================================
@@ -691,12 +591,19 @@ function syncPondInputVisibility() {
   updateSaveDisabled();   // 池塘狀態變了,連動「新增/更新」按鈕可否按
 }
 
-// 防呆:沒選下拉、也沒手打池塘名時,「新增/更新」按鈕置灰不可按
+// 防呆:兩個條件都成立才可按「新增/更新」——
+//   1. 有選(或手打)池塘名
+//   2. 已與雲端同步:沒連上 DB 就不讓記,避免以為記好了、實際只躺在本機
+// 按鈕文字會說明是哪個原因擋住,不然使用者只看到一顆灰掉的鈕不知為何。
 function updateSaveDisabled() {
   const btn = $("#saveBtn");
   if (!btn) return;
   const hasPond = !!$("#pondSelect").value || $("#pondInput").value.trim() !== "";
-  btn.disabled = !hasPond;
+  btn.disabled = !hasPond || !cloudSynced;
+  // 儲存動畫進行中(btn-ok-flash)不要蓋掉「✔ 已新增」的回饋文字
+  if (!btn.classList.contains("btn-ok-flash")) {
+    btn.textContent = cloudSynced ? "新增" : "未連線,無法新增";
+  }
 }
 
 // 讀取包數(整數)
@@ -781,7 +688,7 @@ function renderTodayList() {
   if (!date) { box.innerHTML = ""; return; }
   const recs = allRecords
     .filter((r) => r.date === date)
-    // 依建立時間新→舊(剛記的在最上);無 createdAt(假資料)退回用時段排
+    // 依建立時間新→舊(剛記的在最上);無 createdAt 退回用時段排
     .sort((a, b) => {
       const ta = recordTimeMs(a), tb = recordTimeMs(b);
       if (ta !== tb) return tb - ta;
@@ -809,7 +716,6 @@ function renderTodayList() {
 
 async function onSaveRecord(e) {
   e.preventDefault();
-  if (blockIfDemo()) return;
   if (!db) { showMsg("尚未設定 Firebase,無法儲存", true); return; }
 
   // 池塘:下拉選了既有池塘 → 直接用其 id;否則為手打的新池塘名 → 找既有 id 或新建一筆
@@ -971,7 +877,7 @@ function pendingWeatherTargets() {
 let retryingWeather = false;
 async function retryPendingWeather() {
   if (!APP_SIDE_WEATHER_ATTACH) return;   // 停用:補抓改由 GitHub Actions 做
-  if (!db || demoMode || retryingWeather) return;
+  if (!db || retryingWeather) return;
   const targets = pendingWeatherTargets();
   if (!targets.length) return;
   retryingWeather = true;
@@ -993,7 +899,6 @@ let weatherTimer = null;
 function ensureWeatherTimer() {
   const needed =
     APP_SIDE_WEATHER_ATTACH &&   // 停用時不啟動前景定時器
-    !demoMode &&
     document.visibilityState === "visible" &&
     pendingWeatherTargets().length > 0;
 
@@ -1048,6 +953,268 @@ function resetForm(opts = {}) {
   syncPondInputVisibility();   // 同步池塘輸入框顯隱
   renderRecordTags();          // 池塘可能變動或清空,更新標籤區
   renderTodayList();           // 日期可能重設,更新當日清單
+}
+
+// ============================================================
+//  ESP32 節點心跳(魚塭水溫探頭 + 家中看門狗)
+// ============================================================
+// 為什麼用 fetch 而不是 Firebase SDK:那兩片板子寫的是「另一個」Firebase 專案
+// (esp32-e7966 的 Realtime Database),與本站的 Firestore(fishpond-log-e4c57)
+// 無關。RTDB 的 REST 端點直接 GET 就有 JSON,不必為了讀兩個數字把 RTDB SDK
+// 也載進來。規則目前為公開讀取,所以不需要任何憑證。
+//
+// 判斷失聯的門檻刻意沿用韌體自己的規則:meta.interval × STALE_MULTIPLE。
+// watchdog 韌體就是用這個算式決定要不要發 Discord 告警,前端照抄同一套,
+// 網站顯示的狀態才不會和 Discord 各說各話。interval 讀不到時退回 60 秒。
+const NODE_RTDB = "https://esp32-e7966-default-rtdb.asia-southeast1.firebasedatabase.app";
+const NODE_STALE_MULTIPLE = 5;      // 與 watchdog 的 meta.staleMultiple 一致
+const NODE_DEFAULT_INTERVAL = 60;   // meta.interval 缺失時的保底(秒)
+const NODE_POLL_MS = 60 * 1000;     // 對齊板子的上傳週期
+// 顯示用:id → 短名。watchdog 那片固定放在家裡(刻意與感測器不同地點,魚塭斷電
+// 時才有人能發告警),所以叫「家裡板子」而不是它的角色名。
+const NODE_LABELS = { "pond-site": "魚塭", "watchdog": "家裡板子" };
+
+let nodeTimer = null;
+let nodeFetching = false;
+
+// 相對時間短句:給失聯狀態用(「12 分前」「3 小時前」)
+function nodeAgoText(sec) {
+  if (sec < 60) return `${Math.max(0, Math.round(sec))} 秒前`;
+  if (sec < 3600) return `${Math.round(sec / 60)} 分前`;
+  if (sec < 86400) return `${Math.round(sec / 3600)} 小時前`;
+  return `${Math.round(sec / 86400)} 天前`;
+}
+
+// 單一節點 → { cls, text }。cls 對應 header 那組 ● 顏色。
+function nodeState(id, node) {
+  const label = NODE_LABELS[id] || id;
+  if (!node) return { cls: "err", text: `${label} 查無資料` };
+  const ts = Number(node?.latest?.ts);
+  if (!ts) return { cls: "err", text: `${label} 無回報時間` };
+
+  const interval = Number(node?.meta?.interval) || NODE_DEFAULT_INTERVAL;
+  const age = Date.now() / 1000 - ts;          // 板子寫的是 unix 秒
+  const stale = interval * NODE_STALE_MULTIPLE;
+
+  // 活著:有水溫就顯示水溫(它本身就證明心跳在,比「正常」兩個字有用)
+  if (age <= stale) {
+    const temp = Number(node?.latest?.temp);
+    return { cls: "ok", text: Number.isFinite(temp) ? `${label} ${temp.toFixed(1)}°C` : `${label} 正常` };
+  }
+  // 逾時但還不久:可能只是漏一兩輪,黃燈提醒不告警
+  if (age <= stale * 6) return { cls: "pending", text: `${label} ${nodeAgoText(age)}` };
+  return { cls: "err", text: `${label}失聯 ${nodeAgoText(age)}` };
+}
+
+// 抓一次 RTDB 並更新 header。這一行永遠顯示,連抓不到時也是——看不到板子本身
+// 就是一種狀態,藏起來會讓「板子掛了」和「這裡沒東西」長得一模一樣。
+// 但要分清楚是誰的問題:手機自己沒網路 → 灰字說明是本機,不要誣賴板子;
+// 真的連得出去卻讀不到 RTDB → 紅字,那是雲端或板子端的事。
+async function refreshNodeStatus() {
+  const el = $("#nodeStatus");
+  if (!el || nodeFetching) return;
+  nodeFetching = true;
+  try {
+    const res = await fetch(`${NODE_RTDB}/devices.json`, { cache: "no-store" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    nodeLastData = data || {};   // 供板子狀態頁使用,不再另抓一次
+    nodeLastError = null;
+    // 一律把兩片都列出來(不 filter):某片在 RTDB 裡整個不見,本身就是要看到的狀態,
+    // 悄悄少一個反而看不出是哪片出事。nodeState 收到 undefined 會回「查無資料」。
+    const ids = Object.keys(NODE_LABELS);
+    const states = ids.map((id) => ({ id, ...nodeState(id, data?.[id]) }));
+    el.innerHTML = states
+      .map((s) => `<span class="node-dot ${s.cls}">${escapeHtml(s.text)}</span>`)
+      .join("");
+    // 細節收在 title 裡:韌體版本 / IP / 連上哪個 WiFi,自己除錯時滑過可看
+    el.title = ids
+      .map((id) => {
+        const n = data?.[id], l = n?.latest || {}, m = n?.meta || {};
+        if (!n) return `${NODE_LABELS[id] || id}(${id})
+  RTDB 中找不到這個節點`;
+        const seen = Number(l.ts) ? new Date(l.ts * 1000).toLocaleString("zh-TW") : "無紀錄";
+        return `${NODE_LABELS[id] || id}(${id})\n  最後回報:${seen}\n  韌體:${m.fw || "?"}  IP:${l.ip || "?"}  WiFi:${l.ssid || "?"}`;
+      })
+      .join("\n");
+    el.hidden = false;
+  } catch (e) {
+    nodeLastError = String(e && e.message || e);
+    // 分兩種:手機沒網路是本機問題(灰),連得出去卻讀不到才是真異常(紅)。
+    const offline = navigator.onLine === false;
+    const cls = offline ? "unknown" : "err";
+    const text = offline ? "板子狀態:手機無網路" : "板子狀態:讀取失敗";
+    el.innerHTML = `<span class="node-dot ${cls}">${escapeHtml(text)}</span>`;
+    el.title = offline
+      ? "這支手機目前沒有網路,所以讀不到板子狀態——不代表板子有問題。"
+      : `連不上監測資料庫(${String(e && e.message || e)})。
+可能是 RTDB 異常,或這支手機連不到該網域。`;
+    el.hidden = false;
+  } finally {
+    nodeFetching = false;
+    // 狀態頁若正開著,跟著這次結果一起更新
+    if ($("#page-nodes")?.classList.contains("active")) renderNodesPage();
+  }
+}
+
+// 前景才輪詢:背景分頁被 OS 凍結,空轉只是浪費手機電力和流量。
+function ensureNodeTimer() {
+  const needed = document.visibilityState === "visible";
+  if (needed && !nodeTimer) {
+    nodeTimer = setInterval(refreshNodeStatus, NODE_POLL_MS);
+  } else if (!needed && nodeTimer) {
+    clearInterval(nodeTimer);
+    nodeTimer = null;
+  }
+}
+
+
+// ---------- 板子狀態頁 ----------
+// 與 header 心跳共用同一次 fetch 的結果(nodeLastData),不各抓一次。
+// 水溫曲線只抓最近 24 小時:整個月的 history 有 5400+ 筆(~148KB),
+// 24 小時只有 ~288 筆(~7.8KB),手機上差很多。
+const NODE_HISTORY_HOURS = 24;
+const NODE_HISTORY_POINTS = 288;          // 24h ÷ 5 分鐘一筆
+let nodeLastData = null;                  // 最近一次成功抓到的 devices 內容
+let nodeLastError = null;                 // 失敗原因(給狀態頁顯示)
+let nodeHistory = null;                   // [[ts, temp], ...] 由舊到新
+let nodeHistoryLoading = false;
+
+// 秒數 → 「x 天 y 小時」(給開機至今用)
+function nodeUptimeText(sec) {
+  if (!Number.isFinite(sec) || sec < 0) return "—";
+  const d = Math.floor(sec / 86400), h = Math.floor((sec % 86400) / 3600);
+  if (d > 0) return `${d} 天 ${h} 小時`;
+  const m = Math.floor((sec % 3600) / 60);
+  return h > 0 ? `${h} 小時 ${m} 分` : `${m} 分`;
+}
+
+function nodeTimeText(ts) {
+  const n = Number(ts);
+  if (!n) return "—";
+  return new Date(n * 1000).toLocaleString("zh-TW", { hour12: false });
+}
+
+// 抓最近 24 小時水溫。RTDB 的 orderBy="$key"+limitToLast 讓伺服器端就切好,
+// 不必整包下載再丟掉。key 是 unix 秒的字串。
+async function loadNodeHistory() {
+  if (nodeHistoryLoading) return;
+  nodeHistoryLoading = true;
+  try {
+    const ym = new Date().toISOString().slice(0, 7);          // YYYY-MM
+    const url = `${NODE_RTDB}/history/pond-site/${ym}.json`
+      + `?orderBy=%22%24key%22&limitToLast=${NODE_HISTORY_POINTS}`;
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const raw = await res.json();
+    const cutoff = Date.now() / 1000 - NODE_HISTORY_HOURS * 3600;
+    nodeHistory = Object.entries(raw || {})
+      .map(([k, v]) => [Number(k), Number(v?.temp)])
+      .filter(([t, v]) => Number.isFinite(t) && Number.isFinite(v) && t >= cutoff)
+      .sort((a, b) => a[0] - b[0]);
+    // 跨月初時本月筆數可能不足,不補抓上個月:曲線短一點無妨,不值得多一次請求
+  } catch (e) {
+    nodeHistory = null;
+  } finally {
+    nodeHistoryLoading = false;
+  }
+}
+
+// 水溫折線圖(純 inline SVG,不引入圖表庫——本專案其他圖表也是自己畫的)。
+// viewBox 固定、寬度 100%,所以在任何螢幕寬度都不會爆版。
+function nodeSparkline(points) {
+  if (!points || points.length < 2) {
+    return `<p class="nodes-empty">尚無足夠的水溫紀錄可畫圖</p>`;
+  }
+  const W = 320, H = 90, PAD_L = 26, PAD_R = 6, PAD_T = 8, PAD_B = 16;
+  const temps = points.map((p) => p[1]);
+  const tMin = Math.min(...temps), tMax = Math.max(...temps);
+  // 上下各留一點空間,並避免整段溫度相同時除以 0
+  const lo = Math.floor(tMin * 2) / 2 - 0.5, hi = Math.ceil(tMax * 2) / 2 + 0.5;
+  const span = (hi - lo) || 1;
+  const x0 = points[0][0], x1 = points[points.length - 1][0];
+  const xSpan = (x1 - x0) || 1;
+  const px = (t) => PAD_L + ((t - x0) / xSpan) * (W - PAD_L - PAD_R);
+  const py = (v) => PAD_T + (1 - (v - lo) / span) * (H - PAD_T - PAD_B);
+
+  const d = points.map((p, i) => `${i ? "L" : "M"}${px(p[0]).toFixed(1)},${py(p[1]).toFixed(1)}`).join("");
+  const area = `${d}L${px(x1).toFixed(1)},${(H - PAD_B).toFixed(1)}L${px(x0).toFixed(1)},${(H - PAD_B).toFixed(1)}Z`;
+  const hLabel = (v) => `<text x="2" y="${(py(v) + 3).toFixed(1)}" class="nspark-ax">${v.toFixed(1)}</text>`;
+  // 顯示真正的時:分。兩端若跨日,前面補 M/D,否則 24 小時的兩端會同樣是「23:xx」,
+  // 看起來像沒有跨距。
+  const sameDayEnds = new Date(x0 * 1000).getDate() === new Date(x1 * 1000).getDate();
+  const tick = (t) => {
+    const dt = new Date(t * 1000);
+    const hm = `${String(dt.getHours()).padStart(2, "0")}:${String(dt.getMinutes()).padStart(2, "0")}`;
+    return sameDayEnds ? hm : `${dt.getMonth() + 1}/${dt.getDate()} ${hm}`;
+  };
+  return `
+    <svg class="nspark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img"
+         aria-label="最近 ${NODE_HISTORY_HOURS} 小時水溫,範圍 ${tMin.toFixed(1)} 到 ${tMax.toFixed(1)} 度">
+      <line x1="${PAD_L}" y1="${PAD_T}" x2="${PAD_L}" y2="${H - PAD_B}" class="nspark-grid" />
+      <line x1="${PAD_L}" y1="${H - PAD_B}" x2="${W - PAD_R}" y2="${H - PAD_B}" class="nspark-grid" />
+      ${hLabel(lo)}${hLabel(hi)}
+      <path d="${area}" class="nspark-area" />
+      <path d="${d}" class="nspark-line" />
+      <text x="${PAD_L}" y="${H - 4}" class="nspark-ax">${tick(x0)}</text>
+      <text x="${W - PAD_R}" y="${H - 4}" class="nspark-ax" text-anchor="end">${tick(x1)}</text>
+    </svg>`;
+}
+
+// 一列「標籤:值」
+function nodeRow(k, v) {
+  return `<div class="nodes-row"><span>${escapeHtml(k)}</span><b>${escapeHtml(String(v))}</b></div>`;
+}
+
+// 單片板子一張卡
+function nodeCard(id, node) {
+  const label = NODE_LABELS[id] || id;
+  const icon = id === "pond-site" ? "🐟" : "🏠";
+  const st = nodeState(id, node);
+  const head = `
+    <div class="nodes-head">
+      <span class="nodes-title">${icon} ${escapeHtml(label)}</span>
+      <span class="node-dot ${st.cls}">${escapeHtml(st.text.replace(label, "").trim() || "正常")}</span>
+    </div>`;
+
+  if (!node) {
+    return `<div class="card nodes-card">${head}
+      <p class="nodes-empty">RTDB 中找不到這個節點(${escapeHtml(id)})。板子可能從未上傳過,或資料被清掉了。</p>
+    </div>`;
+  }
+
+  const l = node.latest || {}, m = node.meta || {};
+  const rows = [];
+  if (Number.isFinite(Number(l.temp))) rows.push(nodeRow("水溫", `${Number(l.temp).toFixed(1)}°C`));
+  if (Number.isFinite(Number(l.checks))) rows.push(nodeRow("已檢查", `${Number(l.checks).toLocaleString()} 次`));
+  if (typeof l.alerting === "boolean") rows.push(nodeRow("告警中", l.alerting ? "是 ⚠️" : "否"));
+  rows.push(nodeRow("最後回報", nodeTimeText(l.ts)));
+  if (Number(m.bootAt)) rows.push(nodeRow("開機至今", nodeUptimeText(Date.now() / 1000 - Number(m.bootAt))));
+  rows.push(nodeRow("韌體", m.fw || "—"));
+  rows.push(nodeRow("上傳週期", Number(m.interval) ? `${m.interval} 秒` : "—"));
+  rows.push(nodeRow("IP", l.ip || "—"));
+  rows.push(nodeRow("WiFi", l.ssid || "—"));
+
+  // 水溫曲線只有魚塭那片有
+  const chart = id === "pond-site"
+    ? `<div class="nodes-chart"><div class="nodes-chart-t">最近 ${NODE_HISTORY_HOURS} 小時水溫</div>${nodeSparkline(nodeHistory)}</div>`
+    : "";
+
+  return `<div class="card nodes-card">${head}${chart}<div class="nodes-rows">${rows.join("")}</div></div>`;
+}
+
+function renderNodesPage() {
+  const box = $("#nodesContainer");
+  if (!box) return;
+  if (!nodeLastData) {
+    box.innerHTML = `<div class="card"><p class="nodes-empty">${
+      nodeLastError ? `讀不到板子資料:${escapeHtml(nodeLastError)}` : "查詢中…"
+    }</p></div>`;
+    return;
+  }
+  box.innerHTML = Object.keys(NODE_LABELS)
+    .map((id) => nodeCard(id, nodeLastData[id]))
+    .join("");
 }
 
 // ============================================================
@@ -1109,7 +1276,6 @@ function fillEditPondSelect() {
 function startEdit(id) {
   const r = allRecords.find((x) => x.id === id);
   if (!r) return;
-  if (blockIfDemo()) return;
   editingId = id;
 
   // 選項清單(可能在 options 載入後才齊全)→ 開啟時重填一次,確保有值可選
@@ -1167,7 +1333,6 @@ function renderEditTags() {
 
 async function onSaveEdit(e) {
   e.preventDefault();
-  if (blockIfDemo()) return;
   if (!db) { showToast("尚未設定 Firebase,無法儲存", true); return; }
   if (!editingId) return;
 
@@ -1347,7 +1512,6 @@ function renderList() {
 
 // 回傳 true=已送出刪除、false=取消或失敗(供編輯模式刪除後決定是否重設表單)
 async function onDelete(id) {
-  if (blockIfDemo()) return false;
   const r = allRecords.find((x) => x.id === id);
   const ok = await showConfirm(
     `確定刪除這筆紀錄?\n\n${recordDetailText(r)}`,
@@ -2432,7 +2596,6 @@ function renderPondTagsSection() {
 
 // 切換某池對某標籤的歸屬。pondId=池塘 id(pondTags 以 id 為 key)
 async function togglePondTag(pondId, tag) {
-  if (blockIfDemo()) return;
   if (!db) return;
   const pondTags = { ...(options.pondTags || {}) };
   const list = new Set(pondTags[pondId] || []);
@@ -2448,7 +2611,6 @@ async function togglePondTag(pondId, tag) {
 // presetId:給 onSaveRecord 手打新池塘時用(先在本地產 id,確保紀錄能立刻指到)。
 // 回傳 true=已新增、false=未新增(撞名或被擋),讓呼叫端決定要不要清空輸入框。
 async function addOption(key, value, presetId) {
-  if (blockIfDemo()) return false;
   if (!db) return false;
   const list = options[key] || [];
   const isIdKey = ID_KEYS.includes(key);
@@ -2465,7 +2627,6 @@ async function addOption(key, value, presetId) {
 
 // 把選項從 from 位置移到 to 位置,寫回 Firestore
 async function reorderOption(key, from, to) {
-  if (blockIfDemo()) return;
   if (!db) return;
   const list = (options[key] || []).slice();
   if (from === to || from < 0 || to < 0 || from >= list.length || to >= list.length) return;
@@ -2480,7 +2641,6 @@ async function reorderOption(key, from, to) {
 // 重新命名選項:單點 chip 觸發。
 // 帶 id 的選項只改 name(id 不變,既有紀錄與 pondTags 自動跟著);tags 改名需連帶更新 pondTags 內的引用。
 async function renameOption(key, idx) {
-  if (blockIfDemo()) return;
   if (!db) return;
   const list = (options[key] || []).slice();
   const item = list[idx];
@@ -2636,7 +2796,6 @@ function setupChipDrag(listEl) {
 const KEY_TO_REC_FIELD = { ponds: "pondId", feedNos: "feedNoId", mixes: "mixId", disinfectants: "disinfectantId" };
 
 async function removeOption(key, idx) {
-  if (blockIfDemo()) return;
   if (!db) return;
   const list = (options[key] || []).slice();
   const item = list[idx];
@@ -2697,6 +2856,12 @@ function switchPage(name) {
   $("#saveBar").hidden = !onRecord;            // 儲存列只在記錄頁顯示
   document.body.classList.toggle("on-record", onRecord);  // 控制底部留白
   document.body.classList.toggle("on-stats", name === "stats");  // 統計頁全寬
+  // 進板子頁:先畫現有資料(不留白畫面),同時重抓一次即時狀態與水溫曲線
+  if (name === "nodes") {
+    renderNodesPage();
+    refreshNodeStatus();
+    loadNodeHistory().then(renderNodesPage);
+  }
   window.scrollTo({ top: 0 });
 }
 function setupTabs() {
@@ -2728,14 +2893,18 @@ function main() {
   renderSettings();
 
   initFirebase();
-  // 還原上次模式:applyMode 內部會處理(假資料→灌假資料;DB→訂閱 Firestore)
-  setupModeToggle();
+  startData();
+
+  // ESP32 心跳:立刻抓一次,之後前景每分鐘更新(與 Firestore 無關)
+  refreshNodeStatus();
+  ensureNodeTimer();
 
   // 天氣機會式重試:App 回到前景 / 視窗取得焦點時,補抓仍 pending 的紀錄。
   // 回前景時順手啟動前景定時器(離開前景則停掉,避免背景空轉)。
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible") retryPendingWeather();
+    if (document.visibilityState === "visible") { retryPendingWeather(); refreshNodeStatus(); }
     ensureWeatherTimer();
+    ensureNodeTimer();
   });
   window.addEventListener("focus", retryPendingWeather);
 

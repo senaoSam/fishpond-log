@@ -11,10 +11,11 @@
 </head>
 <body>
   <header class="app-header">
-    <span id="syncStatus" class="sync-status">連線中…</span>
-    <div class="mode-switch" id="modeSwitch" role="group" aria-label="資料模式切換">
-      <button type="button" class="mode-opt" data-mode="db">☁️ DB</button>
-      <button type="button" class="mode-opt" data-mode="demo">🧪 假資料</button>
+    <div class="header-left">
+      <span id="syncStatus" class="sync-status">魚塭連線中</span>
+      <!-- ESP32 心跳:讀 esp32 專案的 RTDB(與本站 Firestore 不同專案),每分鐘更新。
+           一開始就先放「查詢中」,這行永遠佔位,避免抓到後把下面內容往下推。 -->
+      <span id="nodeStatus" class="node-status"><span class="node-dot unknown">板子狀態:查詢中…</span></span>
     </div>
     <div class="header-right">
       <span id="buildStamp" class="build-stamp" title="此版本建置時間,用來確認非 cache"></span>
@@ -194,6 +195,14 @@
       <p class="hint">在這裡新增 / 刪除各欄位的固定選項,所有裝置即時同步。</p>
       <div id="settingsContainer"></div>
     </section>
+
+    <!-- ========== 板子狀態頁 ========== -->
+    <!-- 資料來自 esp32 專案的 RTDB(與本站 Firestore 不同專案),見 app.js 的節點心跳章節 -->
+    <section id="page-nodes" class="page">
+      <h2>板子狀態</h2>
+      <p class="hint">魚塭水溫探頭與家裡看門狗的即時狀態。進入本頁會重新抓一次,之後每分鐘更新。</p>
+      <div id="nodesContainer"></div>
+    </section>
   </main>
 
   <!-- 跟隨滑鼠的圖表 tooltip -->
@@ -210,6 +219,7 @@
     <button class="tab" data-page="list">📋<span>查詢</span></button>
     <button class="tab" data-page="stats">📊<span>統計</span></button>
     <button class="tab" data-page="settings">⚙️<span>設定</span></button>
+    <button class="tab" data-page="nodes">📡<span>板子</span></button>
   </nav>
 
   <!-- 自訂確認對話框 -->

@@ -64,14 +64,6 @@ html, body {
   background: var(--header);
   color: #fff;
 }
-/* 切換鈕絕對置中,不受左右元素寬度影響(header 為 sticky,可當定位基準) */
-.app-header .mode-switch {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  margin-top: calc(env(safe-area-inset-top) / 2);
-}
 .sync-status { font-size: 0.72rem; opacity: 0.9; }
 /* header 右側:時間戳 + 主題切換 */
 .header-right { display: flex; align-items: center; gap: 8px; }
@@ -84,29 +76,24 @@ html, body {
 .sync-status.ok::before { content: "● "; color: #b2f2bb; }
 .sync-status.err::before { content: "● "; color: #ffc9c9; }
 .sync-status.pending::before { content: "● "; color: #ffd8a8; }
-.sync-status.demo::before { content: "● "; color: #ffe066; }
-/* 模式切換:左右兩段的 segmented switch */
-.mode-switch {
-  display: inline-flex;
-  border: 1px solid rgba(255, 255, 255, 0.4);
-  border-radius: 999px;
-  overflow: hidden;
-  background: rgba(255, 255, 255, 0.1);
+/* header 左側:DB 狀態 + ESP32 節點心跳(第二行) */
+.header-left {
+  display: flex; flex-direction: column; align-items: flex-start;
+  gap: 1px; min-width: 0;
 }
-.mode-opt {
-  border: none;
-  background: transparent;
-  color: rgba(255, 255, 255, 0.7);
-  font-size: 0.72rem;
-  font-weight: 700;
-  line-height: 1;
-  padding: 5px 10px;
-  cursor: pointer;
-  white-space: nowrap;
+/* ESP32 節點心跳:沿用上面同一組燈號顏色;放不下時讓兩個節點各自換行,
+   極窄螢幕上再以省略號截斷(完整內容在 title)。 */
+.node-status {
+  display: flex; flex-wrap: wrap; gap: 0 8px;
+  font-size: 0.72rem; opacity: 0.9; max-width: 100%;
 }
-.mode-opt.active { color: #fff; }
-.mode-opt[data-mode="db"].active { background: rgba(255, 255, 255, 0.28); }      /* DB 選中:白底 */
-.mode-opt[data-mode="demo"].active { background: #f59f00; color: #fff; }          /* 假資料選中:橘底 */
+.node-dot { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.node-dot.ok::before { content: "● "; color: #b2f2bb; }
+.node-dot.err::before { content: "● "; color: #ffc9c9; }
+.node-dot.pending::before { content: "● "; color: #ffd8a8; }
+/* 灰:還沒查到 / 手機自己沒網路——不是板子的問題,不用紅字 */
+.node-dot.unknown::before { content: "● "; color: rgba(255, 255, 255, 0.45); }
+.node-dot.unknown { opacity: 0.75; }
 .theme-toggle {
   border: none;
   background: rgba(255, 255, 255, 0.15);
@@ -123,10 +110,41 @@ html, body {
 }
 .theme-toggle:active { background: rgba(255, 255, 255, 0.3); }
 
-/* 假資料模式:整體加橘色提示邊框 + 隱藏儲存列(唯讀) */
-body.demo-mode { box-shadow: inset 0 0 0 3px #f59f00; }
-body.demo-mode .app-header { background: #b56c00; }
-body.demo-mode #saveBar { display: none !important; }
+/* ---------- 板子狀態頁 ---------- */
+.nodes-card { padding: 12px 14px; }
+.nodes-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; flex-wrap: wrap; margin-bottom: 10px;
+}
+.nodes-title { font-weight: 700; font-size: 1.02rem; }
+/* 卡片上的燈號是深色字(header 上那組是白字),顏色要自己指定 */
+.nodes-head .node-dot { font-size: 0.8rem; color: var(--muted); }
+.nodes-head .node-dot.ok::before { color: #2f9e44; }
+.nodes-head .node-dot.err::before { color: #e03131; }
+.nodes-head .node-dot.pending::before { color: #f08c00; }
+.nodes-head .node-dot.unknown::before { color: var(--muted); }
+
+.nodes-rows { display: flex; flex-direction: column; }
+.nodes-row {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 12px; padding: 6px 0; border-top: 1px solid var(--border);
+  font-size: 0.88rem;
+}
+.nodes-row:first-child { border-top: none; }
+.nodes-row > span { color: var(--muted); white-space: nowrap; }
+/* 右側的值可能很長(韌體字串),讓它自己折行而不是把標籤擠掉 */
+.nodes-row > b { text-align: right; word-break: break-word; font-variant-numeric: tabular-nums; }
+
+.nodes-empty { color: var(--muted); font-size: 0.88rem; margin: 6px 0; }
+
+/* 水溫曲線 */
+.nodes-chart { margin: 4px 0 12px; }
+.nodes-chart-t { font-size: 0.78rem; color: var(--muted); margin-bottom: 4px; }
+.nspark { width: 100%; height: 90px; display: block; overflow: visible; }
+.nspark-line { fill: none; stroke: var(--primary); stroke-width: 1.6; vector-effect: non-scaling-stroke; }
+.nspark-area { fill: var(--primary); opacity: 0.12; stroke: none; }
+.nspark-grid { stroke: var(--border); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.nspark-ax { fill: var(--muted); font-size: 8px; }
 
 /* ---------- Layout ---------- */
 #main {
@@ -931,7 +949,7 @@ body.on-record #main { padding-bottom: 172px; }
 @media (hover: hover) {
   /* 平滑過渡 */
   .btn-primary, .btn-ghost, .btn-sm, .seg-btn, .chip-btn, .tag-pick,
-  .step-btn, .mode-opt, .theme-toggle, .tab, .preview-tab, .preview-x,
+  .step-btn, .theme-toggle, .tab, .preview-tab, .preview-x,
   .chip, .chip-del, .ov-row, .today-item, .gmonth, .opt-group summary {
     transition: background-color 0.12s ease, color 0.12s ease,
                 border-color 0.12s ease, filter 0.12s ease, transform 0.06s ease;
@@ -959,9 +977,8 @@ body.on-record #main { padding-bottom: 172px; }
     background: var(--primary-dark); color: #fff; border-color: var(--primary-dark);
   }
 
-  /* header 上的圓鈕 / 模式切換 */
+  /* header 上的圓鈕 */
   .theme-toggle:hover { background: rgba(255, 255, 255, 0.3); }
-  .mode-opt:hover { color: #fff; }
 
   /* 可點的列 / 卡片:底色提示 */
   .ov-row:hover, .today-item:hover, .gmonth:hover { background: var(--th-bg); }
