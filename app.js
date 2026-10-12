@@ -352,8 +352,12 @@ function showConfigHint() {
 function subscribeData() {
   // 1) 選項設定
   const optRef = doc(db, "settings", "options");
-  unsubscribers.push(onSnapshot(optRef, async (snap) => {
+  // includeMetadataChanges:讓「快取不存在 → 雲端確認不存在」這種純 metadata 變化也會再觸發一次
+  unsubscribers.push(onSnapshot(optRef, { includeMetadataChanges: true }, async (snap) => {
     if (!snap.exists()) {
+      // 本機快取沒有這份文件(新裝置/清過資料)又剛好離線時,會先收到 fromCache 的「不存在」。
+      // 這時寫預設值會在連線後把雲端真設定整份蓋掉(2026-10-12 事故)→ 只在雲端確認不存在才寫。
+      if (snap.metadata.fromCache) return;
       // 首次:寫入預設值
       await setDoc(optRef, DEFAULT_OPTIONS);
       options = { ...DEFAULT_OPTIONS };
