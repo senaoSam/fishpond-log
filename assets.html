@@ -242,30 +242,13 @@
     const COL = "assets";                       // 新 collection,與魚塭資料隔離
     const META_ID = "_meta";                    // 舊版全域可用餘額;只拿來補舊紀錄缺的 balance
 
-    // 新格式驗證期:強制模擬模式,只讀 DB、修改存本機。定案後改 false 才會寫入 Firestore
-    const SIM_ONLY = true;
+    // true = 模擬模式:只讀 DB、修改存本機(驗證新格式用)
+    const SIM_ONLY = false;
     const SIM_KEY = "asset-sim-v1";             // localStorage:{ edits: {date: rec}, deleted: [date] }
     // 手邊的歷史資料(額外投入、累計已實現、累計配息),依日期補進模擬資料。
     // 該日沒有紀錄時套到之後最近的一筆;flow 會累加,其他欄位直接覆寫。
-    // 由 2026 年逐筆交易推算(總應收付 4,891,305、已實現 28,386 與券商一致):
-    // flow = 當日交割淨付出(交割戶維持約 1 萬,賣股的錢直接拿去買)+ 7/29 現金償還融資 10 萬
-    const SIM_SEED = {
-      "2026-06-26": { realized: -2247, dividend: 101991 },   // 起點:之前的已實現;配息日期不明,全數放起點
-      "2026-07-06": { flow: 1485, realized: -609 },
-      "2026-07-09": { flow: 6106, realized: 17336 },
-      "2026-07-28": { flow: 18313, realized: -134060 },
-      "2026-07-29": { flow: 100000 },                         // 現金償還融資
-      "2026-07-31": { flow: 54115 },
-      "2026-08-17": { flow: -9828, realized: 60410 },
-      "2026-09-21": { flow: 96304 },
-      "2026-09-30": { flow: 269572 },
-      "2026-10-01": { flow: 300641 },
-      "2026-10-05": { flow: 212453 },
-      "2026-10-06": { flow: 108229 },
-      "2026-10-07": { flow: 110233 },
-      "2026-10-08": { flow: 113240 },
-      "2026-10-12": { flow: 147484, realized: 28386 },
-    };
+    // 2026-06-26~10-12 由逐筆交易推算的 flow/realized/dividend 已於 2026-10-13 寫入 Firestore
+    const SIM_SEED = {};
 
     // 每筆紀錄的欄位。缺值(舊資料沒有)時沿用前一筆,第一筆則用 0(balance 用舊全域餘額)
     const FIELDS = ["cost", "return", "pledge", "balance", "realized", "dividend", "flow"];
