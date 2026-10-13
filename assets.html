@@ -65,12 +65,34 @@
     .stat { flex: 1 1 0; min-width: 90px; background: var(--total-bg); border-radius: 8px; padding: 10px; text-align: center; }
     .stat .k { font-size: 0.78rem; color: var(--muted); }
     .stat .v { font-weight: 800; font-size: 1.05rem; font-variant-numeric: tabular-nums; margin-top: 2px; }
+    .stat .s { font-size: 0.78rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .stat-grid .stat { min-width: 0; padding: 8px 4px; }
+    .stat-grid .stat.wide { grid-column: 1 / -1; }
+    .stat-note { color: var(--muted); font-size: 0.75rem; margin: 8px 0 0; }
+
+    /* 模擬模式提示 */
+    .sim-banner { background: rgba(245,159,0,0.12); border: 1px solid #f59f00; border-radius: var(--radius);
+      padding: 10px 12px; margin-bottom: 14px; font-size: 0.85rem; line-height: 1.5;
+      display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+
+    /* 圖表切換 */
+    .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+    .seg button { background: none; border: 0; color: var(--muted); padding: 5px 10px; font-size: 0.8rem; font-weight: 700; cursor: pointer; }
+    .seg button.on { background: var(--primary); color: #fff; }
+    .card-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+    .card-head .card-title { margin: 0; }
+
+    .hint { font-size: 0.72rem; color: var(--muted); font-weight: 400; }
+    .rec-sub { font-size: 0.8rem; font-variant-numeric: tabular-nums; margin-top: 2px; }
+    .rec-sub .flow { color: var(--primary); font-weight: 700; }
+    .rec-warn { color: #e67700; font-size: 0.78rem; margin-top: 2px; }
     .pos { color: var(--ok); } .neg { color: var(--danger); }
 
     /* 清單 */
     .rec { border: 1px solid var(--border); border-left: 3px solid var(--primary); border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; }
-    .rec-top { display: flex; justify-content: space-between; align-items: baseline; }
-    .rec-date { font-weight: 700; }
+    .rec-top { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 2px 8px; }
+    .rec-date { font-weight: 700; white-space: nowrap; }
     .rec-net { font-weight: 800; font-variant-numeric: tabular-nums; }
     /* 成本/報酬 與 動作按鈕同一行:文字靠左、按鈕靠右下 */
     .rec-foot { display: flex; justify-content: space-between; align-items: flex-end; gap: 8px; margin-top: 4px; }
@@ -105,21 +127,12 @@
         <button id="themeToggle" class="btn btn-ghost btn-sm" title="深色模式">🌙</button>
       </div>
     </div>
-    <div style="margin-bottom:12px"><a class="nav-back" href="index.html">← 回魚塭紀錄</a>
-      <button id="demoToggle" class="btn btn-ghost btn-sm" style="margin-left:8px">🧪 範例資料</button>
-    </div>
+    <div style="margin-bottom:12px"><a class="nav-back" href="index.html">← 回魚塭紀錄</a></div>
 
-    <!-- 全域:可用餘額 -->
-    <div class="card">
-      <p class="card-title">可用餘額(現金)</p>
-      <form id="balanceForm" class="form-grid">
-        <label class="full">可用餘額(換股或額外投入時才需調整)
-          <input type="number" id="balanceInput" inputmode="decimal" step="any" placeholder="0" />
-        </label>
-        <div class="form-actions" id="balanceActions">
-          <button type="submit" class="btn btn-primary" id="balanceSaveBtn">儲存餘額</button>
-        </div>
-      </form>
+    <!-- 模擬模式提示 -->
+    <div class="sim-banner" id="simBanner" hidden>
+      <span>🧪 <b>模擬模式</b>:讀取正式資料,所有新增/修改只存在這台裝置,<b>不會寫入資料庫</b>。<span id="simCount"></span></span>
+      <button type="button" class="btn btn-ghost btn-xs" id="simReset">清除修改</button>
     </div>
 
     <!-- 今日輸入 -->
@@ -132,19 +145,31 @@
         <label>投資成本
           <input type="number" id="costInput" inputmode="decimal" step="any" placeholder="0" />
         </label>
-        <label>報酬(累計損益,可負)
+        <label>未實現損益(可負)
           <input type="number" id="returnInput" inputmode="decimal" step="any" placeholder="0" />
         </label>
-        <label class="full">質押
+        <label>質押/融資
           <input type="number" id="pledgeInput" inputmode="decimal" step="any" placeholder="0" />
         </label>
+        <label>可用餘額(交割戶)
+          <input type="number" id="balanceInput" inputmode="decimal" step="any" placeholder="0" />
+        </label>
+        <label>累計已實現損益
+          <input type="number" id="realizedInput" inputmode="decimal" step="any" placeholder="0" />
+        </label>
+        <label>累計配息
+          <input type="number" id="dividendInput" inputmode="decimal" step="any" placeholder="0" />
+        </label>
+        <label class="full">額外投入 <span class="hint">今天從外部轉入的本金;提出填負數,平常留空</span>
+          <input type="number" id="flowInput" inputmode="decimal" step="any" placeholder="0" />
+        </label>
         <div class="net-preview">
-          <span class="lbl">今日淨值(成本 + 報酬 − 質押)</span>
-          <span class="val" id="netPreview">0</span>
+          <span class="lbl">今日淨資產</span>
+          <span class="val" id="netWorthPreview">0</span>
         </div>
         <div class="net-preview">
-          <span class="lbl">今日淨資產(淨值 + 可用餘額)</span>
-          <span class="val" id="netWorthPreview">0</span>
+          <span class="lbl">今日損益 <span class="hint">已扣額外投入</span></span>
+          <span class="val" id="pnlPreview">—</span>
         </div>
         <div class="form-actions" id="formActions">
           <button type="button" class="btn btn-ghost" id="cancelBtn" hidden>取消</button>
@@ -156,16 +181,27 @@
 
     <!-- 摘要 -->
     <div class="card" id="summaryCard" hidden>
-      <div class="stat-row">
-        <div class="stat"><div class="k">最新淨資產</div><div class="v" id="sLatest">—</div></div>
-        <div class="stat"><div class="k">較前日</div><div class="v" id="sDelta">—</div></div>
-        <div class="stat"><div class="k">區間變化</div><div class="v" id="sRange">—</div></div>
+      <div class="stat-grid">
+        <div class="stat wide"><div class="k">最新淨資產</div><div class="v" id="sLatest">—</div></div>
+        <div class="stat"><div class="k">今日損益</div><div class="v" id="sPnl">—</div><div class="s" id="sRate"></div></div>
+        <div class="stat"><div class="k">總報酬率</div><div class="v" id="sTotal">—</div><div class="s" id="sTotalAmt"></div></div>
+        <div class="stat"><div class="k">持股報酬率</div><div class="v" id="sHold">—</div><div class="s" id="sHoldAmt"></div></div>
+        <div class="stat"><div class="k">投入本金</div><div class="v" id="sPrincipal">—</div></div>
+        <div class="stat"><div class="k">累計已實現</div><div class="v" id="sRealized">—</div></div>
+        <div class="stat"><div class="k">累計配息</div><div class="v" id="sDividend">—</div></div>
       </div>
+      <p class="stat-note" id="statNote"></p>
     </div>
 
-    <!-- 淨值趨勢圖 -->
+    <!-- 趨勢圖 -->
     <div class="card">
-      <p class="card-title">淨資產趨勢</p>
+      <div class="card-head">
+        <p class="card-title">趨勢</p>
+        <div class="seg" id="chartSeg">
+          <button type="button" data-mode="worth" class="on">淨資產</button>
+          <button type="button" data-mode="total">總報酬率</button>
+        </div>
+      </div>
       <div class="chart-box">
         <div id="chart"></div>
         <div class="chart-tip" id="chartTip"></div>
@@ -202,17 +238,49 @@
     // ---------- 小工具 ----------
     const $ = (s) => document.querySelector(s);
     const THEME_KEY = "yutun-theme";          // 與魚塭頁共用深色設定
-    const DEMO_KEY = "asset-demo-mode";
+    const CHART_KEY = "asset-chart-mode";
     const COL = "assets";                       // 新 collection,與魚塭資料隔離
-    const META_ID = "_meta";                    // 全域設定文件(可用餘額),非每日紀錄
+    const META_ID = "_meta";                    // 舊版全域可用餘額;只拿來補舊紀錄缺的 balance
+
+    // 新格式驗證期:強制模擬模式,只讀 DB、修改存本機。定案後改 false 才會寫入 Firestore
+    const SIM_ONLY = true;
+    const SIM_KEY = "asset-sim-v1";             // localStorage:{ edits: {date: rec}, deleted: [date] }
+    // 手邊的歷史資料(額外投入、累計已實現、累計配息),依日期補進模擬資料。
+    // 該日沒有紀錄時套到之後最近的一筆;flow 會累加,其他欄位直接覆寫。
+    // 由 2026 年逐筆交易推算(總應收付 4,891,305、已實現 28,386 與券商一致):
+    // flow = 當日交割淨付出(交割戶維持約 1 萬,賣股的錢直接拿去買)+ 7/29 現金償還融資 10 萬
+    const SIM_SEED = {
+      "2026-06-26": { realized: -2247, dividend: 101991 },   // 起點:之前的已實現;配息日期不明,全數放起點
+      "2026-07-06": { flow: 1485, realized: -609 },
+      "2026-07-09": { flow: 6106, realized: 17336 },
+      "2026-07-28": { flow: 18313, realized: -134060 },
+      "2026-07-29": { flow: 100000 },                         // 現金償還融資
+      "2026-07-31": { flow: 54115 },
+      "2026-08-17": { flow: -9828, realized: 60410 },
+      "2026-09-21": { flow: 96304 },
+      "2026-09-30": { flow: 269572 },
+      "2026-10-01": { flow: 300641 },
+      "2026-10-05": { flow: 212453 },
+      "2026-10-06": { flow: 108229 },
+      "2026-10-07": { flow: 110233 },
+      "2026-10-08": { flow: 113240 },
+      "2026-10-12": { flow: 147484, realized: 28386 },
+    };
+
+    // 每筆紀錄的欄位。缺值(舊資料沒有)時沿用前一筆,第一筆則用 0(balance 用舊全域餘額)
+    const FIELDS = ["cost", "return", "pledge", "balance", "realized", "dividend", "flow"];
+    const CARRY = ["cost", "pledge", "balance", "realized", "dividend"];   // 新增時自動帶上一筆
+    const FILL = ["pledge", "balance", "realized", "dividend"];            // 舊資料缺值時沿用前一筆
 
     const num = (v) => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
-    const netOf = (r) => num(r.cost) + num(r.return) - num(r.pledge);
     // 千分位;負數帶減號
     const fmt = (n) => {
       const x = Math.round((Number(n) || 0) * 100) / 100;
       return x.toLocaleString("en-US", { maximumFractionDigits: 2 });
     };
+    const fmtSigned = (n) => (n > 0 ? "+" : "") + fmt(n);
+    const fmtPct = (r) => (r > 0 ? "+" : "") + (r * 100).toFixed(2) + "%";
+    const cls = (v) => (v > 0 ? "pos" : v < 0 ? "neg" : "");
     // 軸標籤用的精簡格式:百萬→M、千→K,避免 Y 軸文字過長被切到
     const fmtAxis = (n) => {
       const v = Number(n) || 0, a = Math.abs(v), s = v < 0 ? "-" : "";
@@ -283,32 +351,55 @@
     });
 
     // ---------- 狀態 ----------
-    let db = null, records = [], demoMode = false, unsub = null;
+    let db = null, unsub = null;
+    let remote = [];        // Firestore 原始紀錄
+    let metaBalance = 0;    // 舊版全域餘額
+    let records = [];       // 目前顯示的紀錄(模擬模式 = remote + SIM_SEED + 本機修改)
+    let data = [];          // records 排序 + 推導後的結果(見 derive)
     let editingId = null;   // 正在編輯的紀錄 id(null = 新增模式)
-    let balance = 0;        // 全域可用餘額(現金),換股/額外投入時才變
+    let chartMode = localStorage.getItem(CHART_KEY) === "total" ? "total" : "worth";
+    const simMode = SIM_ONLY;
 
-    // ---------- 範例資料(一週)----------
-    function buildDemo() {
-      // 以「今天」往前 7 天,淨值有漲有跌,像股票日線
-      const base = 1_000_000;
-      const series = [
-        { cost: 1_000_000, return: 0,      pledge: 0 },       // 第1天:剛投入
-        { cost: 1_000_000, return: 35_000,  pledge: 0 },
-        { cost: 1_050_000, return: 12_000,  pledge: 50_000 }, // 加碼+質押
-        { cost: 1_050_000, return: -18_000, pledge: 50_000 }, // 回檔
-        { cost: 1_050_000, return: 41_000,  pledge: 50_000 },
-        { cost: 1_050_000, return: 88_000,  pledge: 30_000 }, // 部分還款
-        { cost: 1_100_000, return: 102_000, pledge: 30_000 }, // 再加碼
-      ];
-      const out = [];
-      for (let i = 0; i < series.length; i++) {
-        const d = new Date(); d.setDate(d.getDate() - (series.length - 1 - i));
-        const z = (n) => String(n).padStart(2, "0");
-        const date = `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}`;
-        out.push({ id: date, date, ...series[i] });
-      }
-      return out;
+    // ---------- 模擬資料 ----------
+    function loadSim() {
+      try { const s = JSON.parse(localStorage.getItem(SIM_KEY)); if (s && s.edits) return s; } catch {}
+      return { edits: {}, deleted: [] };
     }
+    function saveSim(s) { localStorage.setItem(SIM_KEY, JSON.stringify(s)); }
+
+    // SIM_SEED 套到 remote:該日沒紀錄 → 套到之後最近的一筆
+    function applySeed(list) {
+      const byDate = new Map(list.map((r) => [r.date, { ...r }]));
+      const dates = [...byDate.keys()].sort();
+      for (const [sd, patch] of Object.entries(SIM_SEED).sort()) {
+        const target = dates.find((d) => d >= sd);
+        if (!target) { console.warn("SIM_SEED 找不到對應紀錄:", sd); continue; }
+        const r = byDate.get(target);
+        for (const [k, v] of Object.entries(patch)) r[k] = k === "flow" ? num(r.flow) + num(v) : v;
+      }
+      return [...byDate.values()];
+    }
+
+    function rebuild() {
+      if (!simMode) { records = remote; render(); return; }
+      const sim = loadSim();
+      const map = new Map(applySeed(remote).map((r) => [r.date, r]));
+      for (const [d, r] of Object.entries(sim.edits)) map.set(d, { id: d, ...r });
+      for (const d of sim.deleted) map.delete(d);
+      records = [...map.values()];
+      const n = Object.keys(sim.edits).length + sim.deleted.length;
+      $("#simCount").textContent = n ? ` 本機已修改 ${n} 天。` : "";
+      $("#simReset").hidden = !n;
+      render();
+    }
+
+    $("#simReset").addEventListener("click", async () => {
+      if (!await showConfirm("清除這台裝置上所有模擬修改,回到正式資料?", { okText: "清除", danger: true })) return;
+      localStorage.removeItem(SIM_KEY);
+      exitEdit();
+      rebuild();
+      toast("已清除模擬修改 ✔");
+    });
 
     // ---------- Firebase ----------
     function initFirebase() {
@@ -321,120 +412,133 @@
       if (unsub) unsub();
       unsub = onSnapshot(query(collection(db, COL)), (snap) => {
         const all = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-        // _meta 是全域設定(可用餘額),不是每日紀錄 → 抽離
         const meta = all.find((d) => d.id === META_ID);
-        balance = meta ? num(meta.balance) : 0;
-        if (!demoMode) syncBalanceInput();
-        records = all.filter((d) => d.id !== META_ID);
-        $("#sync").textContent = snap.metadata.fromCache ? "離線(暫存本機)" : "已同步";
-        $("#sync").className = "asset-sync " + (snap.metadata.fromCache ? "" : "ok");
-        render();
+        metaBalance = meta ? num(meta.balance) : 0;
+        remote = all.filter((d) => d.id !== META_ID);
+        const label = snap.metadata.fromCache ? "離線(暫存本機)" : simMode ? "模擬(唯讀 DB)" : "已同步";
+        $("#sync").textContent = label;
+        $("#sync").className = "asset-sync " + (simMode ? "demo" : snap.metadata.fromCache ? "" : "ok");
+        rebuild();
       }, (err) => { console.error(err); $("#sync").textContent = "讀取失敗"; $("#sync").className = "asset-sync err"; });
     }
 
-    // ---------- 模式切換 ----------
-    function applyMode(demo) {
-      demoMode = demo;
-      localStorage.setItem(DEMO_KEY, demo ? "1" : "0");
-      $("#demoToggle").classList.toggle("btn-primary", demo);
-      $("#demoToggle").classList.toggle("btn-ghost", !demo);
-      if (demo) {
-        if (unsub) { unsub(); unsub = null; }
-        records = buildDemo();
-        balance = 200_000;                  // 範例:一筆現金餘額
-        $("#balanceInput").value = balance;
-        $("#sync").textContent = "範例資料(唯讀)"; $("#sync").className = "asset-sync demo";
-        render();
-      } else {
-        balanceDirty = false;               // 離開範例 → 允許從 Firestore 帶回真實餘額
-        if (db) { $("#sync").textContent = "連線中…"; $("#sync").className = "asset-sync"; subscribe(); }
+    // ---------- 計算 ----------
+    // 每日損益 = 淨資產變化 − 當日額外投入。不看成本變化:同天買賣、融資都只是帳戶內搬錢,
+    // 只要餘額有記,淨資產就不會跳;配息進交割戶也一樣(未實現下降、餘額上升)。
+    // 日報酬率 = 損益 ÷ (前日淨資產 + 當日投入)。
+    // 總損益 = 未實現 + 已實現 + 配息;總報酬率照券商算法 ÷ 成本(融資部位只算自備款)。
+    // 投入本金 = 淨資產 − 總損益 = 成本 − 已實現 − 配息 − 質押 + 餘額,即開戶以來投入的自有資金。
+    // 另用券商數字算一份(Δ未實現 + Δ已實現 + Δ配息)對帳,差太多代表餘額或投入漏記。
+    function derive(list) {
+      const out = [];
+      let prev = null;
+      for (const r of list) {
+        const d = { ...r };
+        for (const k of FILL) {
+          if (d[k] == null || d[k] === "") d[k] = prev ? prev[k] : (k === "balance" ? metaBalance : 0);
+        }
+        for (const k of FIELDS) d[k] = num(d[k]);
+        d.net = d.cost + d.return - d.pledge;
+        d.worth = d.net + d.balance;
+        if (prev) {
+          d.pnl = d.worth - prev.worth - d.flow;
+          const base = prev.worth + d.flow;
+          d.rate = base > 0 ? d.pnl / base : 0;
+          d.dRealized = d.realized - prev.realized;
+          d.dDividend = d.dividend - prev.dividend;
+          d.gap = d.pnl - ((d.return - prev.return) + d.dRealized + d.dDividend);
+        } else {
+          d.pnl = null; d.rate = null; d.gap = 0; d.dRealized = 0; d.dDividend = 0;
+        }
+        d.total = d.return + d.realized + d.dividend;
+        d.totalRate = d.cost > 0 ? d.total / d.cost : 0;
+        d.principal = d.worth - d.total;
+        out.push(d);
+        prev = d;
       }
+      return out;
     }
-    $("#demoToggle").addEventListener("click", () => applyMode(!demoMode));
+    const GAP_WARN = 1000;   // 對帳差超過這個金額才提示(手續費、四捨五入的小差不吵)
 
     // ---------- 輸入表單 ----------
+    const INPUT = {
+      cost: "#costInput", return: "#returnInput", pledge: "#pledgeInput", balance: "#balanceInput",
+      realized: "#realizedInput", dividend: "#dividendInput", flow: "#flowInput",
+    };
     // formDirty:使用者動過表單(打字/改日期/點編輯)後設 true,避免自動帶值蓋掉輸入中的內容
     let formDirty = false;
-    function updateNetPreview() {
-      const net = num($("#costInput").value) + num($("#returnInput").value) - num($("#pledgeInput").value);
-      $("#netPreview").textContent = fmt(net);
-      $("#netWorthPreview").textContent = fmt(net + balance);
-    }
 
-    // 可用餘額表單(全域,只有換股/額外投入時調整)
-    let balanceDirty = false;
-    function syncBalanceInput() {
-      if (balanceDirty) return;   // 不蓋掉使用者輸入中的內容
-      $("#balanceInput").value = balance || "";
+    // 表單日期之前最近的一筆(推導後),拿來算預覽損益
+    function prevOf(date) {
+      let p = null;
+      for (const d of data) { if (d.date < date) p = d; else break; }
+      return p;
     }
-    $("#balanceInput").addEventListener("input", () => { balanceDirty = true; });
-    $("#balanceForm").addEventListener("submit", async (e) => {
-      e.preventDefault();
-      if (demoMode) { toast("範例資料模式為唯讀", true); return; }
-      if (!db) { toast("尚未連線 Firebase", true); return; }
-      try {
-        await setDoc(doc(db, COL, META_ID), {
-          balance: num($("#balanceInput").value),
-          updatedAt: new Date().toISOString(),
-        });
-        balanceDirty = false;
-        toast("已更新可用餘額 ✔");
-      } catch (err) { toast("儲存失敗:" + err.message, true); }
-    });
-    ["#costInput", "#returnInput", "#pledgeInput"].forEach((s) =>
-      $(s).addEventListener("input", () => { formDirty = true; updateNetPreview(); }));
-    $("#dateInput").addEventListener("input", () => { formDirty = true; });
+    function updatePreview() {
+      const v = (k) => num($(INPUT[k]).value);
+      const worth = v("cost") + v("return") - v("pledge") + v("balance");
+      $("#netWorthPreview").textContent = fmt(worth);
+      const p = prevOf(editingId || $("#dateInput").value);
+      const el = $("#pnlPreview");
+      if (!p || $("#returnInput").value === "") { el.textContent = "—"; el.className = "val"; return; }
+      const pnl = worth - p.worth - v("flow");
+      const base = p.worth + v("flow");
+      el.textContent = fmtSigned(pnl) + (base > 0 ? `(${fmtPct(pnl / base)})` : "");
+      el.className = "val " + cls(pnl);
+    }
+    Object.values(INPUT).forEach((s) =>
+      $(s).addEventListener("input", () => { formDirty = true; updatePreview(); }));
+    $("#dateInput").addEventListener("input", () => { formDirty = true; updatePreview(); });
     $("#dateInput").value = todayStr();
 
-    // 成本、質押很少變動 → 預設帶入「最近一筆」的值(報酬留空每天填)。
+    // 成本、質押、餘額、累計已實現/配息很少變動 → 預設帶入「最近一筆」的值(未實現每天填、投入留空)。
     // 僅在表單未被動過時帶,且不覆蓋使用者已輸入的內容。
     function prefillFromLast() {
-      if (formDirty) return;
-      const data = sorted();
-      if (!data.length) return;
+      if (formDirty || !data.length) return;
       const last = data[data.length - 1];
-      if ($("#costInput").value === "") $("#costInput").value = last.cost ?? "";
-      if ($("#pledgeInput").value === "") $("#pledgeInput").value = last.pledge ?? "";
-      updateNetPreview();
+      for (const k of CARRY) if ($(INPUT[k]).value === "") $(INPUT[k]).value = last[k] || "";
+      updatePreview();
     }
 
     $("#assetForm").addEventListener("submit", async (e) => {
       e.preventDefault();
-      if (demoMode) { toast("範例資料模式為唯讀", true); return; }
-      if (!db) { toast("尚未連線 Firebase", true); return; }
       // 編輯模式鎖定日期 → 用原本的 id;新增模式用日期欄
       const date = editingId || $("#dateInput").value;
       if (!date) { toast("請選擇日期", true); return; }
-      const rec = {
-        date,
-        cost: num($("#costInput").value),
-        return: num($("#returnInput").value),
-        pledge: num($("#pledgeInput").value),
-        updatedAt: new Date().toISOString(),
-      };
+      const rec = { date, updatedAt: new Date().toISOString() };
+      for (const k of FIELDS) rec[k] = num($(INPUT[k]).value);
+      if (simMode) {
+        const sim = loadSim();
+        sim.edits[date] = rec;
+        sim.deleted = sim.deleted.filter((d) => d !== date);
+        saveSim(sim);
+        toast((editingId ? "已更新" : "已新增") + "(模擬,未寫入 DB)✔");
+        exitEdit();
+        rebuild();
+        return;
+      }
+      if (!db) { toast("尚未連線 Firebase", true); return; }
       try {
         // 以日期當文件 id → 同日覆寫
         await setDoc(doc(db, COL, date), rec);
         toast(editingId ? "已更新 ✔" : "已新增 ✔");
-        exitEdit();   // 回到「今日 + 自動帶上次成本/質押」的乾淨新增狀態
+        exitEdit();   // 回到「今日 + 自動帶上次數值」的乾淨新增狀態
       } catch (err) { toast("儲存失敗:" + err.message, true); }
     });
 
-    // 進入編輯模式:載入某天到表單、鎖日期、切換按鈕與標題
+    // 進入編輯模式:載入某天到表單(用推導後的值,舊資料缺的欄位也會補上)、鎖日期、切換按鈕與標題
     function loadToForm(r) {
       editingId = r.id;
       formDirty = true;   // 視為使用者主動操作,停止自動帶值
       $("#dateInput").value = r.date;
       $("#dateInput").disabled = true;          // 編輯不改日期(日期=文件 id)
-      $("#costInput").value = r.cost ?? "";
-      $("#returnInput").value = r.return ?? "";
-      $("#pledgeInput").value = r.pledge ?? "";
+      for (const k of FIELDS) $(INPUT[k]).value = k === "flow" && !r.flow ? "" : r[k];
       $("#cardTitle").textContent = `編輯 ${r.date}`;
       $("#saveBtn").textContent = "更新";
       $("#cancelBtn").hidden = false;
       $("#deleteBtn").hidden = false;
       $("#formActions").classList.add("editing");
-      updateNetPreview();
+      updatePreview();
       window.scrollTo({ top: 0, behavior: "smooth" });
     }
 
@@ -444,24 +548,33 @@
       formDirty = false;
       $("#dateInput").disabled = false;
       $("#dateInput").value = todayStr();
-      $("#returnInput").value = "";
+      for (const k of FIELDS) $(INPUT[k]).value = "";
       $("#cardTitle").textContent = "今日資產";
       $("#saveBtn").textContent = "新增";
       $("#cancelBtn").hidden = true;
       $("#deleteBtn").hidden = true;
       $("#formActions").classList.remove("editing");
-      prefillFromLast();   // 重新帶入最近一筆成本/質押
-      updateNetPreview();
+      prefillFromLast();
+      updatePreview();
     }
     $("#cancelBtn").addEventListener("click", exitEdit);
     $("#deleteBtn").addEventListener("click", () => {
-      if (editingId) delRecord(records.find((r) => r.id === editingId));
+      if (editingId) delRecord(data.find((r) => r.id === editingId));
     });
 
     async function delRecord(r) {
       if (!r) return;
-      if (demoMode) { toast("範例資料模式為唯讀", true); return; }
       if (!await showConfirm(`刪除 ${r.date} 的紀錄?`, { okText: "刪除", danger: true })) return;
+      if (simMode) {
+        const sim = loadSim();
+        delete sim.edits[r.date];
+        if (remote.some((x) => x.date === r.date) && !sim.deleted.includes(r.date)) sim.deleted.push(r.date);
+        saveSim(sim);
+        toast("已刪除(模擬,未寫入 DB)✔");
+        if (editingId === r.id) exitEdit();
+        rebuild();
+        return;
+      }
       try {
         await deleteDoc(doc(db, COL, r.id));
         toast("已刪除 ✔");
@@ -470,55 +583,67 @@
     }
 
     // ---------- 渲染 ----------
-    function sorted() { return records.slice().sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0)); }
-
     function render() {
-      // net = 當日淨值(成本+報酬−質押);worth = 淨資產(淨值+全域可用餘額)
-      const data = sorted().map((r) => { const net = netOf(r); return { ...r, net, worth: net + balance }; });
-      renderSummary(data);
-      renderChart(data);
-      renderList(data);
-      prefillFromLast();   // 資料載入/變動後,自動帶上次成本/質押
+      const list = records.slice().sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+      data = derive(list);
+      renderSummary();
+      renderChart();
+      renderList();
+      prefillFromLast();   // 資料載入/變動後,自動帶上次數值
+      updatePreview();
     }
 
-    function renderSummary(data) {
+    function renderSummary() {
       const card = $("#summaryCard");
       if (!data.length) { card.hidden = true; return; }
       card.hidden = false;
       const latest = data[data.length - 1];
-      const prev = data.length >= 2 ? data[data.length - 2] : null;
-      const first = data[0];
-      // 餘額為全域常數 → delta/range 用 net 或 worth 結果相同;最新值顯示淨資產
-      const delta = prev ? latest.net - prev.net : 0;
-      const range = latest.net - first.net;
-      $("#sLatest").textContent = fmt(latest.worth);
-      const setDelta = (el, v) => {
-        const e = $(el);
-        e.textContent = (v > 0 ? "+" : "") + fmt(v);
-        e.className = "v " + (v > 0 ? "pos" : v < 0 ? "neg" : "");
-      };
-      setDelta("#sDelta", delta);
-      setDelta("#sRange", range);
+      const set = (el, text, c = "") => { $(el).textContent = text; $(el).className = $(el).className.split(" ")[0] + (c ? " " + c : ""); };
+      set("#sLatest", fmt(latest.worth));
+      if (latest.pnl == null) { set("#sPnl", "—"); set("#sRate", ""); }
+      else { set("#sPnl", fmtSigned(latest.pnl), cls(latest.pnl)); set("#sRate", fmtPct(latest.rate), cls(latest.rate)); }
+      set("#sTotal", fmtPct(latest.totalRate), cls(latest.total));
+      set("#sTotalAmt", fmtSigned(latest.total), cls(latest.total));
+      const hold = latest.cost > 0 ? latest.return / latest.cost : 0;
+      set("#sHold", fmtPct(hold), cls(latest.return));
+      set("#sHoldAmt", fmtSigned(latest.return), cls(latest.return));
+      set("#sPrincipal", fmt(latest.principal));
+      set("#sRealized", fmtSigned(latest.realized), cls(latest.realized));
+      set("#sDividend", fmt(latest.dividend));
+      $("#statNote").textContent =
+        "總報酬率 = (未實現 + 已實現 + 配息)÷ 成本;持股報酬率 = 未實現 ÷ 成本(同券商 App);" +
+        "投入本金 = 開戶以來投入的自有資金(淨資產 − 總損益)。";
     }
 
-    // SVG 折線圖
-    function renderChart(data) {
+    // SVG 折線圖(淨資產 / 總報酬率)
+    $("#chartSeg").addEventListener("click", (e) => {
+      const b = e.target.closest("button[data-mode]");
+      if (!b) return;
+      chartMode = b.dataset.mode;
+      localStorage.setItem(CHART_KEY, chartMode);
+      renderChart();
+    });
+    function renderChart() {
+      $("#chartSeg").querySelectorAll("button").forEach((b) => b.classList.toggle("on", b.dataset.mode === chartMode));
       const box = $("#chart");
-      if (data.length < 1) { box.innerHTML = '<div class="chart-empty">尚無資料。輸入今日資產或點上方「範例資料」看看。</div>'; return; }
+      if (data.length < 1) { box.innerHTML = '<div class="chart-empty">尚無資料。</div>'; return; }
+
+      const pct = chartMode === "total";
+      const val = pct ? (d) => d.totalRate : (d) => d.worth;
+      const axis = pct ? (v) => (v * 100).toFixed(1) + "%" : fmtAxis;
 
       const W = box.clientWidth || 680, H = 260;
       const padR = 14, padT = 14, padB = 28;
 
-      // Y 軸貼合資料範圍(不強制含 0),讓每日波動看得出來;淨資產有負才把 0 納入
-      const nets = data.map((d) => d.worth);
-      let min = Math.min(...nets), max = Math.max(...nets);
-      if (min > 0) max = max;                 // 全正:不從 0 起算
-      if (min === max) { min -= Math.abs(min) * 0.05 || 1; max += Math.abs(max) * 0.05 || 1; }
+      // Y 軸貼合資料範圍(不強制含 0),讓每日波動看得出來
+      const vals = data.map(val);
+      let min = Math.min(...vals), max = Math.max(...vals);
+      if (min === max) { min -= Math.abs(min) * 0.05 || (pct ? 0.01 : 1); max += Math.abs(max) * 0.05 || (pct ? 0.01 : 1); }
       const pad = (max - min) * 0.12; min -= pad; max += pad;
 
       // 依「最寬的 Y 軸標籤」決定左邊距,避免百萬級數字被切掉
       const yLabels = [];
-      for (let k = 0; k <= 4; k++) yLabels.push(fmtAxis(min + (k / 4) * (max - min)));
+      for (let k = 0; k <= 4; k++) yLabels.push(axis(min + (k / 4) * (max - min)));
       const maxLabelLen = Math.max(...yLabels.map((s) => s.length));
       const padL = Math.max(44, maxLabelLen * 7.5 + 12);   // 約 7.5px/字 + 間距
       const innerW = W - padL - padR, innerH = H - padT - padB;
@@ -533,16 +658,16 @@
         const v = min + (k / 4) * (max - min);
         const yy = y(v);
         grid += `<line class="chart-grid-line" x1="${padL}" y1="${yy}" x2="${W - padR}" y2="${yy}"/>`;
-        grid += `<text class="chart-axis-txt" x="${padL - 6}" y="${yy + 3}" text-anchor="end">${fmtAxis(v)}</text>`;
+        grid += `<text class="chart-axis-txt" x="${padL - 6}" y="${yy + 3}" text-anchor="end">${axis(v)}</text>`;
       }
       // 0 基準線(若在範圍內)
       let zero = "";
       if (min < 0 && max > 0) { const yz = y(0); zero = `<line class="chart-zero-line" x1="${padL}" y1="${yz}" x2="${W - padR}" y2="${yz}"/>`; }
 
       // 折線 + 區域
-      const line = data.map((d, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(d.worth).toFixed(1)}`).join(" ");
+      const line = data.map((d, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(val(d)).toFixed(1)}`).join(" ");
       const area = `M${x(0).toFixed(1)},${y(min).toFixed(1)} ` +
-        data.map((d, i) => `L${x(i).toFixed(1)},${y(d.worth).toFixed(1)}`).join(" ") +
+        data.map((d, i) => `L${x(i).toFixed(1)},${y(val(d)).toFixed(1)}`).join(" ") +
         ` L${x(n - 1).toFixed(1)},${y(min).toFixed(1)} Z`;
 
       // X 軸標籤(最多 6 個,避免擠)
@@ -555,7 +680,7 @@
 
       // 點 + 觸控熱區
       const dots = data.map((d, i) =>
-        `<circle class="chart-dot" cx="${x(i).toFixed(1)}" cy="${y(d.worth).toFixed(1)}" r="3.5"/>`).join("");
+        `<circle class="chart-dot" cx="${x(i).toFixed(1)}" cy="${y(val(d)).toFixed(1)}" r="3.5"/>`).join("");
       const hot = data.map((d, i) =>
         `<rect x="${(x(i) - innerW / n / 2).toFixed(1)}" y="${padT}" width="${(innerW / n).toFixed(1)}" height="${innerH}"
           fill="transparent" data-i="${i}"/>`).join("");
@@ -565,43 +690,48 @@
 
       // tooltip
       const svg = box.querySelector("svg"), tip = $("#chartTip");
-      const showTip = (i, clientX) => {
+      const showTip = (i) => {
         const d = data[i];
-        const prev = i > 0 ? data[i - 1] : null;
-        const delta = prev ? d.worth - prev.worth : 0;
-        const sign = delta > 0 ? "▲ +" : delta < 0 ? "▼ " : "";
+        const sign = d.pnl > 0 ? "▲ +" : d.pnl < 0 ? "▼ " : "";
         tip.innerHTML = `${d.date}<br><b>淨資產 ${fmt(d.worth)}</b>` +
-          (prev ? `<br>${sign}${fmt(delta)}` : "") +
-          `<br><span style="opacity:.8">淨值 ${fmt(d.net)} · 餘額 ${fmt(balance)}</span>` +
-          `<br><span style="opacity:.8">成本 ${fmt(d.cost)} · 報酬 ${fmt(d.return)} · 質押 ${fmt(d.pledge)}</span>`;
+          (d.pnl != null ? `<br>損益 ${sign}${fmt(d.pnl)}(${fmtPct(d.rate)})` : "") +
+          `<br>總報酬率 ${fmtPct(d.totalRate)}(${fmtSigned(d.total)})` +
+          (d.flow ? `<br>額外投入 ${fmtSigned(d.flow)}` : "") +
+          `<br><span style="opacity:.8">成本 ${fmt(d.cost)} · 未實現 ${fmt(d.return)}</span>` +
+          `<br><span style="opacity:.8">質押 ${fmt(d.pledge)} · 餘額 ${fmt(d.balance)}</span>`;
         const rect = box.getBoundingClientRect();
         const sx = (x(i) / W) * rect.width;
-        const sy = (y(d.worth) / H) * rect.height;
+        const sy = (y(val(d)) / H) * rect.height;
         tip.style.left = sx + "px"; tip.style.top = sy + "px"; tip.style.display = "block";
       };
       svg.querySelectorAll("[data-i]").forEach((el) => {
         const i = +el.dataset.i;
-        el.addEventListener("pointerenter", (e) => showTip(i, e.clientX));
-        el.addEventListener("pointerdown", (e) => showTip(i, e.clientX));
+        el.addEventListener("pointerenter", () => showTip(i));
+        el.addEventListener("pointerdown", () => showTip(i));
       });
       box.addEventListener("pointerleave", () => tip.style.display = "none");
     }
 
-    function renderList(data) {
+    function renderList() {
       const box = $("#recList");
       $("#recCount").textContent = data.length ? `共 ${data.length} 天` : "";
       if (!data.length) { box.innerHTML = '<p class="empty">還沒有資料</p>'; return; }
       // 新→舊
-      const rev = data.slice().reverse();
-      box.innerHTML = rev.map((d, idx) => {
-        const prev = rev[idx + 1];   // 前一天(時間較早)
-        const delta = prev ? d.worth - prev.worth : null;
-        const dtxt = delta == null ? "" :
-          `<span class="rec-delta ${delta > 0 ? "pos" : delta < 0 ? "neg" : ""}">${delta > 0 ? "▲ +" : delta < 0 ? "▼ " : ""}${fmt(delta)}</span>`;
+      box.innerHTML = data.slice().reverse().map((d) => {
+        const dtxt = d.pnl == null ? "" :
+          `<span class="rec-delta ${cls(d.pnl)}">${d.pnl > 0 ? "▲ +" : d.pnl < 0 ? "▼ " : ""}${fmt(d.pnl)}(${fmtPct(d.rate)})</span>`;
+        const sub = [];
+        if (d.flow) sub.push(`<span class="flow">額外投入 ${fmtSigned(d.flow)}</span>`);
+        if (d.dRealized) sub.push(`已實現 ${fmtSigned(d.dRealized)}`);
+        if (d.dDividend) sub.push(`配息 ${fmtSigned(d.dDividend)}`);
+        const warn = Math.abs(d.gap) >= GAP_WARN
+          ? `<div class="rec-warn">⚠️ 與券商損益差 ${fmtSigned(d.gap)}:可能漏記額外投入、餘額或已實現</div>` : "";
         return `<div class="rec">
-          <div class="rec-top"><span class="rec-date">${d.date}</span><span class="rec-net">淨資產 ${fmt(d.worth)} ${dtxt}</span></div>
+          <div class="rec-top"><span class="rec-date">${d.date}</span><span class="rec-net">${fmt(d.worth)} ${dtxt}</span></div>
+          ${sub.length ? `<div class="rec-sub">${sub.join(" ・ ")}</div>` : ""}
+          ${warn}
           <div class="rec-foot">
-            <span class="rec-detail">淨值 ${fmt(d.net)} ・ 成本 ${fmt(d.cost)} ・ 報酬 ${fmt(d.return)} ・ 質押 ${fmt(d.pledge)}</span>
+            <span class="rec-detail">成本 ${fmt(d.cost)} ・ 未實現 ${fmt(d.return)} ・ 質押 ${fmt(d.pledge)} ・ 餘額 ${fmt(d.balance)}</span>
             <span class="rec-actions">
               <button class="btn btn-ghost btn-xs" data-edit="${d.id}">✏️ 編輯</button>
               <button class="btn btn-danger btn-xs" data-del="${d.id}">🗑 刪除</button>
@@ -610,18 +740,18 @@
         </div>`;
       }).join("");
       box.querySelectorAll("[data-edit]").forEach((b) =>
-        b.addEventListener("click", () => loadToForm(records.find((r) => r.id === b.dataset.edit))));
+        b.addEventListener("click", () => loadToForm(data.find((r) => r.id === b.dataset.edit))));
       box.querySelectorAll("[data-del]").forEach((b) =>
-        b.addEventListener("click", () => delRecord(records.find((r) => r.id === b.dataset.del))));
+        b.addEventListener("click", () => delRecord(data.find((r) => r.id === b.dataset.del))));
     }
 
     // 視窗縮放時重畫圖(寬度變了)
-    let rT; window.addEventListener("resize", () => { clearTimeout(rT); rT = setTimeout(render, 150); });
+    let rT; window.addEventListener("resize", () => { clearTimeout(rT); rT = setTimeout(renderChart, 150); });
 
     // ---------- 啟動 ----------
+    $("#simBanner").hidden = !simMode;
     initFirebase();
-    updateNetPreview();
-    applyMode(localStorage.getItem(DEMO_KEY) === "1");
+    subscribe();
     render();
   </script>
 </body>
