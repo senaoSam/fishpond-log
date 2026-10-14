@@ -200,7 +200,7 @@
     <!-- 資料來自 esp32 專案的 RTDB(與本站 Firestore 不同專案),見 app.js 的節點心跳章節 -->
     <section id="page-nodes" class="page">
       <h2>板子狀態</h2>
-      <p class="hint">魚塭溫度探頭與家裡看門狗的即時狀態。進入本頁會重新抓一次,之後每分鐘更新。</p>
+      <p class="hint">魚塭溫度探頭、家裡看門狗與斷電偵測板的即時狀態。進入本頁會重新抓一次,之後每分鐘更新。</p>
       <div id="nodesContainer"></div>
     </section>
   </main>
@@ -242,6 +242,17 @@
         <button type="button" class="preview-x" id="pondPickerClose" aria-label="關閉">×</button>
       </div>
       <ul class="pond-picker-list" id="pondPickerList" role="listbox"></ul>
+    </div>
+  </div>
+
+  <!-- 板子詳細資料 modal(板子頁點方塊開啟)-->
+  <div id="nodeOverlay" class="modal-overlay" hidden>
+    <div class="modal node-modal" role="dialog" aria-modal="true" aria-labelledby="nodeModalTitle">
+      <div class="preview-head">
+        <h3 id="nodeModalTitle" class="preview-title"></h3>
+        <button type="button" class="preview-x" id="nodeModalClose" aria-label="關閉">×</button>
+      </div>
+      <div id="nodeModalBody" class="node-modal-body"></div>
     </div>
   </div>
 

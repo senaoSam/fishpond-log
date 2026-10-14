@@ -904,7 +904,7 @@ function resetForm(opts = {}) {
 }
 
 // ============================================================
-//  ESP32 節點心跳(魚塭溫度探頭 + 家中看門狗)
+//  ESP32 節點心跳(魚塭溫度探頭 + 家中看門狗 + 斷電偵測 A01、A02…)
 // ============================================================
 // 為什麼用 fetch 而不是 Firebase SDK:那兩片板子寫的是「另一個」Firebase 專案
 // (esp32-e7966 的 Realtime Database),與本站的 Firestore(fishpond-log-e4c57)
@@ -917,9 +917,25 @@ function resetForm(opts = {}) {
 const NODE_STALE_MULTIPLE = 5;      // 與 watchdog 的 meta.staleMultiple 一致
 const NODE_DEFAULT_INTERVAL = 60;   // meta.interval 缺失時的保底(秒)
 const NODE_POLL_MS = 60 * 1000;     // 對齊板子的上傳週期
-// 顯示用:id → 短名。watchdog 那片固定放在家裡(刻意與感測器不同地點,魚塭斷電
+// 固定的兩片:id → 短名。watchdog 那片固定放在家裡(刻意與感測器不同地點,魚塭斷電
 // 時才有人能發告警),所以叫「家裡板子」而不是它的角色名。
+// 這兩片一律列出(RTDB 裡不見了也要看到「查無資料」);其餘板子從 devices 動態讀。
 const NODE_LABELS = { "pond-site": "魚塭", "watchdog": "家裡板子" };
+// 斷電偵測板(A01、A02…):新板子開機會自己註冊(registry 的 MAC → 編號)並寫進
+// devices/{編號},meta.role = "heartbeat"。App 不寫死清單,有幾片就列幾片。
+const isHeartbeat = (node) => node?.meta?.role === "heartbeat" || node?.meta?.group === "heartbeat";
+
+function nodeLabel(id, node) {
+  return NODE_LABELS[id] || node?.meta?.name || id;
+}
+// 依編號排序的斷電偵測板 id(A01、A02…)
+function heartbeatIds(data) {
+  return Object.keys(data || {}).filter((id) => !NODE_LABELS[id] && isHeartbeat(data[id])).sort();
+}
+// 不屬於以上任何一類的板子(日後新角色),也列出來,免得被默默忽略
+function otherNodeIds(data) {
+  return Object.keys(data || {}).filter((id) => !NODE_LABELS[id] && !isHeartbeat(data[id])).sort();
+}
 
 let nodeTimer = null;
 let nodeFetching = false;
@@ -934,7 +950,7 @@ function nodeAgoText(sec) {
 
 // 單一節點 → { cls, text }。cls 對應 header 那組 ● 顏色。
 function nodeState(id, node) {
-  const label = NODE_LABELS[id] || id;
+  const label = nodeLabel(id, node);
   if (!node) return { cls: "err", text: `${label} 查無資料` };
   const ts = Number(node?.latest?.ts);
   if (!ts) return { cls: "err", text: `${label} 無回報時間` };
@@ -942,6 +958,7 @@ function nodeState(id, node) {
   const interval = Number(node?.meta?.interval) || NODE_DEFAULT_INTERVAL;
   const age = Date.now() / 1000 - ts;          // 板子寫的是 unix 秒
   const stale = interval * NODE_STALE_MULTIPLE;
+  nodeAge[id] = age;                           // 給斷電偵測總結挑「最久沒回報」那片
 
   // 活著:有溫度就顯示溫度(它本身就證明心跳在,比「正常」兩個字有用)
   if (age <= stale) {
@@ -951,6 +968,21 @@ function nodeState(id, node) {
   // 逾時但還不久:可能只是漏一兩輪,黃燈提醒不告警
   if (age <= stale * 6) return { cls: "pending", text: `${label} ${nodeAgoText(age)}` };
   return { cls: "err", text: `${label}失聯 ${nodeAgoText(age)}` };
+}
+const nodeAge = {};
+
+// 斷電偵測板的 header 總結:板子一多不能逐片列,只列一顆 ●。
+//   全部正常 → 「斷電偵測 3/3 正常」
+//   有異常   → 直接點名最久沒回報那片,例如「斷電偵測 A02失聯 5 分前」;多片異常再加「等 N 片」
+function heartbeatSummary(data) {
+  const ids = heartbeatIds(data);
+  if (!ids.length) return null;
+  const states = ids.map((id) => ({ id, ...nodeState(id, data[id]) }));
+  const bad = states.filter((s) => s.cls !== "ok");
+  if (!bad.length) return { cls: "ok", text: `斷電偵測 ${ids.length}/${ids.length} 正常` };
+  const worst = bad.slice().sort((a, b) => (nodeAge[b.id] || 0) - (nodeAge[a.id] || 0))[0];
+  const cls = bad.some((s) => s.cls === "err") ? "err" : "pending";
+  return { cls, text: `斷電偵測 ${worst.text}${bad.length > 1 ? ` 等 ${bad.length} 片` : ""}` };
 }
 
 // 抓一次 RTDB 並更新 header。這一行永遠顯示,連抓不到時也是——看不到板子本身
@@ -967,21 +999,25 @@ async function refreshNodeStatus() {
     const data = await res.json();
     nodeLastData = data || {};   // 供板子狀態頁使用,不再另抓一次
     nodeLastError = null;
-    // 一律把兩片都列出來(不 filter):某片在 RTDB 裡整個不見,本身就是要看到的狀態,
+    // 固定兩片一律列出(不 filter):某片在 RTDB 裡整個不見,本身就是要看到的狀態,
     // 悄悄少一個反而看不出是哪片出事。nodeState 收到 undefined 會回「查無資料」。
+    // 斷電偵測板只列一顆總結 ●;其他未知角色的板子(日後新增)逐片列。
     const ids = Object.keys(NODE_LABELS);
-    const states = ids.map((id) => ({ id, ...nodeState(id, data?.[id]) }));
+    const states = ids.map((id) => nodeState(id, data?.[id]));
+    const hb = heartbeatSummary(data);
+    if (hb) states.push(hb);
+    for (const id of otherNodeIds(data)) states.push(nodeState(id, data[id]));
     el.innerHTML = states
       .map((s) => `<span class="node-dot ${s.cls}">${escapeHtml(s.text)}</span>`)
       .join("");
     // 細節收在 title 裡:韌體版本 / IP / 連上哪個 WiFi,自己除錯時滑過可看
-    el.title = ids
+    el.title = [...ids, ...heartbeatIds(data), ...otherNodeIds(data)]
       .map((id) => {
         const n = data?.[id], l = n?.latest || {}, m = n?.meta || {};
-        if (!n) return `${NODE_LABELS[id] || id}(${id})
+        if (!n) return `${nodeLabel(id, n)}(${id})
   RTDB 中找不到這個節點`;
         const seen = Number(l.ts) ? new Date(l.ts * 1000).toLocaleString("zh-TW") : "無紀錄";
-        return `${NODE_LABELS[id] || id}(${id})\n  最後回報:${seen}\n  韌體:${m.fw || "?"}  IP:${l.ip || "?"}  WiFi:${l.ssid || "?"}`;
+        return `${nodeLabel(id, n)}(${id})\n  最後回報:${seen}\n  韌體:${m.fw || "?"}  IP:${l.ip || "?"}  WiFi:${l.ssid || "?"}`;
       })
       .join("\n");
     el.hidden = false;
@@ -1026,6 +1062,41 @@ let nodeLastData = null;                  // 最近一次成功抓到的 devices
 let nodeLastError = null;                 // 失敗原因(給狀態頁顯示)
 let nodeHistory = null;                   // [[ts, temp], ...] 由舊到新
 let nodeHistoryLoading = false;
+let nodeIncidents = {};                   // id → 最近一次重開機紀錄(incidents/{id} 最後一筆)
+
+// 每片板子最近一次重開機的原因(電壓不足 / 斷電 / 當機…),進板子頁時抓。
+// 每片只取最後一筆,量很小。
+async function loadNodeIncidents() {
+  const ids = Object.keys(nodeLastData || {});
+  const out = {};
+  await Promise.all(ids.map(async (id) => {
+    try {
+      const r = await fetch(`${NODE_RTDB}/incidents/${encodeURIComponent(id)}.json?orderBy=%22%24key%22&limitToLast=1`,
+        { cache: "no-store" });
+      if (!r.ok) return;
+      const [k, v] = Object.entries((await r.json()) || {})[0] || [];
+      if (k) out[id] = { ts: Number(k), ...v };
+    } catch { /* 讀不到就不顯示這列 */ }
+  }));
+  nodeIncidents = out;
+}
+
+// 韌體回報的重開原因 → 中文。字串長得像「BROWNOUT (power dip)」,只看開頭的代碼。
+const NODE_RESET_TEXT = {
+  POWERON: "通電開機(之前斷電)",
+  BROWNOUT: "電壓不足重開",
+  SW: "程式主動重開",
+  PANIC: "當機重開",
+  INT_WDT: "看門狗重開",
+  TASK_WDT: "看門狗重開",
+  WDT: "看門狗重開",
+  DEEPSLEEP: "睡眠喚醒",
+  EXT: "外部重置",
+};
+function nodeResetText(reset) {
+  const code = String(reset || "").split(/[\s(]/)[0];
+  return NODE_RESET_TEXT[code] || String(reset || "—");
+}
 
 // 秒數 → 「x 天 y 小時」(給開機至今用)
 function nodeUptimeText(sec) {
@@ -1115,8 +1186,8 @@ function nodeRow(k, v) {
 
 // 單片板子一張卡
 function nodeCard(id, node) {
-  const label = NODE_LABELS[id] || id;
-  const icon = id === "pond-site" ? "🐟" : "🏠";
+  const label = nodeLabel(id, node);
+  const icon = id === "pond-site" ? "🐟" : id === "watchdog" ? "🏠" : isHeartbeat(node) ? "🔌" : "📟";
   const st = nodeState(id, node);
   const head = `
     <div class="nodes-head">
@@ -1137,10 +1208,18 @@ function nodeCard(id, node) {
   if (typeof l.alerting === "boolean") rows.push(nodeRow("告警中", l.alerting ? "是 ⚠️" : "否"));
   rows.push(nodeRow("最後回報", nodeTimeText(l.ts)));
   if (Number(m.bootAt)) rows.push(nodeRow("開機至今", nodeUptimeText(Date.now() / 1000 - Number(m.bootAt))));
+  const inc = nodeIncidents[id];
+  if (inc) {
+    // 例:「10/14 22:47 電壓不足重開(斷線 14 小時 42 分)」—— 斷線 = 重開前最後一次回報到這次
+    const gap = Number(inc.gap) >= 60 ? `(斷線 ${nodeUptimeText(Number(inc.gap))})` : "";
+    rows.push(nodeRow("最近重開", `${nodeTimeText(inc.ts)} ${nodeResetText(inc.reset)}${gap}`));
+  }
+  if (Number.isFinite(Number(l.rssi))) rows.push(nodeRow("訊號", `${l.rssi} dBm`));
   rows.push(nodeRow("韌體", m.fw || "—"));
   rows.push(nodeRow("上傳週期", Number(m.interval) ? `${m.interval} 秒` : "—"));
   rows.push(nodeRow("IP", l.ip || "—"));
   rows.push(nodeRow("WiFi", l.ssid || "—"));
+  if (m.mac) rows.push(nodeRow("MAC", m.mac));
 
   // 溫度曲線只有魚塭那片有
   const chart = id === "pond-site"
@@ -1159,9 +1238,84 @@ function renderNodesPage() {
     }</p></div>`;
     return;
   }
-  box.innerHTML = Object.keys(NODE_LABELS)
-    .map((id) => nodeCard(id, nodeLastData[id]))
-    .join("");
+  // 固定兩片用完整卡片(寬螢幕並排);斷電偵測板 / 其他板子數量會很多,改用小方塊格狀排列,
+  // 點方塊才開完整資料(modal)。避免板子一多整頁無限往下長。
+  const fixed = Object.keys(NODE_LABELS).map((id) => nodeCard(id, nodeLastData[id])).join("");
+  box.innerHTML =
+    `<div class="nodes-fixed">${fixed}</div>` +
+    nodeTileSection("斷電偵測", heartbeatIds(nodeLastData)) +
+    nodeTileSection("其他板子", otherNodeIds(nodeLastData));
+  if (nodeOpenId) renderNodeModal();
+}
+
+// 方塊上的短狀態:正常 / 7分 / 失聯2時。完整說明在 modal 裡。
+function nodeShortAgo(sec) {
+  if (sec < 3600) return `${Math.max(1, Math.round(sec / 60))}分`;
+  if (sec < 86400) return `${Math.round(sec / 3600)}時`;
+  return `${Math.round(sec / 86400)}天`;
+}
+function nodeTile(id) {
+  const node = nodeLastData[id];
+  const st = nodeState(id, node);
+  const age = nodeAge[id];
+  const short = st.cls === "ok" ? "正常"
+    : !node || !Number.isFinite(age) ? "無資料"
+    : st.cls === "err" ? `失聯${nodeShortAgo(age)}` : nodeShortAgo(age);
+  return `<button type="button" class="node-tile ${st.cls}" data-node="${escapeHtml(id)}" title="${escapeHtml(st.text)}">
+    <span class="node-tile-id">${escapeHtml(nodeLabel(id, node))}</span>
+    <span class="node-tile-st">${escapeHtml(short)}</span>
+  </button>`;
+}
+
+// 一組方塊:標題列附統計(正常 / 異常),可切「只看異常」。
+// 排序固定照編號,不因狀態跳動 —— 線路多時,位置固定比較好找。
+let nodeFilterBad = false;
+function nodeTileSection(title, ids) {
+  if (!ids.length) return "";
+  const bad = ids.filter((id) => nodeState(id, nodeLastData[id]).cls !== "ok");
+  const shown = nodeFilterBad ? bad : ids;
+  const tiles = shown.length
+    ? `<div class="node-grid">${shown.map(nodeTile).join("")}</div>`
+    : `<p class="nodes-empty">全部正常 👍</p>`;
+  return `<div class="card nodes-card">
+    <div class="nodes-head">
+      <span class="nodes-title">${escapeHtml(title)}</span>
+      <span class="nodes-count">${ids.length - bad.length}/${ids.length} 正常${bad.length ? `<b class="err">・${bad.length} 異常</b>` : ""}</span>
+    </div>
+    <div class="nodes-filter">
+      <button type="button" class="chip-btn${nodeFilterBad ? "" : " active"}" data-node-filter="all">全部 ${ids.length}</button>
+      <button type="button" class="chip-btn${nodeFilterBad ? " active" : ""}" data-node-filter="bad">只看異常 ${bad.length}</button>
+    </div>
+    ${tiles}
+  </div>`;
+}
+
+// 點方塊 → modal 顯示該板完整資料(沿用 nodeCard);資料每分鐘更新時 modal 一起更新。
+let nodeOpenId = null;
+function renderNodeModal() {
+  const node = nodeLastData?.[nodeOpenId];
+  $("#nodeModalTitle").textContent = nodeLabel(nodeOpenId, node);
+  $("#nodeModalBody").innerHTML = nodeCard(nodeOpenId, node);
+}
+function openNodeModal(id) {
+  nodeOpenId = id;
+  renderNodeModal();
+  $("#nodeOverlay").hidden = false;
+}
+function closeNodeModal() {
+  nodeOpenId = null;
+  $("#nodeOverlay").hidden = true;
+}
+function setupNodesPage() {
+  $("#nodesContainer").addEventListener("click", (e) => {
+    const tile = e.target.closest("[data-node]");
+    if (tile) { openNodeModal(tile.dataset.node); return; }
+    const f = e.target.closest("[data-node-filter]");
+    if (f) { nodeFilterBad = f.dataset.nodeFilter === "bad"; renderNodesPage(); }
+  });
+  $("#nodeModalClose").addEventListener("click", closeNodeModal);
+  $("#nodeOverlay").addEventListener("click", (e) => { if (e.target.id === "nodeOverlay") closeNodeModal(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("#nodeOverlay").hidden) closeNodeModal(); });
 }
 
 // ============================================================
@@ -2785,10 +2939,11 @@ function switchPage(name) {
   $("#saveBar").hidden = !onRecord;            // 儲存列只在記錄頁顯示
   document.body.classList.toggle("on-record", onRecord);  // 控制底部留白
   document.body.classList.toggle("on-stats", name === "stats");  // 統計頁全寬
+  document.body.classList.toggle("on-nodes", name === "nodes");  // 板子頁全寬(板子多時一排放得下更多)
   // 進板子頁:先畫現有資料(不留白畫面),同時重抓一次即時狀態與溫度曲線
   if (name === "nodes") {
     renderNodesPage();
-    refreshNodeStatus();
+    refreshNodeStatus().then(loadNodeIncidents).then(renderNodesPage);
     loadNodeHistory().then(renderNodesPage);
   }
   window.scrollTo({ top: 0 });
@@ -2813,6 +2968,7 @@ function main() {
   renderBuildStamp();
   setupTheme();
   setupTabs();
+  setupNodesPage();
   setupRecordForm();
   setupList();
   setupStats();

@@ -136,6 +136,35 @@ html, body {
 .nodes-row > b { text-align: right; word-break: break-word; font-variant-numeric: tabular-nums; }
 
 .nodes-empty { color: var(--muted); font-size: 0.88rem; margin: 6px 0; }
+/* 固定兩片(魚塭 / 家裡板子):手機直排,寬螢幕並排 */
+.nodes-fixed { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap: 0 16px; }
+.nodes-count { font-size: 0.82rem; color: var(--muted); }
+.nodes-count .err { color: #e03131; font-weight: 700; }
+.nodes-filter { display: flex; gap: 8px; margin: 2px 0 12px; }
+.nodes-filter .chip-btn { flex: 0 0 auto; padding: 6px 12px; font-size: 0.82rem; }
+
+/* 斷電偵測 / 其他板子:小方塊格狀排列,板子再多也只是多幾排。點方塊看詳細 */
+.node-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: 8px; }
+.node-tile {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  min-height: 58px; padding: 6px 4px; margin: 0;
+  border: 1px solid var(--border); border-left-width: 4px; border-radius: 10px;
+  background: var(--field); color: var(--text); cursor: pointer;
+  font: inherit; line-height: 1.2;
+}
+.node-tile-id { font-weight: 700; font-size: 0.92rem; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.node-tile-st { font-size: 0.74rem; color: var(--muted); white-space: nowrap; }
+.node-tile.ok { border-left-color: #2f9e44; }
+.node-tile.pending { border-left-color: #f08c00; }
+.node-tile.pending .node-tile-st { color: #e8590c; font-weight: 600; }
+.node-tile.err { border-left-color: #e03131; background: rgba(224, 49, 49, 0.1); }
+.node-tile.err .node-tile-st { color: #e03131; font-weight: 700; }
+
+/* 板子詳細 modal:沿用 nodeCard,拿掉卡片外框;內容長時內部捲動 */
+.node-modal { max-width: 420px; }
+.node-modal-body { overflow-y: auto; }
+.node-modal-body .card { border: 0; box-shadow: none; padding: 0; margin: 0; background: none; }
+.node-modal-body .nodes-title { display: none; }
 
 /* 溫度曲線 */
 .nodes-chart { margin: 4px 0 12px; }
@@ -152,8 +181,8 @@ html, body {
   margin: 0 auto;
   padding: 16px 16px 96px;
 }
-/* 統計頁全寬(跟著視窗),圖表才有空間;其他頁維持手機寬度 */
-body.on-stats #main { max-width: 100%; }
+/* 統計頁、板子頁全寬(跟著視窗),圖表 / 板子方塊才有空間;其他頁維持手機寬度 */
+body.on-stats #main, body.on-nodes #main { max-width: 100%; }
 .page { display: none; }
 .page.active { display: block; }
 .page h2 { font-size: 1.25rem; margin: 4px 0 16px; }
