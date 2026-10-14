@@ -1174,6 +1174,7 @@ const NODE_RESET_TEXT = {
   POWERON: "通電開機(之前斷電)",
   BROWNOUT: "電壓不足重開",
   SW: "程式主動重開",
+  SW_CPU: "程式主動重開",
   PANIC: "當機重開",
   INT_WDT: "看門狗重開",
   TASK_WDT: "看門狗重開",
@@ -1584,8 +1585,8 @@ async function bindBoardPond(id, pondId) {
     options.nodePonds = nodePonds;   // onSnapshot 回來前先用新值,讓同步與畫面立即正確
     await syncAlertGroups();
     renderNodesPage();
-    showToast(pondId ? `${boardName(id)} 已綁定 ${pondLabel(pondId)}` : `${boardName(id)} 已取消綁定`);
-  } catch (e) { showToast("綁定失敗:" + e.message, true); }
+    showToast(pondId ? `${boardName(id)} 已設定在 ${pondLabel(pondId)}` : `${boardName(id)} 已改為未設定池塘`);
+  } catch (e) { showToast("設定池塘失敗:" + e.message, true); }
 }
 
 // 一列池塘(池塘群組底下,或「未分群組」裡)
@@ -1638,8 +1639,8 @@ function alertControlSection() {
   // 沒綁池塘的板子:不受池塘開關控制,提醒去綁
   const unbound = ids.filter((id) => !boardPond(id));
   const unboundLine = unbound.length
-    ? `<p class="alert-loose warn">未綁定池塘:${unbound.map((id) => escapeHtml(boardName(id))).join("、")}
-       <small class="block">點方塊開啟詳細資料,選擇綁定的池塘</small></p>` : "";
+    ? `<p class="alert-loose warn">還沒設定池塘的板子 ${unbound.length} 片:${unbound.slice(0, 10).map((id) => escapeHtml(boardName(id))).join("、")}${unbound.length > 10 ? ` 等` : ""}
+       <small class="block">用下方「斷電偵測」的「一次設定多片」就能一起設定</small></p>` : "";
   // 被個別關掉的板子:集中列出,免得只能一片片點開看
   const looseOff = ids.filter((id) => alertState(id).by === "node" && !alertState(id).on);
   const loose = looseOff.length
@@ -1649,7 +1650,7 @@ function alertControlSection() {
       <span class="nodes-title">🔔 告警開關</span>
       <span class="nodes-count">${offCount ? `<b class="err">${offCount} 片已關閉</b>` : "全部開啟"}</span>
     </div>
-    <p class="nodes-empty">可以整個池塘群組、單一池塘、或單片板子(點方塊)開關。群組與池塘在「設定」頁管理,板子綁定池塘後自動歸入。關閉後仍會偵測、記錄斷線,只是不發 Discord、不打電話,最多 1 分鐘生效。</p>
+    <p class="nodes-empty">可以整個池塘群組、單一池塘、或單片板子(點方塊)開關。群組與池塘在「設定」頁管理,板子設定好池塘後,就會跟著該池塘開關。關閉後仍會偵測、記錄斷線,只是不發 Discord、不打電話,最多 1 分鐘生效。</p>
     ${tagRows || `<p class="nodes-empty">還沒有池塘群組,請先到「設定」頁新增</p>`}
     ${untaggedRows}${loose}${unboundLine}
   </div>`;
@@ -1659,12 +1660,12 @@ function alertControlSection() {
 function alertNodeHtml(id) {
   if (id === "watchdog" || !nodeLastData?.[id]) return "";
   const st = alertState(id);
-  const pondOpts = [`<option value="">(未綁定)</option>`]
+  const pondOpts = [`<option value="">(未設定)</option>`]
     .concat((options.ponds || []).map((p) => `<option value="${escapeHtml(p.id)}"${p.id === st.pid ? " selected" : ""}>${escapeHtml(pondLabel(p.id))}</option>`))
     .join("");
-  const bind = `<label class="alert-bind">綁定池塘
+  const bind = `<label class="alert-bind">所在池塘
     <select data-bind-board="${escapeHtml(id)}">${pondOpts}</select></label>`;
-  const by = st.by === "node" ? "個別設定" : st.pid ? `跟著「${escapeHtml(pondName(st.pid))}」` : "未綁定・預設";
+  const by = st.by === "node" ? "個別設定" : st.pid ? `跟著「${escapeHtml(pondName(st.pid))}」` : "未設定池塘・預設";
   const state = st.on ? "告警開啟" : `🔕 已關閉・${escapeHtml(alertUntilText(st.entry))}`;
   const note = !st.on && st.entry?.note ? `・${escapeHtml(st.entry.note)}` : "";
   const conflict = st.conflict
@@ -1712,7 +1713,7 @@ function renderNodesPage() {
   box.innerHTML =
     `<div class="nodes-fixed">${fixed}</div>` +
     alertControlSection() +
-    nodeTileSection("斷電偵測", heartbeatIds(nodeLastData)) +
+    nodeTileSection("斷電偵測", heartbeatIds(nodeLastData), { batch: true }) +
     nodeTileSection("其他板子", otherNodeIds(nodeLastData));
   if (nodeOpenId) renderNodeModal();
 }
@@ -1735,34 +1736,119 @@ function nodeTile(id) {
   const badge = all
     ? `<span class="node-tile-cut" title="近 24 小時斷線 ${all} 次(斷電 ${power} 次)">${power ? `⚡${power}` : ""}${all > power ? ` ✕${all - power}` : ""}</span>`
     : "";
-  return `<button type="button" class="node-tile ${st.cls}" data-node="${escapeHtml(id)}" title="${escapeHtml(st.text)}">
+  const picked = nodeBatchMode && nodeBatchSel.has(id) ? " picked" : "";
+  return `<button type="button" class="node-tile ${st.cls}${picked}" data-node="${escapeHtml(id)}" title="${escapeHtml(st.text)}">
     ${badge}${alertState(id).on ? "" : `<span class="node-tile-mute" title="告警已關閉">🔕</span>`}<span class="node-tile-id">${escapeHtml(nodeLabel(id, node))}</span>
     <span class="node-tile-st">${escapeHtml(short)}</span>
     ${boardPond(id) ? `<span class="node-tile-pond">${escapeHtml(pondName(boardPond(id)))}</span>` : ""}
   </button>`;
 }
 
-// 一組方塊:標題列附統計(正常 / 異常),可切「只看異常」。
+// 一組方塊:標題列附統計(正常 / 異常),可切「全部 / 只看異常 / 未綁定」。
 // 排序固定照編號,不因狀態跳動 —— 線路多時,位置固定比較好找。
-let nodeFilterBad = false;
-function nodeTileSection(title, ids) {
+// batch = true 的區塊(斷電偵測)有「批次綁定」:點方塊多選、或用編號範圍選取,一次綁到同一個池塘。
+let nodeFilter = "all";   // all | bad | unbound
+function nodeTileSection(title, ids, { batch = false } = {}) {
   if (!ids.length) return "";
   const bad = ids.filter((id) => nodeState(id, nodeLastData[id]).cls !== "ok");
-  const shown = nodeFilterBad ? bad : ids;
+  const unbound = ids.filter((id) => !boardPond(id));
+  const shown = nodeFilter === "bad" ? bad : nodeFilter === "unbound" ? unbound : ids;
+  const empty = nodeFilter === "bad" ? "全部正常 👍" : "全部都設定好池塘了 👍";
   const tiles = shown.length
     ? `<div class="node-grid">${shown.map(nodeTile).join("")}</div>`
-    : `<p class="nodes-empty">全部正常 👍</p>`;
+    : `<p class="nodes-empty">${empty}</p>`;
+  const chip = (key, label) => `<button type="button" class="chip-btn${nodeFilter === key ? " active" : ""}" data-node-filter="${key}">${label}</button>`;
+  const batchBtn = batch
+    ? `<button type="button" class="btn-sm nodes-batch-btn${nodeBatchMode ? " btn-primary" : ""}" data-batch="toggle">${nodeBatchMode ? "取消" : "一次設定多片"}</button>` : "";
   return `<div class="card nodes-card">
     <div class="nodes-head">
-      <span class="nodes-title">${escapeHtml(title)}</span>
+      <span class="nodes-title">${escapeHtml(title)}${batchBtn}</span>
       <span class="nodes-count">${ids.length - bad.length}/${ids.length} 正常${bad.length ? `<b class="err">・${bad.length} 異常</b>` : ""}</span>
     </div>
     <div class="nodes-filter">
-      <button type="button" class="chip-btn${nodeFilterBad ? "" : " active"}" data-node-filter="all">全部 ${ids.length}</button>
-      <button type="button" class="chip-btn${nodeFilterBad ? " active" : ""}" data-node-filter="bad">只看異常 ${bad.length}</button>
+      ${chip("all", `全部 ${ids.length}`)}${chip("bad", `只看異常 ${bad.length}`)}${chip("unbound", `未設定池塘 ${unbound.length}`)}
     </div>
+    ${batch && nodeBatchMode ? nodeBatchTools(shown) : ""}
     ${tiles}
+    ${batch && nodeBatchMode ? nodeBatchBar() : ""}
   </div>`;
+}
+
+// ---------- 批次綁定 ----------
+let nodeBatchMode = false;
+const nodeBatchSel = new Set();
+// 輸入框 / 下拉的值存起來:頁面每分鐘重畫,不存會被清掉
+const nodeBatchForm = { from: "", to: "", pond: "" };
+
+// 編號拆成「字首 + 數字」:A07 → ["A", 7];比較時同字首才算同一段
+function boardIdParts(id) {
+  const m = /^([A-Za-z]*)(\d+)$/.exec(String(id).trim());
+  return m ? [m[1].toUpperCase(), Number(m[2])] : null;
+}
+
+// 上方工具列:編號範圍選取、全選目前顯示的、清除
+function nodeBatchTools(shown) {
+  return `<div class="batch-tools">
+    <p class="nodes-empty">點選要設定的板子,或輸入編號一次選一段。</p>
+    <div class="batch-range">
+      <input type="text" class="batch-input" data-batch-field="from" placeholder="從 A10" value="${escapeHtml(nodeBatchForm.from)}" />
+      <span>~</span>
+      <input type="text" class="batch-input" data-batch-field="to" placeholder="到 A25" value="${escapeHtml(nodeBatchForm.to)}" />
+      <button type="button" class="btn-sm" data-batch="range">選這一段</button>
+    </div>
+    <div class="batch-quick">
+      <button type="button" class="btn-sm" data-batch="all" data-batch-ids="${escapeHtml(shown.join(","))}">全選目前顯示的 ${shown.length} 片</button>
+      <button type="button" class="btn-sm" data-batch="clear">清除選取</button>
+    </div>
+  </div>`;
+}
+
+// 下方固定列(捲動時黏在分頁列上方):已選幾片 → 綁到哪個池塘 → 取消 / 套用
+function nodeBatchBar() {
+  const opts = [`<option value="">選擇池塘…</option>`, `<option value="__none"${nodeBatchForm.pond === "__none" ? " selected" : ""}>(未設定)</option>`]
+    .concat((options.ponds || []).map((p) => `<option value="${escapeHtml(p.id)}"${p.id === nodeBatchForm.pond ? " selected" : ""}>${escapeHtml(pondLabel(p.id))}</option>`))
+    .join("");
+  return `<div class="batch-bar">
+    <b>已選 ${nodeBatchSel.size} 片</b>
+    <select data-batch-field="pond">${opts}</select>
+    <button type="button" class="btn-sm" data-batch="toggle">取消</button>
+    <button type="button" class="btn-sm btn-primary" data-batch="apply"${nodeBatchSel.size && nodeBatchForm.pond ? "" : " disabled"}>套用</button>
+  </div>`;
+}
+
+function selectBoardRange() {
+  const a = boardIdParts(nodeBatchForm.from), b = boardIdParts(nodeBatchForm.to || nodeBatchForm.from);
+  if (!a || !b) { showToast("編號格式要像 A10", true); return; }
+  // 只打數字時沿用另一端的字首(例如「A10 ~ 25」)
+  const prefix = a[0] || b[0] || "A";
+  if ((a[0] || prefix) !== (b[0] || prefix)) { showToast("範圍兩端的字首要相同", true); return; }
+  const lo = Math.min(a[1], b[1]), hi = Math.max(a[1], b[1]);
+  const hit = heartbeatIds(nodeLastData).filter((id) => {
+    const p = boardIdParts(id);
+    return p && p[0] === prefix && p[1] >= lo && p[1] <= hi;
+  });
+  if (!hit.length) { showToast(`${prefix}${lo} ~ ${prefix}${hi} 沒有找到板子`, true); return; }
+  hit.forEach((id) => nodeBatchSel.add(id));
+  showToast(`已選取 ${hit.length} 片(${prefix}${lo} ~ ${prefix}${hi})`);
+  renderNodesPage();
+}
+
+// 一次寫入:所有選取的板子綁到同一個池塘(或解除綁定),再同步告警群組
+async function applyBatchBind() {
+  if (!db || !nodeBatchSel.size || !nodeBatchForm.pond) return;
+  const pondId = nodeBatchForm.pond === "__none" ? "" : nodeBatchForm.pond;
+  const ids = [...nodeBatchSel];
+  const nodePonds = { ...(options.nodePonds || {}) };
+  for (const id of ids) { if (pondId) nodePonds[id] = pondId; else delete nodePonds[id]; }
+  try {
+    await updateDoc(doc(db, ...DB_ROOT, "settings", "options"), { nodePonds });
+    options.nodePonds = nodePonds;   // onSnapshot 回來前先用新值
+    await syncAlertGroups();
+    nodeBatchSel.clear();
+    nodeBatchMode = false;   // 套用完就離開批次模式;要再設定下一批,重按「一次設定多片」
+    renderNodesPage();
+    showToast(pondId ? `${ids.length} 片已設定在 ${pondLabel(pondId)}` : `${ids.length} 片已改為未設定池塘`);
+  } catch (e) { showToast("設定池塘失敗:" + e.message, true); }
 }
 
 // 點方塊 → modal 顯示該板完整資料(沿用 nodeCard);資料每分鐘更新時 modal 一起更新。
@@ -1782,11 +1868,41 @@ function closeNodeModal() {
   $("#nodeOverlay").hidden = true;
 }
 function setupNodesPage() {
-  $("#nodesContainer").addEventListener("click", (e) => {
-    const tile = e.target.closest("[data-node]");
-    if (tile) { openNodeModal(tile.dataset.node); return; }
+  const box = $("#nodesContainer");
+  box.addEventListener("click", (e) => {
+    const tile = e.target.closest(".node-tile[data-node]");
+    if (tile && nodeBatchMode) {
+      const id = tile.dataset.node;
+      nodeBatchSel.has(id) ? nodeBatchSel.delete(id) : nodeBatchSel.add(id);
+      renderNodesPage();
+      return;
+    }
+    const open = e.target.closest("[data-node]");
+    if (open) { openNodeModal(open.dataset.node); return; }
     const f = e.target.closest("[data-node-filter]");
-    if (f) { nodeFilterBad = f.dataset.nodeFilter === "bad"; renderNodesPage(); }
+    if (f) { nodeFilter = f.dataset.nodeFilter; renderNodesPage(); return; }
+    const b = e.target.closest("[data-batch]");
+    if (!b) return;
+    ({
+      toggle: () => { nodeBatchMode = !nodeBatchMode; nodeBatchSel.clear(); renderNodesPage(); },
+      range: selectBoardRange,
+      all: () => { b.dataset.batchIds.split(",").filter(Boolean).forEach((id) => nodeBatchSel.add(id)); renderNodesPage(); },
+      clear: () => { nodeBatchSel.clear(); renderNodesPage(); },
+      apply: applyBatchBind,
+    })[b.dataset.batch]?.();
+  });
+  // 範圍輸入 / 池塘下拉:存進 nodeBatchForm(重畫時還原);池塘一選就更新「套用」可否按
+  box.addEventListener("input", (e) => {
+    const f = e.target.dataset?.batchField;
+    if (f) nodeBatchForm[f] = e.target.value.trim();
+  });
+  box.addEventListener("change", (e) => {
+    if (e.target.dataset?.batchField !== "pond") return;
+    nodeBatchForm.pond = e.target.value;
+    renderNodesPage();
+  });
+  box.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && e.target.dataset?.batchField) selectBoardRange();
   });
   $("#nodeModalClose").addEventListener("click", closeNodeModal);
   $("#nodeOverlay").addEventListener("click", (e) => { if (e.target.id === "nodeOverlay") closeNodeModal(); });

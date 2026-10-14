@@ -141,7 +141,29 @@ html, body {
 .nodes-count { font-size: 0.82rem; color: var(--muted); }
 .nodes-count .err { color: #e03131; font-weight: 700; }
 .nodes-filter { display: flex; gap: 8px; margin: 2px 0 12px; }
+.nodes-filter { flex-wrap: wrap; align-items: center; }
 .nodes-filter .chip-btn { flex: 0 0 auto; padding: 6px 12px; font-size: 0.82rem; }
+.nodes-title .nodes-batch-btn { margin: 0 0 0 10px; vertical-align: middle; font-weight: 600; width: auto; padding: 6px 12px; font-size: 0.82rem; border-radius: 999px; }
+
+/* 批次綁定 */
+/* 批次工具與下方套用列都限制在手機寬度左右:寬螢幕上不要撐滿、按鈕跑到角落 */
+.batch-tools { border: 1px dashed var(--border); border-radius: 10px; padding: 8px 10px; margin-bottom: 10px; max-width: 520px; }
+.batch-range, .batch-quick { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.batch-input { width: 84px; margin: 0; padding: 6px 8px; font-size: 0.9rem; }
+.batch-tools .btn-sm { margin: 0; width: auto; }
+.node-tile.picked { outline: 3px solid var(--primary); outline-offset: -1px; }
+.node-tile.picked::after { content: "✓"; position: absolute; bottom: 2px; right: 5px; font-size: 0.8rem; font-weight: 700; color: var(--primary); }
+/* 下方黏在分頁列上方,板子很多、捲到很下面時也按得到「套用」 */
+.batch-bar {
+  position: sticky; bottom: calc(76px + env(safe-area-inset-bottom)); z-index: 5;
+  display: flex; align-items: center; gap: 8px; margin-top: 10px; padding: 10px; max-width: 520px;
+  background: var(--card); border: 1px solid var(--primary); border-radius: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+}
+.batch-bar b { white-space: nowrap; font-size: 0.9rem; }
+.batch-bar select { flex: 1; min-width: 0; max-width: 280px; margin: 0; }
+.batch-bar .btn-sm.btn-primary, .batch-bar .btn-sm { margin: 0; width: auto; padding: 8px 14px; white-space: nowrap; }
+.batch-bar .btn-sm:disabled { opacity: 0.45; cursor: not-allowed; }
 
 /* 斷電偵測 / 其他板子:小方塊格狀排列,板子再多也只是多幾排。點方塊看詳細 */
 .node-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: 8px; }
@@ -1159,3 +1181,9 @@ body.on-record #main { padding-bottom: 172px; }
 /* 多月日曆:每月小標(統計頁單月不會出現) */
 .cal-month-head { font-weight: 700; margin: 12px 0 4px; color: var(--primary); }
 .cal-block:first-of-type .cal-month-head { margin-top: 4px; }
+
+/* 對話框內的捲軸:瀏覽器預設的粗灰條很突兀,改成細的、跟主題同色 */
+.modal, .modal * { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+.modal ::-webkit-scrollbar, .modal::-webkit-scrollbar { width: 6px; height: 6px; }
+.modal ::-webkit-scrollbar-thumb, .modal::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+.modal ::-webkit-scrollbar-track, .modal::-webkit-scrollbar-track { background: transparent; }
