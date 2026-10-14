@@ -137,7 +137,7 @@ html, body {
 
 .nodes-empty { color: var(--muted); font-size: 0.88rem; margin: 6px 0; }
 
-/* 水溫曲線 */
+/* 溫度曲線 */
 .nodes-chart { margin: 4px 0 12px; }
 .nodes-chart-t { font-size: 0.78rem; color: var(--muted); margin-bottom: 4px; }
 .nspark { width: 100%; height: 90px; display: block; overflow: visible; }
@@ -654,7 +654,7 @@ tr.total td { font-weight: 800; background: var(--total-bg); border-top: 2px sol
 /* 已編輯標記:接在建立時間後面,主色微弱提示 */
 .today-edited { margin-left: 8px; color: var(--primary); }
 
-/* 建立當下水溫(魚塭板子):清單與當日列表共用,弱化的小標 */
+/* 建立當下溫度(魚塭板子):清單與當日列表共用,弱化的小標 */
 .today-temp, .rec-temp {
   color: var(--muted);
   font-variant-numeric: tabular-nums;

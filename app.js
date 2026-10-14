@@ -390,8 +390,8 @@ function subscribeData() {
     renderStatsView();
     renderPondFilter();
     renderTodayList();
-    // 同步到最新後,順手補仍 pending 的水溫(只在已連雲端時試,離線無意義)
-    if (cloudSynced) retryPendingWaterTemp();
+    // 同步到最新後,順手補仍 pending 的溫度(只在已連雲端時試,離線無意義)
+    if (cloudSynced) retryPendingSiteTemp();
   }, (err) => {
     console.error(err); cloudSynced = false;
     setSync("err", "讀取紀錄失敗"); updateSaveDisabled();
@@ -649,11 +649,24 @@ function renderRecordTags() {
     }));
 }
 
-// 紀錄的水溫顯示字串:有溫度回「27.3°C」;仍 pending 或無資料回空字串。
-function waterTempStr(r) {
-  const w = r && r.waterTemp;
-  if (!w || !Number.isFinite(Number(w.temp))) return "";
-  return `${fmt(Number(w.temp))}°C`;
+// 紀錄的溫度,依來源分兩種(都是氣溫):
+//   siteTemp  魚塭現場板子(2026-08-22 起,主要來源)
+//   weather   氣象署文安站(板子還沒裝之前的舊紀錄才有)
+function siteTempValue(r) {
+  const t = Number(r?.siteTemp?.temp);
+  return Number.isFinite(t) ? t : null;
+}
+function stationTempValue(r) {
+  const w = r?.weather;
+  const t = Number(w?.temp);
+  return w && !w.pending && Number.isFinite(t) ? t : null;
+}
+// 顯示字串:現場「27.3°C」、測站「28°C(測站)」;都沒有回空字串。
+function siteTempStr(r) {
+  const s = siteTempValue(r);
+  if (s != null) return `${fmt(s)}°C`;
+  const w = stationTempValue(r);
+  return w != null ? `${fmt(w)}°C(測站)` : "";
 }
 
 // 把一筆紀錄轉成條列文字:池塘 - 時段 - 飼料 - N包 - 拌料 - 消毒 - 備註(空欄略過)
@@ -675,7 +688,7 @@ function recordSummaryLine(r) {
 function recordDetailText(r) {
   if (!r) return "";
   const dash = (v) => (v != null && String(v).trim() !== "" ? String(v) : "—");
-  const temp = waterTempStr(r);
+  const temp = siteTempStr(r);
   const lines = [
     ["日期", dash(r.date)],
     ["時段", dash(periodLabel(r.period))],
@@ -684,7 +697,7 @@ function recordDetailText(r) {
     ["包數", `${fmt(Number(r.bags) || 0)}包`],
     ["拌料", dash(mixName(r.mixId))],
     ["消毒劑", dash(disinfectantName(r.disinfectantId))],
-    ["水溫", temp ? temp : "—"],
+    ["溫度", temp ? temp : "—"],
     ["備註", dash(r.note)],
   ];
   return lines.map(([k, v]) => `${k}:${v}`).join("\n");
@@ -713,7 +726,7 @@ function renderTodayList() {
     ${recs.map((r) => {
       const label = recordTimeLabel(r);
       const timeTag = label ? `<span class="today-time">${escapeHtml(label)}</span>` : "";
-      const t = waterTempStr(r);
+      const t = siteTempStr(r);
       const tempTag = t ? ` <span class="today-temp">${escapeHtml(t)}</span>` : "";
       const editingCls = r.id === editingId ? " editing" : "";   // 目前正在編輯這筆 → 高亮
       const editingTag = r.id === editingId ? ` <span class="today-editing">編輯中</span>` : "";
@@ -760,13 +773,13 @@ async function onSaveRecord(e) {
   const saveBtn = $("#saveBtn");
   saveBtn.disabled = true;
 
-  const waterTemp = await currentWaterTempField();
+  const siteTemp = await currentSiteTempField();
 
   // 注意:離線時 Firestore 的寫入 promise 要等連線才 resolve,不能 await(會卡住)。
   // 改為發出寫入後立即依「目前是否已同步雲端」給提示;真正失敗(如權限)用 catch 補報。
   // 上方表單只負責「新增」(編輯走獨立 modal)。
   const ref = addDoc(collection(db, ...DB_ROOT, "records"), {
-    ...rec, createdAt: serverTimestamp(), waterTemp
+    ...rec, createdAt: serverTimestamp(), siteTemp
   });
   ref.catch((err) => { console.error(err); showToast("新增失敗:" + err.message, true); });
 
@@ -780,68 +793,68 @@ async function onSaveRecord(e) {
   updateSaveDisabled();   // 依目前(保留的)池塘狀態決定按鈕可否按
 }
 
-// ---------- 水溫:建立當下讀魚塭板子,讀不到就事後從板子歷史補 ----------
-// 紀錄欄位 waterTemp:
+// ---------- 溫度:建立當下讀魚塭板子,讀不到就事後從板子歷史補 ----------
+// 紀錄欄位 siteTemp:
 //   { temp, ts }          已取得(ts = 板子量測時間,unix 秒)
 //   { pending: true, at } 待補:at = 要對應的時刻(毫秒,用本機時間 —— 離線建立時
 //                         serverTimestamp 要等上線才定,不能代表建立當下)
 //   { missing: true, at } 板子歷史在該時段沒資料(板子當時失聯),不再嘗試
 // 板子歷史是永久的,所以 pending 不必搶時間:任何一台裝置之後上線、開著 App 就會補上。
-async function currentWaterTempField() {
+async function currentSiteTempField() {
   const t = await latestPondTemp();
   return t ? { temp: t.temp, ts: t.ts } : { pending: true, at: Date.now() };
 }
 
 // 歷史 5 分鐘一筆,上傳也有延遲:時刻過了這麼久還查不到,才判定該時段沒資料
-const WATER_TEMP_GIVE_UP_MS = 30 * 60 * 1000;
+const SITE_TEMP_GIVE_UP_MS = 30 * 60 * 1000;
 
-// fillingWaterTemp:正在補的 recordId。查歷史是 async,期間 onSnapshot 可能再觸發一次
-// retryPendingWaterTemp,用此 Set 上鎖,確保同一筆同時間只補一次。
-const fillingWaterTemp = new Set();
-async function fillWaterTemp(r) {
-  if (!db || fillingWaterTemp.has(r.id)) return;
-  fillingWaterTemp.add(r.id);
+// fillingSiteTemp:正在補的 recordId。查歷史是 async,期間 onSnapshot 可能再觸發一次
+// retryPendingSiteTemp,用此 Set 上鎖,確保同一筆同時間只補一次。
+const fillingSiteTemp = new Set();
+async function fillSiteTemp(r) {
+  if (!db || fillingSiteTemp.has(r.id)) return;
+  fillingSiteTemp.add(r.id);
   try {
-    const at = Number(r.waterTemp.at);
+    const at = Number(r.siteTemp.at);
     const t = await pondTempAt(at);
-    let waterTemp = null;
-    if (t) waterTemp = { temp: t.temp, ts: t.ts };
-    else if (Date.now() - at > WATER_TEMP_GIVE_UP_MS) waterTemp = { missing: true, at };
-    if (waterTemp) await updateDoc(doc(db, ...DB_ROOT, "records", r.id), { waterTemp });
-  } catch (e) { console.warn("補水溫失敗(之後再試):", e); }   // 連不上 RTDB → 維持 pending
-  finally { fillingWaterTemp.delete(r.id); }
+    let siteTemp = null;
+    if (t) siteTemp = { temp: t.temp, ts: t.ts };
+    else if (Date.now() - at > SITE_TEMP_GIVE_UP_MS) siteTemp = { missing: true, at };
+    if (siteTemp) await updateDoc(doc(db, ...DB_ROOT, "records", r.id), { siteTemp });
+  } catch (e) { console.warn("補溫度失敗(之後再試):", e); }   // 連不上 RTDB → 維持 pending
+  finally { fillingSiteTemp.delete(r.id); }
 }
 
-function pendingWaterTempTargets() {
-  return allRecords.filter((r) => r.waterTemp && r.waterTemp.pending === true && Number(r.waterTemp.at));
+function pendingSiteTempTargets() {
+  return allRecords.filter((r) => r.siteTemp && r.siteTemp.pending === true && Number(r.siteTemp.at));
 }
 
-// 機會式補水溫:同步完成 / App 回前景 / 取得焦點 / 前景定時器(見 ensureWaterTempTimer)時掃一次。
-let retryingWaterTemp = false;
-async function retryPendingWaterTemp() {
-  if (!db || !cloudSynced || retryingWaterTemp) return;
-  const targets = pendingWaterTempTargets();
+// 機會式補溫度:同步完成 / App 回前景 / 取得焦點 / 前景定時器(見 ensureSiteTempTimer)時掃一次。
+let retryingSiteTemp = false;
+async function retryPendingSiteTemp() {
+  if (!db || !cloudSynced || retryingSiteTemp) return;
+  const targets = pendingSiteTempTargets();
   if (!targets.length) return;
-  retryingWaterTemp = true;
+  retryingSiteTemp = true;
   try {
-    for (const r of targets) await fillWaterTemp(r);   // 逐筆,避免一次大量請求
+    for (const r of targets) await fillSiteTemp(r);   // 逐筆,避免一次大量請求
   } finally {
-    retryingWaterTemp = false;
+    retryingSiteTemp = false;
   }
-  ensureWaterTempTimer();
+  ensureSiteTempTimer();
 }
 
 // 前景定時器:有 pending 時每分鐘試一次(剛建立的紀錄要等板子歷史寫進來);
 // 只在分頁可見時跑,無待補就自動停掉,不空轉。
-const WATER_TEMP_RETRY_INTERVAL_MS = 60 * 1000;
-let waterTempTimer = null;
-function ensureWaterTempTimer() {
-  const needed = document.visibilityState === "visible" && pendingWaterTempTargets().length > 0;
-  if (needed && !waterTempTimer) {
-    waterTempTimer = setInterval(retryPendingWaterTemp, WATER_TEMP_RETRY_INTERVAL_MS);
-  } else if (!needed && waterTempTimer) {
-    clearInterval(waterTempTimer);
-    waterTempTimer = null;
+const SITE_TEMP_RETRY_INTERVAL_MS = 60 * 1000;
+let siteTempTimer = null;
+function ensureSiteTempTimer() {
+  const needed = document.visibilityState === "visible" && pendingSiteTempTargets().length > 0;
+  if (needed && !siteTempTimer) {
+    siteTempTimer = setInterval(retryPendingSiteTemp, SITE_TEMP_RETRY_INTERVAL_MS);
+  } else if (!needed && siteTempTimer) {
+    clearInterval(siteTempTimer);
+    siteTempTimer = null;
   }
 }
 
@@ -891,7 +904,7 @@ function resetForm(opts = {}) {
 }
 
 // ============================================================
-//  ESP32 節點心跳(魚塭水溫探頭 + 家中看門狗)
+//  ESP32 節點心跳(魚塭溫度探頭 + 家中看門狗)
 // ============================================================
 // 為什麼用 fetch 而不是 Firebase SDK:那兩片板子寫的是「另一個」Firebase 專案
 // (esp32-e7966 的 Realtime Database),與本站的 Firestore(fishpond-log-e4c57)
@@ -930,7 +943,7 @@ function nodeState(id, node) {
   const age = Date.now() / 1000 - ts;          // 板子寫的是 unix 秒
   const stale = interval * NODE_STALE_MULTIPLE;
 
-  // 活著:有水溫就顯示水溫(它本身就證明心跳在,比「正常」兩個字有用)
+  // 活著:有溫度就顯示溫度(它本身就證明心跳在,比「正常」兩個字有用)
   if (age <= stale) {
     const temp = Number(node?.latest?.temp);
     return { cls: "ok", text: Number.isFinite(temp) ? `${label} ${temp.toFixed(1)}°C` : `${label} 正常` };
@@ -1005,7 +1018,7 @@ function ensureNodeTimer() {
 
 // ---------- 板子狀態頁 ----------
 // 與 header 心跳共用同一次 fetch 的結果(nodeLastData),不各抓一次。
-// 水溫曲線只抓最近 24 小時:整個月的 history 有 5400+ 筆(~148KB),
+// 溫度曲線只抓最近 24 小時:整個月的 history 有 5400+ 筆(~148KB),
 // 24 小時只有 ~288 筆(~7.8KB),手機上差很多。
 const NODE_HISTORY_HOURS = 24;
 const NODE_HISTORY_POINTS = 288;          // 24h ÷ 5 分鐘一筆
@@ -1029,7 +1042,7 @@ function nodeTimeText(ts) {
   return new Date(n * 1000).toLocaleString("zh-TW", { hour12: false });
 }
 
-// 抓最近 24 小時水溫。RTDB 的 orderBy="$key"+limitToLast 讓伺服器端就切好,
+// 抓最近 24 小時溫度。RTDB 的 orderBy="$key"+limitToLast 讓伺服器端就切好,
 // 不必整包下載再丟掉。key 是 unix 秒的字串。
 async function loadNodeHistory() {
   if (nodeHistoryLoading) return;
@@ -1054,11 +1067,11 @@ async function loadNodeHistory() {
   }
 }
 
-// 水溫折線圖(純 inline SVG,不引入圖表庫——本專案其他圖表也是自己畫的)。
+// 溫度折線圖(純 inline SVG,不引入圖表庫——本專案其他圖表也是自己畫的)。
 // viewBox 固定、寬度 100%,所以在任何螢幕寬度都不會爆版。
 function nodeSparkline(points) {
   if (!points || points.length < 2) {
-    return `<p class="nodes-empty">尚無足夠的水溫紀錄可畫圖</p>`;
+    return `<p class="nodes-empty">尚無足夠的溫度紀錄可畫圖</p>`;
   }
   const W = 320, H = 90, PAD_L = 26, PAD_R = 6, PAD_T = 8, PAD_B = 16;
   const temps = points.map((p) => p[1]);
@@ -1084,7 +1097,7 @@ function nodeSparkline(points) {
   };
   return `
     <svg class="nspark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img"
-         aria-label="最近 ${NODE_HISTORY_HOURS} 小時水溫,範圍 ${tMin.toFixed(1)} 到 ${tMax.toFixed(1)} 度">
+         aria-label="最近 ${NODE_HISTORY_HOURS} 小時溫度,範圍 ${tMin.toFixed(1)} 到 ${tMax.toFixed(1)} 度">
       <line x1="${PAD_L}" y1="${PAD_T}" x2="${PAD_L}" y2="${H - PAD_B}" class="nspark-grid" />
       <line x1="${PAD_L}" y1="${H - PAD_B}" x2="${W - PAD_R}" y2="${H - PAD_B}" class="nspark-grid" />
       ${hLabel(lo)}${hLabel(hi)}
@@ -1119,7 +1132,7 @@ function nodeCard(id, node) {
 
   const l = node.latest || {}, m = node.meta || {};
   const rows = [];
-  if (Number.isFinite(Number(l.temp))) rows.push(nodeRow("水溫", `${Number(l.temp).toFixed(1)}°C`));
+  if (Number.isFinite(Number(l.temp))) rows.push(nodeRow("溫度", `${Number(l.temp).toFixed(1)}°C`));
   if (Number.isFinite(Number(l.checks))) rows.push(nodeRow("已檢查", `${Number(l.checks).toLocaleString()} 次`));
   if (typeof l.alerting === "boolean") rows.push(nodeRow("告警中", l.alerting ? "是 ⚠️" : "否"));
   rows.push(nodeRow("最後回報", nodeTimeText(l.ts)));
@@ -1129,9 +1142,9 @@ function nodeCard(id, node) {
   rows.push(nodeRow("IP", l.ip || "—"));
   rows.push(nodeRow("WiFi", l.ssid || "—"));
 
-  // 水溫曲線只有魚塭那片有
+  // 溫度曲線只有魚塭那片有
   const chart = id === "pond-site"
-    ? `<div class="nodes-chart"><div class="nodes-chart-t">最近 ${NODE_HISTORY_HOURS} 小時水溫</div>${nodeSparkline(nodeHistory)}</div>`
+    ? `<div class="nodes-chart"><div class="nodes-chart-t">最近 ${NODE_HISTORY_HOURS} 小時溫度</div>${nodeSparkline(nodeHistory)}</div>`
     : "";
 
   return `<div class="card nodes-card">${head}${chart}<div class="nodes-rows">${rows.join("")}</div></div>`;
@@ -1288,11 +1301,11 @@ async function onSaveEdit(e) {
 
   $("#editSaveBtn").disabled = true;
 
-  // 水溫:依「更新當下溫度」checkbox 決定。
-  //   打勾 → 改成「更新此刻」的水溫(用途:清晨建立、上午吃完才更新,溫度應反映更新時刻)。
-  //   不打勾 → 完全不動 waterTemp 欄(用途:晚上或隔天才補登,不該把溫度改成補登當下)。
+  // 溫度:依「更新當下溫度」checkbox 決定。
+  //   打勾 → 改成「更新此刻」的溫度(用途:清晨建立、上午吃完才更新,溫度應反映更新時刻)。
+  //   不打勾 → 完全不動 siteTemp 欄(用途:晚上或隔天才補登,不該把溫度改成補登當下)。
   const patch = { ...rec, updatedAt: serverTimestamp() };
-  if ($("#editUpdateWeather").checked) patch.waterTemp = await currentWaterTempField();
+  if ($("#editUpdateWeather").checked) patch.siteTemp = await currentSiteTempField();
 
   updateDoc(doc(db, ...DB_ROOT, "records", editingId), patch)
     .catch((err) => { console.error(err); showToast("更新失敗:" + err.message, true); });
@@ -1386,7 +1399,7 @@ function renderList() {
     parts.push(`<b>${fn ? escapeHtml(fn) + " " : ""}${escapeHtml(r.bags)}包</b>`);
     if (mn) parts.push(`<span class="k">拌料</span> ${escapeHtml(mn)}`);
     if (dn) parts.push(`<span class="k">消毒</span> ${escapeHtml(dn)}`);
-    const wt = waterTempStr(r);
+    const wt = siteTempStr(r);
     if (wt) parts.push(`<span class="rec-temp">${escapeHtml(wt)}</span>`);
     const note = r.note ? `<div class="rec-body"><span class="k">備註</span> ${escapeHtml(r.note)}</div>` : "";
     // 建立時間接在右上角日期後;最後編輯(若有)放動作列左側,跨建立日才加 MM/DD-
@@ -2082,7 +2095,8 @@ function buildExportData(records, { byMonth = false } = {}) {
     "飼料編號": feedName(r.feedNoId),
     "拌料": mixName(r.mixId),
     "消毒劑": disinfectantName(r.disinfectantId),
-    "水溫": Number.isFinite(Number(r.waterTemp?.temp)) ? Number(r.waterTemp.temp) : "",
+    "現場溫度": siteTempValue(r) ?? "",
+    "測站溫度": stationTempValue(r) ?? "",
     "備註": r.note || ""
   }));
 
@@ -2771,7 +2785,7 @@ function switchPage(name) {
   $("#saveBar").hidden = !onRecord;            // 儲存列只在記錄頁顯示
   document.body.classList.toggle("on-record", onRecord);  // 控制底部留白
   document.body.classList.toggle("on-stats", name === "stats");  // 統計頁全寬
-  // 進板子頁:先畫現有資料(不留白畫面),同時重抓一次即時狀態與水溫曲線
+  // 進板子頁:先畫現有資料(不留白畫面),同時重抓一次即時狀態與溫度曲線
   if (name === "nodes") {
     renderNodesPage();
     refreshNodeStatus();
@@ -2814,14 +2828,14 @@ function main() {
   refreshNodeStatus();
   ensureNodeTimer();
 
-  // 水溫機會式補:App 回到前景 / 視窗取得焦點時,補仍 pending 的紀錄。
+  // 溫度機會式補:App 回到前景 / 視窗取得焦點時,補仍 pending 的紀錄。
   // 回前景時順手啟動前景定時器(離開前景則停掉,避免背景空轉)。
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible") { retryPendingWaterTemp(); refreshNodeStatus(); }
-    ensureWaterTempTimer();
+    if (document.visibilityState === "visible") { retryPendingSiteTemp(); refreshNodeStatus(); }
+    ensureSiteTempTimer();
     ensureNodeTimer();
   });
-  window.addEventListener("focus", retryPendingWaterTemp);
+  window.addEventListener("focus", retryPendingSiteTemp);
 
   // 註冊 service worker(PWA)
   if ("serviceWorker" in navigator) {
