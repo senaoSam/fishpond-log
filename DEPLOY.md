@@ -66,7 +66,7 @@ repo 公開 → 專案 ID 公開,會被掃 Firebase 的機器人找到。所以�
 
 | 位置 | 用途 |
 |---|---|
-| GitHub → Settings → Secrets and variables → Actions → `DB_SECRET` | 部署時注入 `firebase-config.js`;weather-relay / db-backup 也讀它 |
+| GitHub → Settings → Secrets and variables → Actions → `DB_SECRET` | 部署時注入 `firebase-config.js`;db-backup 也讀它 |
 | 本機 `secret.local.js`(已 gitignore) | 本機開發與 `scripts/` 腳本使用 |
 | Firestore 規則 | 見下方 |
 

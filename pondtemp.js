@@ -1,0 +1,56 @@
+// ============================================================
+//  水溫 — 讀魚塭現場板子(pond-site)回報的水溫
+// ============================================================
+// 2026-10-14 起取代氣象署文安站氣溫(原 weather.js + weather-relay.yml 已移除):
+// 餵食量看的是水溫,而魚塭現場本來就有水溫探頭。
+//
+// 資料在「另一個」Firebase 專案(esp32-e7966 的 Realtime Database),與本站
+// Firestore 無關。RTDB 的 REST 端點直接 GET 就有 JSON,規則公開讀取,不需憑證。
+//   devices/pond-site/latest            → { temp, ts }   板子每 60 秒覆寫
+//   history/pond-site/{YYYY-MM}/{ts}    → { temp }       每 5 分鐘一筆;月份依 UTC 切
+// ts 都是 unix 秒。
+
+export const NODE_RTDB = "https://esp32-e7966-default-rtdb.asia-southeast1.firebasedatabase.app";
+
+// latest 超過此秒數就不算「當下」水溫(板子 60 秒回報一次,留幾輪餘裕)
+const LATEST_MAX_AGE_SEC = 10 * 60;
+// 歷史查詢:取紀錄時間前後此秒數內最接近的一筆(歷史 5 分鐘一筆)
+const HISTORY_WINDOW_SEC = 10 * 60;
+
+// 當下水溫。回 { temp, ts };讀不到 / 板子失聯 / 離線一律回 null(不丟例外,不擋存檔)。
+export async function latestPondTemp() {
+  try {
+    const r = await fetch(`${NODE_RTDB}/devices/pond-site/latest.json`, { cache: "no-store" });
+    if (!r.ok) return null;
+    const l = await r.json();
+    const temp = Number(l?.temp), ts = Number(l?.ts);
+    if (!Number.isFinite(temp) || !ts) return null;
+    if (Date.now() / 1000 - ts > LATEST_MAX_AGE_SEC) return null;
+    return { temp, ts };
+  } catch {
+    return null;
+  }
+}
+
+// 指定時間(毫秒)的水溫:從歷史取前後 HISTORY_WINDOW_SEC 內最接近的一筆。
+// 回 { temp, ts };該時段沒有資料回 null;連不上丟例外(呼叫端據此決定要不要放棄)。
+export async function pondTempAt(ms) {
+  const at = Math.round(ms / 1000);
+  const from = at - HISTORY_WINDOW_SEC, to = at + HISTORY_WINDOW_SEC;
+  // 前後時窗可能跨月(UTC),兩個月份都查
+  const months = [...new Set([from, to].map((s) => new Date(s * 1000).toISOString().slice(0, 7)))];
+  let best = null;
+  for (const ym of months) {
+    // key 是 10 位數 unix 秒字串,字串排序 = 數字排序,可直接用 startAt/endAt 讓伺服器端篩
+    const url = `${NODE_RTDB}/history/pond-site/${ym}.json`
+      + `?orderBy=%22%24key%22&startAt=%22${from}%22&endAt=%22${to}%22`;
+    const r = await fetch(url, { cache: "no-store" });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    for (const [k, v] of Object.entries((await r.json()) || {})) {
+      const ts = Number(k), temp = Number(v?.temp);
+      if (!Number.isFinite(temp)) continue;
+      if (!best || Math.abs(ts - at) < Math.abs(best.ts - at)) best = { temp, ts };
+    }
+  }
+  return best;
+}

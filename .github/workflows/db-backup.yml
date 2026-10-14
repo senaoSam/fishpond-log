@@ -2,9 +2,9 @@ name: DB backup
 
 # 每月自動備份:把 Firestore 的 records + settings/options 匯成 JSON,
 # commit 進 repo 的 backups/。兩個目的:
-#   1. 異地備份(防誤刪 / 帳號出事;容量不是問題,見 weather.js 註解)
+#   1. 異地備份(防誤刪 / 帳號出事)
 #   2. 每月的備份 commit = repo 活動,重置 GitHub「60 天無活動即停用排程」
-#      的計時器,讓氣溫中繼(weather-relay.yml)與本備份自身永遠不會被停用。
+#      的計時器,讓本備份排程永遠不會被停用。
 #      (檔案內含 exportedAt,就算當月沒新紀錄也保證有 commit。)
 on:
   schedule:

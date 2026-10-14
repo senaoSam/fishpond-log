@@ -1,8 +1,8 @@
 // ============================================================
 //  魚塭紀錄 — 主程式
 // ============================================================
-import { firebaseConfig, githubDispatch, dbSecret, DB_ROOT } from "./firebase-config.js";
-import { fetchWeather, reusableWeather, RETRY_WINDOW_MIN } from "./weather.js";
+import { firebaseConfig, dbSecret, DB_ROOT } from "./firebase-config.js";
+import { NODE_RTDB, latestPondTemp, pondTempAt } from "./pondtemp.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
   getFirestore, collection, doc, addDoc, setDoc, updateDoc, deleteDoc,
@@ -390,8 +390,8 @@ function subscribeData() {
     renderStatsView();
     renderPondFilter();
     renderTodayList();
-    // 同步到最新後,順手補抓仍 pending 的天氣(只在已連雲端時試,離線無意義)
-    if (cloudSynced) retryPendingWeather();
+    // 同步到最新後,順手補仍 pending 的水溫(只在已連雲端時試,離線無意義)
+    if (cloudSynced) retryPendingWaterTemp();
   }, (err) => {
     console.error(err); cloudSynced = false;
     setSync("err", "讀取紀錄失敗"); updateSaveDisabled();
@@ -649,10 +649,10 @@ function renderRecordTags() {
     }));
 }
 
-// 紀錄的氣溫顯示字串:有溫度回「🌡 27.3°C」;仍 pending 或無資料回空字串。
-function weatherTempStr(r) {
-  const w = r && r.weather;
-  if (!w || w.pending || !Number.isFinite(Number(w.temp))) return "";
+// 紀錄的水溫顯示字串:有溫度回「27.3°C」;仍 pending 或無資料回空字串。
+function waterTempStr(r) {
+  const w = r && r.waterTemp;
+  if (!w || !Number.isFinite(Number(w.temp))) return "";
   return `${fmt(Number(w.temp))}°C`;
 }
 
@@ -675,7 +675,7 @@ function recordSummaryLine(r) {
 function recordDetailText(r) {
   if (!r) return "";
   const dash = (v) => (v != null && String(v).trim() !== "" ? String(v) : "—");
-  const temp = weatherTempStr(r);
+  const temp = waterTempStr(r);
   const lines = [
     ["日期", dash(r.date)],
     ["時段", dash(periodLabel(r.period))],
@@ -684,7 +684,7 @@ function recordDetailText(r) {
     ["包數", `${fmt(Number(r.bags) || 0)}包`],
     ["拌料", dash(mixName(r.mixId))],
     ["消毒劑", dash(disinfectantName(r.disinfectantId))],
-    ["氣溫", temp ? temp : "—"],
+    ["水溫", temp ? temp : "—"],
     ["備註", dash(r.note)],
   ];
   return lines.map(([k, v]) => `${k}:${v}`).join("\n");
@@ -713,7 +713,7 @@ function renderTodayList() {
     ${recs.map((r) => {
       const label = recordTimeLabel(r);
       const timeTag = label ? `<span class="today-time">${escapeHtml(label)}</span>` : "";
-      const t = weatherTempStr(r);
+      const t = waterTempStr(r);
       const tempTag = t ? ` <span class="today-temp">${escapeHtml(t)}</span>` : "";
       const editingCls = r.id === editingId ? " editing" : "";   // 目前正在編輯這筆 → 高亮
       const editingTag = r.id === editingId ? ` <span class="today-editing">編輯中</span>` : "";
@@ -760,32 +760,15 @@ async function onSaveRecord(e) {
   const saveBtn = $("#saveBtn");
   saveBtn.disabled = true;
 
-  // 天氣:連續新增時「沿用」剛抓到的溫度,避免每筆各自觸發 relay 重複抓。
-  //   先讀 meta 現成溫度(reusableWeather 只在觀測時間 ≤ REUSE_OBS_AGE_MIN(15分)才回值):
-  //   - 夠新 → 直接把溫度寫進這筆(pending:false),不再打 dispatch(第 2~N 筆走這條,秒完成)。
-  //   - 太舊/讀不到/離線 → 標 pending 並打 dispatch 叫 relay 抓新的(第一筆、或久沒建的情況)。
-  // 讀 meta 是輕量 GET(~0.3KB),離線會回 null 自動退回 pending,不影響存檔。
-  const reused = await reusableWeather();
-  const weatherField = reused
-    ? { temp: reused.temp, obsTime: reused.obsTime, station: reused.station,
-        stationName: reused.stationName, pending: false }
-    // requestedAt = 補抓請求時刻,供 relay 判斷 60 分時窗(見 weather-relay.yml)。
-    // 建立當下 requestedAt≈createdAt;編輯重抓時則是「更新此刻」,兩者統一用這欄。
-    : { pending: true, requestedAt: new Date().toISOString() };
+  const waterTemp = await currentWaterTempField();
 
   // 注意:離線時 Firestore 的寫入 promise 要等連線才 resolve,不能 await(會卡住)。
   // 改為發出寫入後立即依「目前是否已同步雲端」給提示;真正失敗(如權限)用 catch 補報。
   // 上方表單只負責「新增」(編輯走獨立 modal)。
   const ref = addDoc(collection(db, ...DB_ROOT, "records"), {
-    ...rec, createdAt: serverTimestamp(), weather: weatherField
+    ...rec, createdAt: serverTimestamp(), waterTemp
   });
-  ref.then((docRef) => {
-    if (!reused) {                    // 沒沿用到現成溫度 → 這筆是 pending,必須觸發補抓
-      attachWeather(docRef.id);       // App 端補抓(目前開關關閉,保留備援)
-      triggerWeatherRelay(true);      // force:pending 一律觸發,不被 60 秒去重擋掉(見函式註解)
-    }
-  })
-    .catch((err) => { console.error(err); showToast("新增失敗:" + err.message, true); });
+  ref.catch((err) => { console.error(err); showToast("新增失敗:" + err.message, true); });
 
   if (cloudSynced) {
     showToast(`已新增 ✔ ${pondLabel(rec.pondId)} ${fmt(rec.bags)}包`);
@@ -797,125 +780,68 @@ async function onSaveRecord(e) {
   updateSaveDisabled();   // 依目前(保留的)池塘狀態決定按鈕可否按
 }
 
-// ---------- 天氣:建立當下抓即時氣溫(文安站),抓不到則保持 pending ----------
-// [2026-07-03] App 端補抓「暫時停用」:改由 GitHub Actions(weather-relay.yml)
-// 每 10 分鐘伺服器端補抓 pending 紀錄,與裝置無關,不用等使用者開 App。
-// 這裡保留整套邏輯不刪,靠此開關關閉;日後要恢復「開著 App 就即時補」只需改回 true。
-const APP_SIDE_WEATHER_ATTACH = false;
+// ---------- 水溫:建立當下讀魚塭板子,讀不到就事後從板子歷史補 ----------
+// 紀錄欄位 waterTemp:
+//   { temp, ts }          已取得(ts = 板子量測時間,unix 秒)
+//   { pending: true, at } 待補:at = 要對應的時刻(毫秒,用本機時間 —— 離線建立時
+//                         serverTimestamp 要等上線才定,不能代表建立當下)
+//   { missing: true, at } 板子歷史在該時段沒資料(板子當時失聯),不再嘗試
+// 板子歷史是永久的,所以 pending 不必搶時間:任何一台裝置之後上線、開著 App 就會補上。
+async function currentWaterTempField() {
+  const t = await latestPondTemp();
+  return t ? { temp: t.temp, ts: t.ts } : { pending: true, at: Date.now() };
+}
 
-// ---------- 天氣:建立當下「戳」GitHub relay 立刻補抓(主力機制)----------
-// [2026-07-05] 手機只發一個請求給 api.github.com(已實測壞手機可通),叫
-// weather-relay workflow 立刻跑一輪 → 抓 CWA + 補這筆 pending。不必等下一次
-// 定時排程(schedule 常被延遲/跳過)。定時 */25 仍保留當保底。
-// 失敗完全不擋存檔、不提示(與抓不到氣溫一樣寬容);月統計只需 1~2 小時內補上即可。
-//
-// 去重取捨(2026-07-10 修正):呼叫此函式的時機都是「這筆標了 pending、需要 relay 補」
-// (建立/編輯流程僅在沒沿用到現成溫度時才呼叫)。原本無條件 60 秒去重會誤傷 —— 例如
-// 20:16:44、20:16:50 兩筆 pending 緊接在 20:16:09 觸發後 <60 秒,被去重擋掉沒觸發,
-// 又碰上定時排程延遲 → 90 分時窗內沒任何 relay 跑到 → 永久漏抓。
-// 修法:pending 的紀錄一律 force 觸發(繞過去重);去重只保留給「非必要」的呼叫(目前無,
-// 保留機制供日後擴充)。一輪 relay 會掃所有 pending,force 頂多讓短時間多跑幾輪 relay,
-// 額度綽綽有餘(免費額度用量 <1%),遠比漏抓可接受。
-let lastRelayTrigger = 0;
-async function triggerWeatherRelay(force = false) {
-  const g = githubDispatch;
-  // 只有注入了真正的 PAT 才觸發;佔位符/空字串 = 停用(本機開發、或部署未注入),不影響存檔
-  if (!g || !g.token || !g.token.startsWith("github_pat_")) return;
-  if (!force && Date.now() - lastRelayTrigger < 60 * 1000) return;   // 非強制:60 秒去重
-  lastRelayTrigger = Date.now();
+// 歷史 5 分鐘一筆,上傳也有延遲:時刻過了這麼久還查不到,才判定該時段沒資料
+const WATER_TEMP_GIVE_UP_MS = 30 * 60 * 1000;
+
+// fillingWaterTemp:正在補的 recordId。查歷史是 async,期間 onSnapshot 可能再觸發一次
+// retryPendingWaterTemp,用此 Set 上鎖,確保同一筆同時間只補一次。
+const fillingWaterTemp = new Set();
+async function fillWaterTemp(r) {
+  if (!db || fillingWaterTemp.has(r.id)) return;
+  fillingWaterTemp.add(r.id);
   try {
-    await fetch(
-      `https://api.github.com/repos/${g.owner}/${g.repo}/actions/workflows/${g.workflow}/dispatches`,
-      {
-        method: "POST",
-        headers: {
-          "Accept": "application/vnd.github+json",
-          "Authorization": `Bearer ${g.token}`,
-          "X-GitHub-Api-Version": "2022-11-28",
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ ref: g.ref }),
-      }
-    );
-    // 成功回 204 No Content;失敗也不處理 —— 定時排程與 App 端備援仍會補
-  } catch (e) {
-    console.warn("weather relay dispatch failed (忽略,靠定時排程補):", e);
-  }
+    const at = Number(r.waterTemp.at);
+    const t = await pondTempAt(at);
+    let waterTemp = null;
+    if (t) waterTemp = { temp: t.temp, ts: t.ts };
+    else if (Date.now() - at > WATER_TEMP_GIVE_UP_MS) waterTemp = { missing: true, at };
+    if (waterTemp) await updateDoc(doc(db, ...DB_ROOT, "records", r.id), { waterTemp });
+  } catch (e) { console.warn("補水溫失敗(之後再試):", e); }   // 連不上 RTDB → 維持 pending
+  finally { fillingWaterTemp.delete(r.id); }
 }
 
-// 對單一紀錄抓一次即時氣溫;成功就寫回該 doc 的 weather 欄位,失敗保持 pending(不動 doc)。
-// fetchingWeather:正在抓的 recordId。attachWeather 是 async,await fetch 期間 doc 仍是
-// pending,期間若被 onSnapshot 觸發的 retryPendingWeather 再呼叫一次會重複抓(同筆同時間
-// 兩筆 log)。用此 Set 上鎖,確保同一筆同時間只抓一次。
-const fetchingWeather = new Set();
-async function attachWeather(recordId) {
-  if (!APP_SIDE_WEATHER_ATTACH) return;   // 停用:改由 GitHub Actions 伺服器端補抓
-  if (!db || !recordId) return;
-  if (fetchingWeather.has(recordId)) return;   // 已在抓 → 跳過,避免重複
-  fetchingWeather.add(recordId);
-  try {
-    const w = await fetchWeather();
-    if (!w) return;   // 抓不到:維持 { pending:true },留待之後重試
-    await updateDoc(doc(db, ...DB_ROOT, "records", recordId), {
-      weather: {
-        temp: w.temp,
-        obsTime: w.obsTime,
-        station: w.station,
-        stationName: w.stationName,
-        pending: false
-      }
-    });
-  } catch (e) { console.error(e); }   // 寫回失敗就讓它維持 pending,下次再補
-  finally { fetchingWeather.delete(recordId); }
+function pendingWaterTempTargets() {
+  return allRecords.filter((r) => r.waterTemp && r.waterTemp.pending === true && Number(r.waterTemp.at));
 }
 
-// 仍待補抓的紀錄:weather 還 pending、且建立未超過重試時窗。
-function pendingWeatherTargets() {
-  const now = Date.now();
-  const windowMs = RETRY_WINDOW_MIN * 60 * 1000;
-  return allRecords.filter((r) => {
-    if (!r.weather || r.weather.pending !== true) return false;
-    const created = recordDate(r);
-    return created && (now - created.getTime()) <= windowMs;  // 仍在重試時窗內
-  });
-}
-
-// 機會式重試:掃「pending 且建立 +RETRY_WINDOW_MIN 分鐘內」的紀錄補抓氣溫。
-// 觸發時機:App 回前景 / 取得焦點 / 同步完成 / 前景定時器(見 ensureWeatherTimer)。
-// (改走 Firestore 中繼後,任何裝置補抓皆可;原 debug 期「電腦不補抓」限制已移除。)
-let retryingWeather = false;
-async function retryPendingWeather() {
-  if (!APP_SIDE_WEATHER_ATTACH) return;   // 停用:補抓改由 GitHub Actions 做
-  if (!db || retryingWeather) return;
-  const targets = pendingWeatherTargets();
+// 機會式補水溫:同步完成 / App 回前景 / 取得焦點 / 前景定時器(見 ensureWaterTempTimer)時掃一次。
+let retryingWaterTemp = false;
+async function retryPendingWaterTemp() {
+  if (!db || !cloudSynced || retryingWaterTemp) return;
+  const targets = pendingWaterTempTargets();
   if (!targets.length) return;
-  retryingWeather = true;
+  retryingWaterTemp = true;
   try {
-    for (const r of targets) await attachWeather(r.id);   // 逐筆,避免一次大量請求
+    for (const r of targets) await fillWaterTemp(r);   // 逐筆,避免一次大量請求
   } finally {
-    retryingWeather = false;
+    retryingWaterTemp = false;
   }
-  ensureWeatherTimer();   // 抓完後若已無待補,計時器會自行停止
+  ensureWaterTempTimer();
 }
 
-// 前景定時重試:App 在前景且尚有待補紀錄時,每分鐘掃一次補抓。
-// 設計考量:
-//   - 只在「分頁可見」時跑(背景被 OS 凍結,且重試對背景無意義)。
-//   - 抓到即停(pending 變 false 後退出名單);無待補時自動清掉計時器,不空轉。
-//   - CWA 個人額度寬鬆,單筆最多在 60 分鐘窗內每分鐘試一次,用量微小。
-const WEATHER_RETRY_INTERVAL_MS = 60 * 1000;   // 1 分鐘
-let weatherTimer = null;
-function ensureWeatherTimer() {
-  const needed =
-    APP_SIDE_WEATHER_ATTACH &&   // 停用時不啟動前景定時器
-    document.visibilityState === "visible" &&
-    pendingWeatherTargets().length > 0;
-
-  if (needed && !weatherTimer) {
-    weatherTimer = setInterval(retryPendingWeather, WEATHER_RETRY_INTERVAL_MS);
-  } else if (!needed && weatherTimer) {
-    clearInterval(weatherTimer);
-    weatherTimer = null;
+// 前景定時器:有 pending 時每分鐘試一次(剛建立的紀錄要等板子歷史寫進來);
+// 只在分頁可見時跑,無待補就自動停掉,不空轉。
+const WATER_TEMP_RETRY_INTERVAL_MS = 60 * 1000;
+let waterTempTimer = null;
+function ensureWaterTempTimer() {
+  const needed = document.visibilityState === "visible" && pendingWaterTempTargets().length > 0;
+  if (needed && !waterTempTimer) {
+    waterTempTimer = setInterval(retryPendingWaterTemp, WATER_TEMP_RETRY_INTERVAL_MS);
+  } else if (!needed && waterTempTimer) {
+    clearInterval(waterTempTimer);
+    waterTempTimer = null;
   }
 }
 
@@ -975,7 +901,6 @@ function resetForm(opts = {}) {
 // 判斷失聯的門檻刻意沿用韌體自己的規則:meta.interval × STALE_MULTIPLE。
 // watchdog 韌體就是用這個算式決定要不要發 Discord 告警,前端照抄同一套,
 // 網站顯示的狀態才不會和 Discord 各說各話。interval 讀不到時退回 60 秒。
-const NODE_RTDB = "https://esp32-e7966-default-rtdb.asia-southeast1.firebasedatabase.app";
 const NODE_STALE_MULTIPLE = 5;      // 與 watchdog 的 meta.staleMultiple 一致
 const NODE_DEFAULT_INTERVAL = 60;   // meta.interval 缺失時的保底(秒)
 const NODE_POLL_MS = 60 * 1000;     // 對齊板子的上傳週期
@@ -1363,32 +1288,13 @@ async function onSaveEdit(e) {
 
   $("#editSaveBtn").disabled = true;
 
-  // 天氣:依「更新當下溫度」checkbox 決定。
-  //   打勾 → 重抓「更新此刻」的溫度(用途:清晨建立、上午吃完才更新,溫度應反映更新時刻)。
-  //         沿用與建立相同的機制:先讀 meta 現成值(≤15分沿用),太舊/讀不到才標 pending + 觸發 relay。
-  //   不打勾 → 完全不動 weather 欄(用途:晚上或隔天才補登,不該把溫度改成補登當下)。
-  const updateWeather = $("#editUpdateWeather").checked;
-  const editingRef = editingId;   // closeEditModal 會清 editingId,先存起來給 relay 觸發用
+  // 水溫:依「更新當下溫度」checkbox 決定。
+  //   打勾 → 改成「更新此刻」的水溫(用途:清晨建立、上午吃完才更新,溫度應反映更新時刻)。
+  //   不打勾 → 完全不動 waterTemp 欄(用途:晚上或隔天才補登,不該把溫度改成補登當下)。
   const patch = { ...rec, updatedAt: serverTimestamp() };
-  let reused = null;
-  if (updateWeather) {
-    reused = await reusableWeather();
-    patch.weather = reused
-      ? { temp: reused.temp, obsTime: reused.obsTime, station: reused.station,
-          stationName: reused.stationName, pending: false }
-      // 標 pending 時附 requestedAt(補抓請求時刻):編輯舊紀錄時,relay 該用「更新此刻」
-      // 而非「建立時刻」判斷 60 分補抓時窗,否則清晨建立、上午才更新的紀錄會被當太舊跳過。
-      : { pending: true, requestedAt: new Date().toISOString() };
-  }
-  // 不打勾時 patch 不含 weather 欄 → updateDoc 不會動到原本的 weather。
+  if ($("#editUpdateWeather").checked) patch.waterTemp = await currentWaterTempField();
 
-  updateDoc(doc(db, ...DB_ROOT, "records", editingRef), patch)
-    .then(() => {
-      if (updateWeather && !reused) {   // 打勾但沒沿用到 → 這筆是 pending,必須觸發 relay 抓新的
-        attachWeather(editingRef);      // App 端補抓(開關關閉時為 no-op,保留備援)
-        triggerWeatherRelay(true);      // force:pending 一律觸發,不被 60 秒去重擋掉
-      }
-    })
+  updateDoc(doc(db, ...DB_ROOT, "records", editingId), patch)
     .catch((err) => { console.error(err); showToast("更新失敗:" + err.message, true); });
   $("#editSaveBtn").disabled = false;
 
@@ -1480,7 +1386,7 @@ function renderList() {
     parts.push(`<b>${fn ? escapeHtml(fn) + " " : ""}${escapeHtml(r.bags)}包</b>`);
     if (mn) parts.push(`<span class="k">拌料</span> ${escapeHtml(mn)}`);
     if (dn) parts.push(`<span class="k">消毒</span> ${escapeHtml(dn)}`);
-    const wt = weatherTempStr(r);
+    const wt = waterTempStr(r);
     if (wt) parts.push(`<span class="rec-temp">${escapeHtml(wt)}</span>`);
     const note = r.note ? `<div class="rec-body"><span class="k">備註</span> ${escapeHtml(r.note)}</div>` : "";
     // 建立時間接在右上角日期後;最後編輯(若有)放動作列左側,跨建立日才加 MM/DD-
@@ -2176,7 +2082,7 @@ function buildExportData(records, { byMonth = false } = {}) {
     "飼料編號": feedName(r.feedNoId),
     "拌料": mixName(r.mixId),
     "消毒劑": disinfectantName(r.disinfectantId),
-    "氣溫": (r.weather && !r.weather.pending && Number.isFinite(Number(r.weather.temp))) ? Number(r.weather.temp) : "",
+    "水溫": Number.isFinite(Number(r.waterTemp?.temp)) ? Number(r.waterTemp.temp) : "",
     "備註": r.note || ""
   }));
 
@@ -2908,14 +2814,14 @@ function main() {
   refreshNodeStatus();
   ensureNodeTimer();
 
-  // 天氣機會式重試:App 回到前景 / 視窗取得焦點時,補抓仍 pending 的紀錄。
+  // 水溫機會式補:App 回到前景 / 視窗取得焦點時,補仍 pending 的紀錄。
   // 回前景時順手啟動前景定時器(離開前景則停掉,避免背景空轉)。
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible") { retryPendingWeather(); refreshNodeStatus(); }
-    ensureWeatherTimer();
+    if (document.visibilityState === "visible") { retryPendingWaterTemp(); refreshNodeStatus(); }
+    ensureWaterTempTimer();
     ensureNodeTimer();
   });
-  window.addEventListener("focus", retryPendingWeather);
+  window.addEventListener("focus", retryPendingWaterTemp);
 
   // 註冊 service worker(PWA)
   if ("serviceWorker" in navigator) {
