@@ -1,7 +1,7 @@
 // ============================================================
 //  魚塭紀錄 — 主程式
 // ============================================================
-import { firebaseConfig, githubDispatch } from "./firebase-config.js";
+import { firebaseConfig, githubDispatch, dbSecret, DB_ROOT } from "./firebase-config.js";
 import { fetchWeather, reusableWeather, RETRY_WINDOW_MIN } from "./weather.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
@@ -328,6 +328,11 @@ function initFirebase() {
     showConfigHint();
     return false;
   }
+  // 沒有秘密路徑就不連線:否則會把資料寫到 /p/(空)/ 這種錯的地方(見 firebase-config.js)
+  if (!dbSecret) {
+    setSync("err", "未設定資料庫路徑");
+    return false;
+  }
   try {
     const app = initializeApp(firebaseConfig);
     db = getFirestore(app);
@@ -351,7 +356,7 @@ function showConfigHint() {
 // ---------- 訂閱 Firestore(即時同步) ----------
 function subscribeData() {
   // 1) 選項設定
-  const optRef = doc(db, "settings", "options");
+  const optRef = doc(db, ...DB_ROOT, "settings", "options");
   // includeMetadataChanges:讓「快取不存在 → 雲端確認不存在」這種純 metadata 變化也會再觸發一次
   unsubscribers.push(onSnapshot(optRef, { includeMetadataChanges: true }, async (snap) => {
     if (!snap.exists()) {
@@ -373,7 +378,7 @@ function subscribeData() {
   }, (err) => { console.error(err); setSync("err", "讀取設定失敗"); }));
 
   // 2) 紀錄
-  const q = query(collection(db, "records"), orderBy("date", "desc"));
+  const q = query(collection(db, ...DB_ROOT, "records"), orderBy("date", "desc"));
   unsubscribers.push(onSnapshot(q, { includeMetadataChanges: true }, (snap) => {
     allRecords = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     // fromCache=true 代表尚未與雲端同步(離線或同步中);hasPendingWrites=有本地未上傳的寫入
@@ -771,7 +776,7 @@ async function onSaveRecord(e) {
   // 注意:離線時 Firestore 的寫入 promise 要等連線才 resolve,不能 await(會卡住)。
   // 改為發出寫入後立即依「目前是否已同步雲端」給提示;真正失敗(如權限)用 catch 補報。
   // 上方表單只負責「新增」(編輯走獨立 modal)。
-  const ref = addDoc(collection(db, "records"), {
+  const ref = addDoc(collection(db, ...DB_ROOT, "records"), {
     ...rec, createdAt: serverTimestamp(), weather: weatherField
   });
   ref.then((docRef) => {
@@ -851,7 +856,7 @@ async function attachWeather(recordId) {
   try {
     const w = await fetchWeather();
     if (!w) return;   // 抓不到:維持 { pending:true },留待之後重試
-    await updateDoc(doc(db, "records", recordId), {
+    await updateDoc(doc(db, ...DB_ROOT, "records", recordId), {
       weather: {
         temp: w.temp,
         obsTime: w.obsTime,
@@ -1377,7 +1382,7 @@ async function onSaveEdit(e) {
   }
   // 不打勾時 patch 不含 weather 欄 → updateDoc 不會動到原本的 weather。
 
-  updateDoc(doc(db, "records", editingRef), patch)
+  updateDoc(doc(db, ...DB_ROOT, "records", editingRef), patch)
     .then(() => {
       if (updateWeather && !reused) {   // 打勾但沒沿用到 → 這筆是 pending,必須觸發 relay 抓新的
         attachWeather(editingRef);      // App 端補抓(開關關閉時為 no-op,保留備援)
@@ -1523,7 +1528,7 @@ async function onDelete(id) {
   );
   if (!ok) return false;
   try {
-    await deleteDoc(doc(db, "records", id));
+    await deleteDoc(doc(db, ...DB_ROOT, "records", id));
     showToast("已刪除 ✔");
     return true;
   } catch (err) { showToast("刪除失敗:" + err.message, true); return false; }
@@ -2607,7 +2612,7 @@ async function togglePondTag(pondId, tag) {
   // 依 tags 的順序保存,維持一致
   pondTags[pondId] = (options.tags || []).filter((t) => list.has(t));
   try {
-    await updateDoc(doc(db, "settings", "options"), { pondTags });
+    await updateDoc(doc(db, ...DB_ROOT, "settings", "options"), { pondTags });
   } catch (err) { showToast("儲存群組失敗:" + err.message, true); }
 }
 
@@ -2625,7 +2630,7 @@ async function addOption(key, value, presetId) {
   }
   const item = isIdKey ? { id: presetId || uid(), name: value } : value;
   const next = [...list, item];
-  await updateDoc(doc(db, "settings", "options"), { [key]: next });
+  await updateDoc(doc(db, ...DB_ROOT, "settings", "options"), { [key]: next });
   return true;
 }
 
@@ -2637,7 +2642,7 @@ async function reorderOption(key, from, to) {
   const [moved] = list.splice(from, 1);
   list.splice(to, 0, moved);
   try {
-    await updateDoc(doc(db, "settings", "options"), { [key]: list });
+    await updateDoc(doc(db, ...DB_ROOT, "settings", "options"), { [key]: list });
     showToast(`已調整順序:「${optName(moved)}」`);
   } catch (err) { showToast("排序失敗:" + err.message, true); }
 }
@@ -2673,7 +2678,7 @@ async function renameOption(key, idx) {
   }
 
   try {
-    await updateDoc(doc(db, "settings", "options"), patch);
+    await updateDoc(doc(db, ...DB_ROOT, "settings", "options"), patch);
     showToast(`已改名:「${old}」→「${next}」`);
   } catch (err) { showToast("改名失敗:" + err.message, true); }
 }
@@ -2847,7 +2852,7 @@ async function removeOption(key, idx) {
     patch.pondTags = pondTags;
   }
 
-  await updateDoc(doc(db, "settings", "options"), patch);
+  await updateDoc(doc(db, ...DB_ROOT, "settings", "options"), patch);
 }
 
 // ============================================================

@@ -13,9 +13,9 @@
 //   100% 可連,故以它為唯一通道。附帶好處:原本每次抓溫度要下載 CWA 整包
 //   850KB(該 API 不能只查單站),改讀中繼文件後每次僅約 0.3KB。
 //
-// 這裡用 Firestore REST 讀(免拉 SDK 進來),規則全公開、帶 key 即可。
+// 這裡用 Firestore REST 讀(免拉 SDK 進來),路徑帶秘密前綴即可(見 firebase-config.js)。
 
-import { firebaseConfig } from "./firebase-config.js";
+import { firebaseConfig, DB_ROOT } from "./firebase-config.js";
 
 export const STATION_ID = "C0V870";       // 文安(高雄彌陀)
 export const STATION_NAME = "文安";
@@ -35,7 +35,7 @@ export const REUSE_OBS_AGE_MIN = 15;
 
 const DOC_URL =
   `https://firestore.googleapis.com/v1/projects/${firebaseConfig.projectId}` +
-  `/databases/(default)/documents/meta/latestWeather?key=${firebaseConfig.apiKey}`;
+  `/databases/(default)/documents/${DB_ROOT.join("/")}/meta/latestWeather?key=${firebaseConfig.apiKey}`;
 
 // 讀最新氣溫。成功回 { temp:Number, obsTime:String, station, stationName };
 // 讀不到 / 缺值 / 資料過期都回 null(不丟例外,不擋存檔)。

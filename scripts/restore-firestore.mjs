@@ -1,16 +1,17 @@
-// 一次性 Firestore 還原腳本(rollback 用)。透過 REST API,規則公開所以免金鑰。
+// 一次性 Firestore 還原腳本(rollback 用)。透過 REST API,路徑帶秘密前綴,見 firebase-config.js。
 // 用法:node scripts/restore-firestore.mjs backups/<timestamp>
 //
 // 會把該備份資料夾的 *.raw.json 寫回 Firestore:
 //   - settings/options 整份覆蓋
 //   - records 每筆以原 id PATCH 覆蓋(備份當下不存在的「新文件」不會被刪)
 // 注意:這是「覆蓋還原」,不是「鏡像同步」。備份後新增的文件不會被移除。
-import { firebaseConfig } from "../firebase-config.js";
+import { firebaseConfig, DB_ROOT } from "../firebase-config.js";
 import { readFileSync } from "node:fs";
 
 const PROJECT = firebaseConfig.projectId;
 const KEY = firebaseConfig.apiKey;
-const BASE = `https://firestore.googleapis.com/v1/projects/${PROJECT}/databases/(default)/documents`;
+const BASE = `https://firestore.googleapis.com/v1/projects/${PROJECT}/databases/(default)/documents/${DB_ROOT.join("/")}`;
+if (!DB_ROOT[1]) throw new Error("讀不到資料庫秘密路徑:請確認 secret.local.js 存在");
 
 const dir = process.argv[2];
 if (!dir) {

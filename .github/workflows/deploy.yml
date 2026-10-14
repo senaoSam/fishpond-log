@@ -55,6 +55,20 @@ jobs:
             echo "GH_DISPATCH_TOKEN injected (長度 ${#GH_DISPATCH_TOKEN})"
           fi
 
+      # 注入資料庫秘密路徑(見 firebase-config.js)。與上面同樣用 perl 逐字替換。
+      # 缺 Secret 時直接讓部署失敗:少了它 App 完全無法讀寫,不能讓壞版本上線。
+      - name: Inject DB secret path
+        env:
+          DB_SECRET: ${{ secrets.DB_SECRET }}
+        run: |
+          if [ -z "$DB_SECRET" ]; then
+            echo "::error::DB_SECRET 未設定,App 將無法連線資料庫。請到 Settings → Secrets and variables → Actions 新增"
+            exit 1
+          fi
+          perl -i -pe 's/__DB_SECRET__/$ENV{DB_SECRET}/g' firebase-config.js
+          grep -q '__DB_SECRET__' firebase-config.js && { echo "::error::DB_SECRET 注入失敗"; exit 1; }
+          echo "DB_SECRET injected (長度 ${#DB_SECRET})"
+
       # 純前端、無 build。直接把整個專案當成靜態網站上傳。
       - name: Setup Pages
         uses: actions/configure-pages@v5

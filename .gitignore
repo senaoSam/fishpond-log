@@ -23,3 +23,7 @@ backups/[0-9]*/
 
 # Playwright MCP 測試暫存
 .playwright-mcp/
+
+# 資料庫秘密路徑(本機用;線上由 GitHub Secret DB_SECRET 注入)。絕對不可進 repo
+secret.local.js
+scripts/_copy-state.json

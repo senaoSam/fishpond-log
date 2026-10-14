@@ -1,16 +1,17 @@
-// 一次性 Firestore 備份腳本(透過 REST API,規則公開所以免金鑰)。
+// 一次性 Firestore 備份腳本(透過 REST API,路徑帶秘密前綴,見 firebase-config.js)。
 // 用法:node scripts/backup-firestore.mjs
 // 會把 records 集合 + settings/options 文件原始 JSON 存到 backups/<timestamp>/。
 //
 // 存兩種格式:
 //   *.raw.json    Firestore REST 原始格式(含型別包裝,完整可還原)
 //   *.plain.json  攤平成一般 JS 值(方便人看 / 之後遷移腳本直接吃)
-import { firebaseConfig } from "../firebase-config.js";
+import { firebaseConfig, DB_ROOT } from "../firebase-config.js";
 import { writeFileSync, mkdirSync } from "node:fs";
 
 const PROJECT = firebaseConfig.projectId;
 const KEY = firebaseConfig.apiKey;
-const BASE = `https://firestore.googleapis.com/v1/projects/${PROJECT}/databases/(default)/documents`;
+const BASE = `https://firestore.googleapis.com/v1/projects/${PROJECT}/databases/(default)/documents/${DB_ROOT.join("/")}`;
+if (!DB_ROOT[1]) throw new Error("讀不到資料庫秘密路徑:請確認 secret.local.js 存在");
 
 // 把 Firestore REST 的型別包裝值還原成一般 JS 值
 function decode(v) {

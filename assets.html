@@ -229,7 +229,7 @@
   </div>
 
   <script type="module">
-    import { firebaseConfig } from "./firebase-config.js";
+    import { firebaseConfig, dbSecret, DB_ROOT } from "./firebase-config.js";
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
     import {
       getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, query
@@ -387,13 +387,14 @@
     // ---------- Firebase ----------
     function initFirebase() {
       if (firebaseConfig.apiKey.startsWith("請填入")) { $("#sync").textContent = "未設定 Firebase"; $("#sync").className = "asset-sync err"; return; }
+      if (!dbSecret) { $("#sync").textContent = "未設定資料庫路徑"; $("#sync").className = "asset-sync err"; return; }
       const app = initializeApp(firebaseConfig);
       db = getFirestore(app);
     }
     function subscribe() {
       if (!db) return;
       if (unsub) unsub();
-      unsub = onSnapshot(query(collection(db, COL)), (snap) => {
+      unsub = onSnapshot(query(collection(db, ...DB_ROOT, COL)), (snap) => {
         const all = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
         const meta = all.find((d) => d.id === META_ID);
         metaBalance = meta ? num(meta.balance) : 0;
@@ -503,7 +504,7 @@
       if (!db) { toast("尚未連線 Firebase", true); return; }
       try {
         // 以日期當文件 id → 同日覆寫
-        await setDoc(doc(db, COL, date), rec);
+        await setDoc(doc(db, ...DB_ROOT, COL, date), rec);
         toast(editingId ? "已更新 ✔" : "已新增 ✔");
         exitEdit();   // 回到「今日 + 自動帶上次數值」的乾淨新增狀態
       } catch (err) { toast("儲存失敗:" + err.message, true); }
@@ -559,7 +560,7 @@
         return;
       }
       try {
-        await deleteDoc(doc(db, COL, r.id));
+        await deleteDoc(doc(db, ...DB_ROOT, COL, r.id));
         toast("已刪除 ✔");
         if (editingId === r.id) exitEdit();
       } catch (err) { toast("刪除失敗:" + err.message, true); }

@@ -26,13 +26,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
-      # 規則全公開設計(SPEC §6),帶 key 走 REST 即可讀全部資料
+      # 帶 key 走 REST;資料在秘密路徑 /p/{DB_SECRET}/ 底下(見 firebase-config.js)
       - name: Dump Firestore to backups/firestore-backup.json
+        env:
+          DB_SECRET: ${{ secrets.DB_SECRET }}
         run: |
           node - << 'EOF'
           const fs = require("fs");
           const KEY = "AIzaSyByR0BzPrlN8ZGw-ZeS7-2HShw9ZLx7y6Y";
-          const BASE = "https://firestore.googleapis.com/v1/projects/fishpond-log-e4c57/databases/(default)/documents";
+          if (!process.env.DB_SECRET) { console.error("DB_SECRET 未設定"); process.exit(1); }
+          const BASE = "https://firestore.googleapis.com/v1/projects/fishpond-log-e4c57/databases/(default)/documents"
+            + `/p/${process.env.DB_SECRET}`;
 
           // Firestore REST 值 → 普通 JS 值(遞迴處理 map / array)
           function dec(v) {
@@ -69,6 +73,12 @@ jobs:
             // settings/options:單一文件(池塘/料號/拌料/消毒劑/群組設定)
             const oj = await (await fetch(`${BASE}/settings/options?key=${KEY}`)).json();
             const options = oj.fields ? decFields(oj.fields) : null;
+
+            // 秘密錯誤/規則拒絕時會讀到空資料 → 不可拿空檔蓋掉上個月的好備份
+            if (!records.length || !options) {
+              console.error(`讀不到資料(records=${records.length}, options=${options ? "ok" : "missing"}),中止備份`);
+              process.exit(1);
+            }
 
             const out = {
               exportedAt: new Date().toISOString(),

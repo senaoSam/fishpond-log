@@ -31,14 +31,19 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      # 不需 checkout:此 App 採完全公開設計(SPEC §6),CWA 金鑰與 Firebase
-      # 設定本就明文公開在前端程式裡,這裡直接內嵌同一組值。
+      # 不需 checkout:CWA 金鑰與 Firebase 設定本就明文公開在前端程式裡,這裡直接內嵌同一組值。
+      # 唯一不公開的是資料庫秘密路徑(見 firebase-config.js),從 GitHub Secret DB_SECRET 讀。
       - name: Relay temperature and backfill pending records
+        env:
+          DB_SECRET: ${{ secrets.DB_SECRET }}
         run: |
           node - << 'EOF'
           const CWA_KEY = "CWA-3496C7B9-DDC8-4FF0-A8F2-D4104C4B4DDF";
           const FB_KEY  = "AIzaSyByR0BzPrlN8ZGw-ZeS7-2HShw9ZLx7y6Y";
-          const BASE = "https://firestore.googleapis.com/v1/projects/fishpond-log-e4c57/databases/(default)/documents";
+          if (!process.env.DB_SECRET) { console.error("DB_SECRET 未設定"); process.exit(1); }
+          // 文件路徑一律在 /p/{秘密}/ 底下;runQuery 也以此為 parent,只查這底下的 records
+          const BASE = "https://firestore.googleapis.com/v1/projects/fishpond-log-e4c57/databases/(default)/documents"
+            + `/p/${process.env.DB_SECRET}`;
           const RETRY_WINDOW_MIN = 90;   // 與 weather.js 一致:只補建立 90 分鐘內的 pending
 
           (async () => {

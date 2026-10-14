@@ -1,4 +1,4 @@
-// 一次性遷移:把「字串值」選項/紀錄轉成「id 關聯」架構。透過 REST API(規則公開)。
+// 一次性遷移:把「字串值」選項/紀錄轉成「id 關聯」架構。透過 REST API(路徑帶秘密前綴)。
 //
 //   選項 ponds/feedNos/mixes/disinfectants:["A","B"] → [{id,name}]
 //   紀錄 r.pond/feedNo/mix/disinfectant(名稱字串)→ r.pondId/feedNoId/mixId/disinfectantId(id)
@@ -10,13 +10,14 @@
 //   node scripts/migrate-to-uuid.mjs --commit   # 真的寫回 Firestore
 //
 // 安全性:乾跑會印出每筆紀錄的對應,確認無誤再 --commit。執行前請先 backup-firestore.mjs。
-import { firebaseConfig } from "../firebase-config.js";
+import { firebaseConfig, DB_ROOT } from "../firebase-config.js";
 import { randomUUID } from "node:crypto";
 import { writeFileSync } from "node:fs";
 
 const PROJECT = firebaseConfig.projectId;
 const KEY = firebaseConfig.apiKey;
-const BASE = `https://firestore.googleapis.com/v1/projects/${PROJECT}/databases/(default)/documents`;
+const BASE = `https://firestore.googleapis.com/v1/projects/${PROJECT}/databases/(default)/documents/${DB_ROOT.join("/")}`;
+if (!DB_ROOT[1]) throw new Error("讀不到資料庫秘密路徑:請確認 secret.local.js 存在");
 const COMMIT = process.argv.includes("--commit");
 
 const ID_KEYS = ["ponds", "feedNos", "mixes", "disinfectants"];
