@@ -1035,8 +1035,11 @@ async function refreshNodeStatus() {
     el.hidden = false;
   } finally {
     nodeFetching = false;
-    // 狀態頁若正開著,跟著這次結果一起更新
-    if ($("#page-nodes")?.classList.contains("active")) renderNodesPage();
+    // 狀態頁若正開著,跟著這次結果一起更新(斷電紀錄也重抓,畫完狀態再補上)
+    if ($("#page-nodes")?.classList.contains("active")) {
+      renderNodesPage();
+      loadNodePowerLog().then(renderNodesPage);
+    }
   }
 }
 
@@ -1062,23 +1065,99 @@ let nodeLastData = null;                  // 最近一次成功抓到的 devices
 let nodeLastError = null;                 // 失敗原因(給狀態頁顯示)
 let nodeHistory = null;                   // [[ts, temp], ...] 由舊到新
 let nodeHistoryLoading = false;
-let nodeIncidents = {};                   // id → 最近一次重開機紀錄(incidents/{id} 最後一筆)
+let nodeIncidents = {};                   // id → 重開機紀錄 [{ ts, reset, gap, … }],新→舊
+let nodePowerLog = {};                    // id → 斷線紀錄 [{ start, end, dur, active, cause }],新→舊
 
-// 每片板子最近一次重開機的原因(電壓不足 / 斷電 / 當機…),進板子頁時抓。
-// 每片只取最後一筆,量很小。
-async function loadNodeIncidents() {
-  const ids = Object.keys(nodeLastData || {});
-  const out = {};
-  await Promise.all(ids.map(async (id) => {
-    try {
-      const r = await fetch(`${NODE_RTDB}/incidents/${encodeURIComponent(id)}.json?orderBy=%22%24key%22&limitToLast=1`,
-        { cache: "no-store" });
-      if (!r.ok) return;
-      const [k, v] = Object.entries((await r.json()) || {})[0] || [];
-      if (k) out[id] = { ts: Number(k), ...v };
-    } catch { /* 讀不到就不顯示這列 */ }
-  }));
-  nodeIncidents = out;
+// 斷線紀錄只讀 outages/{id}/{start}:watchdog 從外部監看,心跳停超過 5 分鐘就記一筆
+// (start / end / dur / cause;還沒恢復時 active = true、cause 未定)。
+// incidents 是「板子為什麼重開」的診斷資料,不能拿來算斷電(例如超過 3 分鐘的一般斷電它不記),
+// 只用來顯示「最近重開」與重開紀錄。
+// 目前只有斷電偵測板(A01…)的 outages 完整;魚塭板子的 outages 沒有 cause;
+// 看門狗自己沒有 outages(沒有別的板子監看它)。
+// 兩個節點都很小,進板子頁時各抓一次整包,不逐片打請求。
+async function loadNodePowerLog() {
+  try {
+    const [outRes, incRes] = await Promise.all([
+      fetch(`${NODE_RTDB}/outages.json`, { cache: "no-store" }),
+      fetch(`${NODE_RTDB}/incidents.json`, { cache: "no-store" }),
+    ]);
+    if (!outRes.ok || !incRes.ok) return;
+    const outages = (await outRes.json()) || {};
+    const incidents = (await incRes.json()) || {};
+    const log = {};
+    for (const [id, byStart] of Object.entries(outages)) {
+      log[id] = Object.entries(byStart || {})
+        .map(([k, o]) => ({
+          start: Number(o?.start) || Number(k),
+          end: o?.active ? null : Number(o?.end),
+          dur: Number(o?.dur),
+          active: !!o?.active,
+          cause: o?.cause || "",
+        }))
+        .sort((a, b) => b.start - a.start);
+    }
+    const resets = {};
+    for (const [id, byTs] of Object.entries(incidents)) {
+      resets[id] = Object.entries(byTs || {})
+        .map(([k, v]) => ({ ts: Number(k), ...v }))
+        .sort((a, b) => b.ts - a.ts);
+    }
+    nodeIncidents = resets;
+    nodePowerLog = log;
+  } catch { /* 讀不到就維持上次的資料 */ }
+}
+
+// outages.cause → 中文。目前看到的只有 power;其他值(網路斷線等)沒有就顯示原文
+function outageCauseText(e) {
+  if (e.active) return "";
+  if (e.cause === "power") return "斷電";
+  if (/net|wifi/i.test(e.cause)) return "網路斷線";
+  return e.cause || "原因不明";
+}
+
+// 近 N 小時內開始的斷線次數(含進行中);onlyPower = 只算 cause 為斷電的
+function powerCount(id, hours, onlyPower = false) {
+  const since = Date.now() / 1000 - hours * 3600;
+  return (nodePowerLog[id] || []).filter((e) => e.start >= since && (!onlyPower || e.cause === "power")).length;
+}
+function nodeShortTime(ts) {
+  return new Date(ts * 1000).toLocaleString("zh-TW", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
+}
+function nodeDurText(sec) {
+  if (sec < 60) return `${Math.max(1, Math.round(sec))} 秒`;
+  return nodeUptimeText(sec);
+}
+// 重開紀錄區塊(incidents):時間、原因、重開前斷線多久。
+// 卡片上已有「最近重開」一列,所以卡片只放按鈕(limit = 0);modal 列出全部。
+function resetLogHtml(id, limit) {
+  const list = nodeIncidents[id] || [];
+  if (!list.length) return "";
+  if (!limit) {
+    return `<button type="button" class="power-more" data-node="${escapeHtml(id)}">查看重開紀錄 ${list.length} 筆 ›</button>`;
+  }
+  const items = list.slice(0, limit).map((e) => {
+    const gap = Number(e.gap) >= 60 ? `斷線 ${nodeDurText(Number(e.gap))}` : "";
+    return `<li><span>${nodeShortTime(e.ts)}</span><b>${escapeHtml(nodeResetText(e.reset))}${gap ? `<em class="cause-other">${gap}</em>` : ""}</b></li>`;
+  }).join("");
+  return `<div class="power-log"><div class="power-head">重開紀錄<span>共 ${list.length} 次</span></div><ul>${items}</ul></div>`;
+}
+
+// 斷線紀錄區塊:近 24 小時 / 7 天次數 + 最近 limit 筆(每筆附原因)
+function powerLogHtml(id, limit) {
+  const list = nodePowerLog[id] || [];
+  const head = `<div class="power-head">斷線紀錄<span>近 24 小時 ${powerCount(id, 24)} 次・近 7 天 ${powerCount(id, 24 * 7)} 次</span></div>`;
+  if (id === "watchdog") {
+    return `<div class="power-log">${head}<p class="nodes-empty">看門狗本身沒有斷線紀錄:沒有別的板子在監看它。可看上方「最近重開」。</p></div>`;
+  }
+  if (!list.length) return `<div class="power-log">${head}<p class="nodes-empty">沒有斷線紀錄(心跳停超過 5 分鐘才會記)</p></div>`;
+  const items = list.slice(0, limit).map((e) => e.active
+    ? `<li class="active"><span>${nodeShortTime(e.start)} 起</span><b>斷線中(已 ${nodeDurText(Date.now() / 1000 - e.start)})</b></li>`
+    : `<li><span>${nodeShortTime(e.start)} – ${nodeShortTime(e.end).slice(-5)}</span>`
+      + `<b>${nodeDurText(e.dur)}<em class="cause-${e.cause === "power" ? "power" : "other"}">${escapeHtml(outageCauseText(e))}</em></b></li>`).join("");
+  // 卡片只列幾筆;其餘點按鈕開 modal 看全部(modal 不設上限,內部捲動)
+  const more = list.length > limit
+    ? `<button type="button" class="power-more" data-node="${escapeHtml(id)}">查看全部 ${list.length} 筆 ›</button>` : "";
+  return `<div class="power-log">${head}<ul>${items}</ul>${more}</div>`;
 }
 
 // 韌體回報的重開原因 → 中文。字串長得像「BROWNOUT (power dip)」,只看開頭的代碼。
@@ -1185,7 +1264,8 @@ function nodeRow(k, v) {
 }
 
 // 單片板子一張卡
-function nodeCard(id, node) {
+function nodeCard(id, node, logLimit = 3) {
+  // logLimit:斷線紀錄列幾筆(卡片 3 筆;modal 傳 Infinity = 全部,並列出重開紀錄)
   const label = nodeLabel(id, node);
   const icon = id === "pond-site" ? "🐟" : id === "watchdog" ? "🏠" : isHeartbeat(node) ? "🔌" : "📟";
   const st = nodeState(id, node);
@@ -1208,7 +1288,7 @@ function nodeCard(id, node) {
   if (typeof l.alerting === "boolean") rows.push(nodeRow("告警中", l.alerting ? "是 ⚠️" : "否"));
   rows.push(nodeRow("最後回報", nodeTimeText(l.ts)));
   if (Number(m.bootAt)) rows.push(nodeRow("開機至今", nodeUptimeText(Date.now() / 1000 - Number(m.bootAt))));
-  const inc = nodeIncidents[id];
+  const inc = nodeIncidents[id]?.[0];
   if (inc) {
     // 例:「10/14 22:47 電壓不足重開(斷線 14 小時 42 分)」—— 斷線 = 重開前最後一次回報到這次
     const gap = Number(inc.gap) >= 60 ? `(斷線 ${nodeUptimeText(Number(inc.gap))})` : "";
@@ -1226,7 +1306,7 @@ function nodeCard(id, node) {
     ? `<div class="nodes-chart"><div class="nodes-chart-t">最近 ${NODE_HISTORY_HOURS} 小時溫度</div>${nodeSparkline(nodeHistory)}</div>`
     : "";
 
-  return `<div class="card nodes-card">${head}${chart}<div class="nodes-rows">${rows.join("")}</div></div>`;
+  return `<div class="card nodes-card">${head}${chart}<div class="nodes-rows">${rows.join("")}</div>${powerLogHtml(id, logLimit)}${resetLogHtml(id, logLimit === Infinity ? Infinity : 0)}</div>`;
 }
 
 function renderNodesPage() {
@@ -1261,8 +1341,13 @@ function nodeTile(id) {
   const short = st.cls === "ok" ? "正常"
     : !node || !Number.isFinite(age) ? "無資料"
     : st.cls === "err" ? `失聯${nodeShortAgo(age)}` : nodeShortAgo(age);
+  // 右上角:近 24 小時斷線次數(⚡ = 斷電;其他原因另計)
+  const all = powerCount(id, 24), power = powerCount(id, 24, true);
+  const badge = all
+    ? `<span class="node-tile-cut" title="近 24 小時斷線 ${all} 次(斷電 ${power} 次)">${power ? `⚡${power}` : ""}${all > power ? ` ✕${all - power}` : ""}</span>`
+    : "";
   return `<button type="button" class="node-tile ${st.cls}" data-node="${escapeHtml(id)}" title="${escapeHtml(st.text)}">
-    <span class="node-tile-id">${escapeHtml(nodeLabel(id, node))}</span>
+    ${badge}<span class="node-tile-id">${escapeHtml(nodeLabel(id, node))}</span>
     <span class="node-tile-st">${escapeHtml(short)}</span>
   </button>`;
 }
@@ -1295,7 +1380,7 @@ let nodeOpenId = null;
 function renderNodeModal() {
   const node = nodeLastData?.[nodeOpenId];
   $("#nodeModalTitle").textContent = nodeLabel(nodeOpenId, node);
-  $("#nodeModalBody").innerHTML = nodeCard(nodeOpenId, node);
+  $("#nodeModalBody").innerHTML = nodeCard(nodeOpenId, node, Infinity);
 }
 function openNodeModal(id) {
   nodeOpenId = id;
@@ -2943,7 +3028,7 @@ function switchPage(name) {
   // 進板子頁:先畫現有資料(不留白畫面),同時重抓一次即時狀態與溫度曲線
   if (name === "nodes") {
     renderNodesPage();
-    refreshNodeStatus().then(loadNodeIncidents).then(renderNodesPage);
+    refreshNodeStatus();
     loadNodeHistory().then(renderNodesPage);
   }
   window.scrollTo({ top: 0 });

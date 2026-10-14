@@ -160,6 +160,31 @@ html, body {
 .node-tile.err { border-left-color: #e03131; background: rgba(224, 49, 49, 0.1); }
 .node-tile.err .node-tile-st { color: #e03131; font-weight: 700; }
 
+/* 方塊右上角:近 24 小時斷電次數 */
+.node-tile { position: relative; }
+.node-tile-cut {
+  position: absolute; top: 2px; right: 4px;
+  font-size: 0.66rem; font-weight: 700; color: #e8590c;
+}
+
+/* 斷電紀錄(卡片 / modal 底部) */
+.power-log { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 8px; }
+.power-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-weight: 700; font-size: 0.9rem; margin-bottom: 4px; }
+.power-head span { font-weight: 400; font-size: 0.78rem; color: var(--muted); }
+.power-log ul { list-style: none; margin: 0; padding: 0; }
+.power-log li { display: flex; justify-content: space-between; gap: 8px; padding: 5px 0; font-size: 0.86rem; font-variant-numeric: tabular-nums; }
+.power-log li span { color: var(--muted); }
+.power-log li.active b { color: #e03131; }
+/* 原因小標:斷電橘、其他灰 */
+.power-log li em { font-style: normal; font-size: 0.74rem; font-weight: 600; margin-left: 6px; padding: 1px 6px; border-radius: 999px; }
+.power-log li em.cause-power { color: #e8590c; background: rgba(232, 89, 12, 0.12); }
+.power-log li em.cause-other { color: var(--muted); background: var(--field); }
+.power-more {
+  display: block; width: 100%; margin: 4px 0 0; padding: 8px 0;
+  border: 0; background: none; color: var(--primary); font: inherit; font-size: 0.86rem; font-weight: 600;
+  text-align: left; cursor: pointer;
+}
+
 /* 板子詳細 modal:沿用 nodeCard,拿掉卡片外框;內容長時內部捲動 */
 .node-modal { max-width: 420px; }
 .node-modal-body { overflow-y: auto; }
