@@ -253,7 +253,8 @@ html, body {
 
 /* 板子詳細 modal:沿用 nodeCard,拿掉卡片外框;內容長時內部捲動 */
 .node-modal { max-width: 420px; }
-.node-modal-body { overflow-y: auto; overflow-x: hidden; }
+/* 右側留空間給捲軸:手機的捲軸是浮在內容上的,不留會蓋到最右邊的字 */
+.node-modal-body { overflow-y: auto; overflow-x: hidden; padding-right: 10px; margin-right: -4px; scrollbar-gutter: stable; }
 .node-modal-body .card { border: 0; box-shadow: none; padding: 0; margin: 0; background: none; }
 .node-modal-body .nodes-head { display: none; }
 #nodeModalTitle .node-dot { margin-left: 10px; font-size: 0.82rem; font-weight: 400; color: var(--muted); vertical-align: middle; }
