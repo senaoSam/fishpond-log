@@ -1855,7 +1855,10 @@ async function applyBatchBind() {
 let nodeOpenId = null;
 function renderNodeModal() {
   const node = nodeLastData?.[nodeOpenId];
-  $("#nodeModalTitle").textContent = nodeLabel(nodeOpenId, node);
+  // 狀態直接放在標題名稱後面(「A01 ● 正常」),卡片本身的標題列在 modal 裡隱藏
+  const label = nodeLabel(nodeOpenId, node);
+  const st = nodeState(nodeOpenId, node);
+  $("#nodeModalTitle").innerHTML = `${escapeHtml(label)}<span class="node-dot ${st.cls}">${escapeHtml(st.text.replace(label, "").trim() || "正常")}</span>`;
   $("#nodeModalBody").innerHTML = nodeCard(nodeOpenId, node, Infinity);
 }
 function openNodeModal(id) {

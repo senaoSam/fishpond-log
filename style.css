@@ -255,7 +255,11 @@ html, body {
 .node-modal { max-width: 420px; }
 .node-modal-body { overflow-y: auto; overflow-x: hidden; }
 .node-modal-body .card { border: 0; box-shadow: none; padding: 0; margin: 0; background: none; }
-.node-modal-body .nodes-title { display: none; }
+.node-modal-body .nodes-head { display: none; }
+#nodeModalTitle .node-dot { margin-left: 10px; font-size: 0.82rem; font-weight: 400; color: var(--muted); vertical-align: middle; }
+#nodeModalTitle .node-dot.ok::before { color: #2f9e44; }
+#nodeModalTitle .node-dot.err::before { color: #e03131; }
+#nodeModalTitle .node-dot.pending::before { color: #f08c00; }
 
 /* 溫度曲線 */
 .nodes-chart { margin: 4px 0 12px; }
