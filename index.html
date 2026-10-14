@@ -256,6 +256,27 @@
     </div>
   </div>
 
+  <!-- 關閉告警:選關閉多久 + 備註 → 確認(板子頁)-->
+  <div id="alertPauseOverlay" class="modal-overlay" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="alertPauseTitle">
+      <h3 id="alertPauseTitle" class="preview-title"></h3>
+      <p class="hint">關閉期間仍會偵測、記錄斷線,只是不發 Discord、不打電話。</p>
+      <label class="alert-pause-label">關閉多久</label>
+      <div class="seg alert-pause-opts" id="alertPauseOpts">
+        <button type="button" class="seg-btn active" data-pause="1h">1 小時</button>
+        <button type="button" class="seg-btn" data-pause="4h">4 小時</button>
+        <button type="button" class="seg-btn" data-pause="today">到今天結束</button>
+        <button type="button" class="seg-btn" data-pause="forever">永久</button>
+      </div>
+      <p class="alert-pause-until" id="alertPauseUntil"></p>
+      <input type="text" id="alertPauseNote" class="modal-input" placeholder="備註(選填,例如:換馬達)" />
+      <div class="modal-actions">
+        <button type="button" class="btn-ghost" id="alertPauseCancel">取消</button>
+        <button type="button" class="btn-primary btn-danger" id="alertPauseOk">確認關閉</button>
+      </div>
+    </div>
+  </div>
+
   <!-- 編輯紀錄 modal(獨立於上方新增表單;上方永遠是「新增」,編輯一律走這裡)-->
   <div id="editOverlay" class="modal-overlay" hidden>
     <div class="modal edit-modal" role="dialog" aria-modal="true" aria-labelledby="editTitle">

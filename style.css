@@ -172,11 +172,13 @@ html, body {
 .power-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-weight: 700; font-size: 0.9rem; margin-bottom: 4px; }
 .power-head span { font-weight: 400; font-size: 0.78rem; color: var(--muted); }
 .power-log ul { list-style: none; margin: 0; padding: 0; }
-.power-log li { display: flex; justify-content: space-between; gap: 8px; padding: 5px 0; font-size: 0.86rem; font-variant-numeric: tabular-nums; }
+.power-log li { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 8px; padding: 5px 0; font-size: 0.86rem; font-variant-numeric: tabular-nums; }
+/* 窄螢幕放不下時,右側內容整塊換到下一行靠右,不撐出橫向捲軸 */
+.power-log li b { margin-left: auto; text-align: right; }
 .power-log li span { color: var(--muted); }
 .power-log li.active b { color: #e03131; }
 /* 原因小標:斷電橘、其他灰 */
-.power-log li em { font-style: normal; font-size: 0.74rem; font-weight: 600; margin-left: 6px; padding: 1px 6px; border-radius: 999px; }
+.power-log li em { white-space: nowrap; font-style: normal; font-size: 0.74rem; font-weight: 600; margin-left: 6px; padding: 1px 6px; border-radius: 999px; }
 .power-log li em.cause-power { color: #e8590c; background: rgba(232, 89, 12, 0.12); }
 .power-log li em.cause-other { color: var(--muted); background: var(--field); }
 .power-more {
@@ -185,20 +187,65 @@ html, body {
   text-align: left; cursor: pointer;
 }
 
+/* ---------- 告警開關 ---------- */
+.alert-row { padding: 10px 0; border-top: 1px solid var(--border); }
+.alert-name { font-weight: 700; display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.alert-name .btn-sm { margin: 0 0 0 12px; }
+.alert-name small { font-weight: 400; color: var(--muted); margin-left: 4px; }
+.alert-members-line { font-size: 0.8rem; color: var(--muted); margin: 2px 0 4px; word-break: break-word; }
+.alert-st { display: inline-block; font-size: 0.8rem; font-weight: 600; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+.alert-st.on { color: #2f9e44; background: rgba(47, 158, 68, 0.12); }
+.alert-st.off { color: #e03131; background: rgba(224, 49, 49, 0.12); }
+.alert-st.part { color: #e8590c; background: rgba(232, 89, 12, 0.12); }
+.alert-tag { font-size: 1rem; margin-bottom: 4px; }
+/* 池塘列:縮排在池塘群組底下 */
+.alert-pond { padding: 6px 0 6px 14px; border-left: 2px solid var(--border); margin-left: 4px; }
+.alert-pond .alert-name { font-weight: 600; font-size: 0.92rem; }
+.alert-pond-empty { font-size: 0.78rem; color: var(--muted); margin: 4px 0 0 20px; }
+.alert-note-inline { color: var(--muted); font-weight: 400; font-size: 0.78rem; }
+.alert-note { font-size: 0.8rem; color: var(--muted); margin: 4px 0 0; }
+.alert-conflict { font-size: 0.8rem; color: #e8590c; margin: 6px 0 0; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.alert-conflict .btn-sm { margin: 0; }
+.alert-loose { font-size: 0.85rem; color: #e03131; margin: 8px 0 0; padding-top: 8px; border-top: 1px solid var(--border); }
+.alert-node { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 2px 0 10px; }
+.alert-node small { display: block; font-size: 0.76rem; color: var(--muted); margin-top: 3px; }
+.alert-node .btn-sm { margin: 0; flex: 0 0 auto; }
+.alert-node > div { flex: 1; min-width: 0; }
+/* 告警按鈕「開啟」時會加 .btn-primary(醒目),但 .btn-primary 全域是 width:100% 的大按鈕 → 這裡壓回小按鈕 */
+.alert-node .btn-sm, .alert-name .btn-sm, .alert-conflict .btn-sm {
+  width: auto; padding: 6px 12px; font-size: 0.85rem; font-weight: 600; border-radius: 8px; white-space: nowrap;
+}
+.node-tile-mute { position: absolute; top: 2px; left: 4px; font-size: 0.66rem; }
+.alert-pause-label { font-size: 0.85rem; color: var(--muted); margin-top: 4px; }
+.seg.alert-pause-opts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 6px 0 4px; }
+.alert-pause-opts .seg-btn { margin: 0; }
+.alert-pause-until { font-size: 0.8rem; color: var(--muted); margin: 0 0 12px; }
+#alertPauseOverlay { z-index: 130; }
+.alert-members-line small { color: var(--muted); }
+.alert-loose.warn { color: #e8590c; }
+.alert-loose small { color: var(--muted); }
+.alert-loose small.block { display: block; margin-top: 2px; }
+.alert-bind { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; color: var(--muted); margin: 2px 0 8px; }
+.alert-bind select { flex: 1; min-width: 0; margin: 0; }
+.node-tile-pond { font-size: 0.68rem; color: var(--muted); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 /* 板子詳細 modal:沿用 nodeCard,拿掉卡片外框;內容長時內部捲動 */
 .node-modal { max-width: 420px; }
-.node-modal-body { overflow-y: auto; }
+.node-modal-body { overflow-y: auto; overflow-x: hidden; }
 .node-modal-body .card { border: 0; box-shadow: none; padding: 0; margin: 0; background: none; }
 .node-modal-body .nodes-title { display: none; }
 
 /* 溫度曲線 */
 .nodes-chart { margin: 4px 0 12px; }
 .nodes-chart-t { font-size: 0.78rem; color: var(--muted); margin-bottom: 4px; }
-.nspark { width: 100%; height: 90px; display: block; overflow: visible; }
+.nspark-wrap { display: flex; gap: 6px; }
+.nspark-y { display: flex; flex-direction: column; justify-content: space-between; height: 80px; font-size: 0.7rem; line-height: 1; color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
+.nspark-plot { flex: 1; min-width: 0; }
+.nspark { width: 100%; height: 80px; display: block; overflow: visible; }
+.nspark-x { display: flex; justify-content: space-between; margin-top: 4px; font-size: 0.7rem; color: var(--muted); font-variant-numeric: tabular-nums; }
 .nspark-line { fill: none; stroke: var(--primary); stroke-width: 1.6; vector-effect: non-scaling-stroke; }
 .nspark-area { fill: var(--primary); opacity: 0.12; stroke: none; }
 .nspark-grid { stroke: var(--border); stroke-width: 1; vector-effect: non-scaling-stroke; }
-.nspark-ax { fill: var(--muted); font-size: 8px; }
 
 /* ---------- Layout ---------- */
 #main {
@@ -206,8 +253,12 @@ html, body {
   margin: 0 auto;
   padding: 16px 16px 96px;
 }
-/* 統計頁、板子頁全寬(跟著視窗),圖表 / 板子方塊才有空間;其他頁維持手機寬度 */
-body.on-stats #main, body.on-nodes #main { max-width: 100%; }
+/* 統計頁、板子頁、設定頁全寬(跟著視窗),圖表 / 板子方塊 / 設定分欄才有空間;其他頁維持手機寬度 */
+body.on-stats #main, body.on-nodes #main, body.on-settings #main { max-width: 100%; }
+/* 設定頁:各區塊用多欄排列(每欄至少 360px)。手機寬度只放得下一欄 = 跟原本一樣;
+   寬螢幕自動 2~3 欄。用 columns 而非 grid:各區塊高度差很多,columns 會由上往下填滿、不留空洞 */
+#settingsContainer { columns: 360px; column-gap: 16px; }
+#settingsContainer > .opt-group { break-inside: avoid; display: block; }
 .page { display: none; }
 .page.active { display: block; }
 .page h2 { font-size: 1.25rem; margin: 4px 0 16px; }

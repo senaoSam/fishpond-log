@@ -40,7 +40,8 @@ const DEFAULT_OPTIONS = {
   mixes: withIds(["安蒙20%", "安蒙50%", "弗洛得", "OTC"]),
   disinfectants: withIds(["二氧化氯10%", "二氧化氯50%", "三氯20G", "三氯90%"]),
   tags: [],                  // 池塘分類標籤清單(如:第一區、鱸魚)— 純字串
-  pondTags: {}               // { 池塘id: [標籤...] } — 每池貼哪些標籤
+  pondTags: {},              // { 池塘id: [標籤...] } — 每池貼哪些標籤
+  nodePonds: {}              // { 板子id: 池塘id } — 斷電偵測板綁哪個池塘(告警以池塘為單位開關)
 };
 
 // 各選項欄位的中文標題(設定頁用)。pondTags 不在此(它不是單純清單)
@@ -370,11 +371,13 @@ function subscribeData() {
       const data = snap.data();
       // 補齊可能缺少的 key
       options = { ...DEFAULT_OPTIONS, ...data };
+      optionsReady = true;
     }
     renderOptionSelects();
     renderSettings();
     renderPondFilter();
     renderRecordTags();
+    syncAlertGroups();   // 池塘 / 綁定可能變了 → 同步 watchdog 的告警群組(名稱、成員)
   }, (err) => { console.error(err); setSync("err", "讀取設定失敗"); }));
 
   // 2) 紀錄
@@ -920,7 +923,7 @@ const NODE_POLL_MS = 60 * 1000;     // 對齊板子的上傳週期
 // 固定的兩片:id → 短名。watchdog 那片固定放在家裡(刻意與感測器不同地點,魚塭斷電
 // 時才有人能發告警),所以叫「家裡板子」而不是它的角色名。
 // 這兩片一律列出(RTDB 裡不見了也要看到「查無資料」);其餘板子從 devices 動態讀。
-const NODE_LABELS = { "pond-site": "魚塭", "watchdog": "家裡板子" };
+const NODE_LABELS = { "pond-site": "溫度感測", "watchdog": "家裡板子" };
 // 斷電偵測板(A01、A02…):新板子開機會自己註冊(registry 的 MAC → 編號)並寫進
 // devices/{編號},meta.role = "heartbeat"。App 不寫死清單,有幾片就列幾片。
 const isHeartbeat = (node) => node?.meta?.role === "heartbeat" || node?.meta?.group === "heartbeat";
@@ -948,12 +951,18 @@ function nodeAgoText(sec) {
   return `${Math.round(sec / 86400)} 天前`;
 }
 
+// 板子回報的 unix 秒是否可信(見 nodeState 的說明)
+const nodeTimeValid = (ts) => Number(ts) > 978307200;   // 2001-01-01
+
 // 單一節點 → { cls, text }。cls 對應 header 那組 ● 顏色。
 function nodeState(id, node) {
   const label = nodeLabel(id, node);
   if (!node) return { cls: "err", text: `${label} 查無資料` };
   const ts = Number(node?.latest?.ts);
   if (!ts) return { cls: "err", text: `${label} 無回報時間` };
+  // 板子剛開機、還沒向 NTP 校時就寫入時,ts 只是「開機後第幾秒」(例如 18),
+  // 當成 unix 時間會算成「失聯 2 萬天」。早於 2001 年的一律視為時間未同步。
+  if (!nodeTimeValid(ts)) return { cls: "pending", text: `${label} 時間未同步` };
 
   const interval = Number(node?.meta?.interval) || NODE_DEFAULT_INTERVAL;
   const age = Date.now() / 1000 - ts;          // 板子寫的是 unix 秒
@@ -1038,7 +1047,7 @@ async function refreshNodeStatus() {
     // 狀態頁若正開著,跟著這次結果一起更新(斷電紀錄也重抓,畫完狀態再補上)
     if ($("#page-nodes")?.classList.contains("active")) {
       renderNodesPage();
-      loadNodePowerLog().then(renderNodesPage);
+      Promise.all([loadNodePowerLog(), loadAlertControl().then(syncAlertGroups)]).then(renderNodesPage);
     }
   }
 }
@@ -1189,6 +1198,7 @@ function nodeUptimeText(sec) {
 function nodeTimeText(ts) {
   const n = Number(ts);
   if (!n) return "—";
+  if (!nodeTimeValid(n)) return `開機後 ${n} 秒(尚未校時)`;
   return new Date(n * 1000).toLocaleString("zh-TW", { hour12: false });
 }
 
@@ -1223,7 +1233,9 @@ function nodeSparkline(points) {
   if (!points || points.length < 2) {
     return `<p class="nodes-empty">尚無足夠的溫度紀錄可畫圖</p>`;
   }
-  const W = 320, H = 90, PAD_L = 26, PAD_R = 6, PAD_T = 8, PAD_B = 16;
+  // SVG 只畫線(preserveAspectRatio="none" 讓線條撐滿任何寬度);刻度文字改用 HTML 放在圖外,
+  // 否則寬螢幕上文字會跟著被橫向拉長變形。
+  const W = 320, H = 80;
   const temps = points.map((p) => p[1]);
   const tMin = Math.min(...temps), tMax = Math.max(...temps);
   // 上下各留一點空間,並避免整段溫度相同時除以 0
@@ -1231,12 +1243,11 @@ function nodeSparkline(points) {
   const span = (hi - lo) || 1;
   const x0 = points[0][0], x1 = points[points.length - 1][0];
   const xSpan = (x1 - x0) || 1;
-  const px = (t) => PAD_L + ((t - x0) / xSpan) * (W - PAD_L - PAD_R);
-  const py = (v) => PAD_T + (1 - (v - lo) / span) * (H - PAD_T - PAD_B);
+  const px = (t) => ((t - x0) / xSpan) * W;
+  const py = (v) => (1 - (v - lo) / span) * H;
 
   const d = points.map((p, i) => `${i ? "L" : "M"}${px(p[0]).toFixed(1)},${py(p[1]).toFixed(1)}`).join("");
-  const area = `${d}L${px(x1).toFixed(1)},${(H - PAD_B).toFixed(1)}L${px(x0).toFixed(1)},${(H - PAD_B).toFixed(1)}Z`;
-  const hLabel = (v) => `<text x="2" y="${(py(v) + 3).toFixed(1)}" class="nspark-ax">${v.toFixed(1)}</text>`;
+  const area = `${d}L${W},${H}L0,${H}Z`;
   // 顯示真正的時:分。兩端若跨日,前面補 M/D,否則 24 小時的兩端會同樣是「23:xx」,
   // 看起來像沒有跨距。
   const sameDayEnds = new Date(x0 * 1000).getDate() === new Date(x1 * 1000).getDate();
@@ -1246,16 +1257,19 @@ function nodeSparkline(points) {
     return sameDayEnds ? hm : `${dt.getMonth() + 1}/${dt.getDate()} ${hm}`;
   };
   return `
-    <svg class="nspark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img"
-         aria-label="最近 ${NODE_HISTORY_HOURS} 小時溫度,範圍 ${tMin.toFixed(1)} 到 ${tMax.toFixed(1)} 度">
-      <line x1="${PAD_L}" y1="${PAD_T}" x2="${PAD_L}" y2="${H - PAD_B}" class="nspark-grid" />
-      <line x1="${PAD_L}" y1="${H - PAD_B}" x2="${W - PAD_R}" y2="${H - PAD_B}" class="nspark-grid" />
-      ${hLabel(lo)}${hLabel(hi)}
-      <path d="${area}" class="nspark-area" />
-      <path d="${d}" class="nspark-line" />
-      <text x="${PAD_L}" y="${H - 4}" class="nspark-ax">${tick(x0)}</text>
-      <text x="${W - PAD_R}" y="${H - 4}" class="nspark-ax" text-anchor="end">${tick(x1)}</text>
-    </svg>`;
+    <div class="nspark-wrap">
+      <div class="nspark-y"><span>${hi.toFixed(1)}</span><span>${lo.toFixed(1)}</span></div>
+      <div class="nspark-plot">
+        <svg class="nspark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img"
+             aria-label="最近 ${NODE_HISTORY_HOURS} 小時溫度,範圍 ${tMin.toFixed(1)} 到 ${tMax.toFixed(1)} 度">
+          <line x1="0" y1="0" x2="0" y2="${H}" class="nspark-grid" />
+          <line x1="0" y1="${H}" x2="${W}" y2="${H}" class="nspark-grid" />
+          <path d="${area}" class="nspark-area" />
+          <path d="${d}" class="nspark-line" />
+        </svg>
+        <div class="nspark-x"><span>${tick(x0)}</span><span>${tick(x1)}</span></div>
+      </div>
+    </div>`;
 }
 
 // 一列「標籤:值」
@@ -1267,7 +1281,7 @@ function nodeRow(k, v) {
 function nodeCard(id, node, logLimit = 3) {
   // logLimit:斷線紀錄列幾筆(卡片 3 筆;modal 傳 Infinity = 全部,並列出重開紀錄)
   const label = nodeLabel(id, node);
-  const icon = id === "pond-site" ? "🐟" : id === "watchdog" ? "🏠" : isHeartbeat(node) ? "🔌" : "📟";
+  const icon = id === "pond-site" ? "🌡️" : id === "watchdog" ? "🏠" : isHeartbeat(node) ? "🔌" : "📟";
   const st = nodeState(id, node);
   const head = `
     <div class="nodes-head">
@@ -1287,7 +1301,9 @@ function nodeCard(id, node, logLimit = 3) {
   if (Number.isFinite(Number(l.checks))) rows.push(nodeRow("已檢查", `${Number(l.checks).toLocaleString()} 次`));
   if (typeof l.alerting === "boolean") rows.push(nodeRow("告警中", l.alerting ? "是 ⚠️" : "否"));
   rows.push(nodeRow("最後回報", nodeTimeText(l.ts)));
-  if (Number(m.bootAt)) rows.push(nodeRow("開機至今", nodeUptimeText(Date.now() / 1000 - Number(m.bootAt))));
+  if (Number(m.bootAt)) {
+    rows.push(nodeRow("開機至今", nodeTimeValid(m.bootAt) ? nodeUptimeText(Date.now() / 1000 - Number(m.bootAt)) : "—(開機時尚未校時)"));
+  }
   const inc = nodeIncidents[id]?.[0];
   if (inc) {
     // 例:「10/14 22:47 電壓不足重開(斷線 14 小時 42 分)」—— 斷線 = 重開前最後一次回報到這次
@@ -1306,7 +1322,379 @@ function nodeCard(id, node, logLimit = 3) {
     ? `<div class="nodes-chart"><div class="nodes-chart-t">最近 ${NODE_HISTORY_HOURS} 小時溫度</div>${nodeSparkline(nodeHistory)}</div>`
     : "";
 
-  return `<div class="card nodes-card">${head}${chart}<div class="nodes-rows">${rows.join("")}</div>${powerLogHtml(id, logLimit)}${resetLogHtml(id, logLimit === Infinity ? Infinity : 0)}</div>`;
+  return `<div class="card nodes-card">${head}${alertNodeHtml(id)}${chart}<div class="nodes-rows">${rows.join("")}</div>${powerLogHtml(id, logLimit)}${resetLogHtml(id, logLimit === Infinity ? Infinity : 0)}</div>`;
+}
+
+// ============================================================
+//  告警開關(alertControl/,watchdog 每分鐘讀一次)
+// ============================================================
+// 規格見 pond-monitor 的 docs/notes.md「告警開關」:
+//   alertControl/groups/<gid>  { name, members: {A01:true}, enabled, until?, note? }
+//   alertControl/nodes/<id>    { enabled, until?, note? }
+// - enabled:false = 不發 Discord、不打電話;斷線照樣偵測,outages 照記(統計不會有缺口)
+// - until(unix 秒)過了這筆就失效 = 回到預設開;不寫 = 永久。過期的 entry watchdog 不刪
+// - 優先順序:nodes/<id> > 所屬群組 > 預設開;一片板子只屬於一個群組
+//
+// 對應方式(2026-10-15 使用者定案):
+//   - 每片板子綁一個池塘(Firestore options.nodePonds = { A01: 池塘id })
+//   - watchdog 看到的群組 = 池塘:groups/p_<池塘id>,members = 綁在該池塘的板子。
+//     每片板子剛好屬於一個群組,符合韌體規則;池塘群組改名 / 刪除也不影響(key 用池塘 id)
+//   - 網站上多一層「池塘群組」(options.tags,如文安、龍雲場):開關它 = 開關底下每個池塘
+// groups 的 name / members 由網站依 Firestore 自動同步(syncAlertGroups),不手動建立。
+// 「整組跟著走」:開關池塘群組 → 清掉底下池塘之外的個別板子設定;開關池塘 → 清掉該池板子的個別設定。
+// 之後仍可個別調,個別設定與池塘不同時顯示「衝突」提示。
+// RTDB 規則目前完全開放,直接用 REST 讀寫,不需憑證。
+let alertCtl = { groups: {}, nodes: {} };
+let alertLoaded = false;
+// Firestore 的設定讀到之前,options 是空的預設值(沒有任何池塘)。
+// 這時同步會把 RTDB 的群組全部刪掉 → 一定要等真的設定讀到才同步。
+let optionsReady = false;
+
+async function loadAlertControl() {
+  try {
+    const r = await fetch(`${NODE_RTDB}/alertControl.json`, { cache: "no-store" });
+    if (!r.ok) return;
+    const d = (await r.json()) || {};
+    alertCtl = { groups: d.groups || {}, nodes: d.nodes || {} };
+    alertLoaded = true;
+  } catch { /* 讀不到就維持上次的資料 */ }
+}
+
+// 多路徑更新:patch 的 key 是相對 alertControl/ 的路徑,值為 null = 刪除
+async function writeAlertControl(patch, { render = true } = {}) {
+  const r = await fetch(`${NODE_RTDB}/alertControl.json`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  await loadAlertControl();
+  if (render) renderNodesPage();
+}
+
+// 池塘 id → RTDB 群組 key(池塘 id 是 uuid,只含英數與 -,可直接當 key)
+const pondKey = (pid) => "p_" + pid;
+// 板子綁的池塘 id
+const boardPond = (id) => (options.nodePonds || {})[id] || "";
+// 綁在某池塘的板子(依編號排序)
+function pondBoards(pid) {
+  return Object.keys(options.nodePonds || {}).filter((id) => boardPond(id) === pid).sort();
+}
+// 池塘群組底下的池塘,照設定頁的池塘順序
+function tagPonds(tag) {
+  const set = pondsWithTag(tag);
+  return (options.ponds || []).map((p) => p.id).filter((pid) => set.has(pid));
+}
+const pondExists = (pid) => (options.ponds || []).some((p) => p.id === pid);
+
+// 依 Firestore 的池塘 / 綁定,把 alertControl/groups 的 name、members 同步成正確狀態。
+// enabled / until / note 不動(那是開關狀態;池塘暫時沒綁板子也保留,之後綁上就生效)。
+// 池塘已刪除、或不是 p_ 開頭(舊版格式)的群組刪掉。只在有差異時才寫;
+// 任何裝置開著 App 都會做,結果相同,不怕重複。
+let alertSyncing = false;
+async function syncAlertGroups() {
+  if (!alertLoaded || !optionsReady || !db || alertSyncing) return;
+  const patch = {};
+  const want = {};
+  for (const p of options.ponds || []) {
+    const members = pondBoards(p.id);
+    const key = pondKey(p.id);
+    // 沒板子、也沒開關狀態 → 不必留(有狀態就保留,之後綁上板子就生效)
+    if (!members.length && typeof alertCtl.groups[key]?.enabled !== "boolean") continue;
+    want[key] = { name: pondLabel(p.id), members };
+  }
+  for (const [key, w] of Object.entries(want)) {
+    const g = alertCtl.groups[key] || {};
+    if (g.name !== w.name) patch[`groups/${key}/name`] = w.name;
+    const cur = Object.keys(g.members || {}).filter((id) => g.members[id]).sort().join(",");
+    if (cur !== w.members.join(",")) {
+      patch[`groups/${key}/members`] = w.members.length ? Object.fromEntries(w.members.map((id) => [id, true])) : null;
+    }
+  }
+  for (const key of Object.keys(alertCtl.groups)) if (!want[key]) patch[`groups/${key}`] = null;
+  if (!Object.keys(patch).length) return;
+  alertSyncing = true;
+  try { await writeAlertControl(patch, { render: false }); }
+  catch (e) { console.warn("告警群組同步失敗(下次再試):", e); }
+  finally { alertSyncing = false; }
+}
+
+const nowSec = () => Math.floor(Date.now() / 1000);
+// 這筆設定目前有沒有效(與 watchdog 的 alertEntryLive 相同)
+function alertLive(e) {
+  return !!e && typeof e.enabled === "boolean" && (e.until == null || nowSec() < Number(e.until));
+}
+// 池塘的告警狀態:沒設定 / 過期 → 開
+function pondAlertOn(pid) {
+  const g = alertCtl.groups[pondKey(pid)];
+  return alertLive(g) ? g.enabled : true;
+}
+// 板子跟著池塘時的狀態(沒綁池塘 = 預設開)
+const boardGroupOn = (id) => (boardPond(id) ? pondAlertOn(boardPond(id)) : true);
+// 板子實際狀態。by:node(個別設定)/ pond / default;conflict:個別設定與池塘不同
+function alertState(id) {
+  const own = alertCtl.nodes[id];
+  const pid = boardPond(id);
+  const groupOn = boardGroupOn(id);
+  if (alertLive(own)) {
+    return { on: own.enabled, by: "node", entry: own, pid, conflict: !!pid && own.enabled !== groupOn };
+  }
+  return { on: groupOn, by: pid ? "pond" : "default", entry: pid ? alertCtl.groups[pondKey(pid)] : null, pid, conflict: false };
+}
+// 「到 18:00」/「到 10/16 18:00」/「永久」
+function alertUntilText(e) {
+  if (!e || e.until == null) return "永久";
+  const d = new Date(Number(e.until) * 1000);
+  const hm = d.toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit", hour12: false });
+  return d.toDateString() === new Date().toDateString() ? `到 ${hm}` : `到 ${d.getMonth() + 1}/${d.getDate()} ${hm}`;
+}
+// 告警可以設定的板子:看門狗自己不被監看,不列
+function alertableIds() {
+  return Object.keys(nodeLastData || {}).filter((id) => id !== "watchdog").sort();
+}
+const boardName = (id) => nodeLabel(id, nodeLastData?.[id]);
+
+// 關閉告警的對話框:先選關閉多久(預設 1 小時,下方即時顯示到幾點)+ 選填備註,
+// 按「確認關閉」才回傳 { until, note };取消 / 點背景 / Esc 回傳 null。
+function pauseUntil(choice) {
+  const now = new Date();
+  return {
+    "1h": nowSec() + 3600,
+    "4h": nowSec() + 4 * 3600,
+    today: Math.floor(new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).getTime() / 1000),
+    forever: null,
+  }[choice];
+}
+function chooseAlertPause(title) {
+  return new Promise((resolve) => {
+    const overlay = $("#alertPauseOverlay");
+    let choice = "1h";
+    const paint = () => {
+      $$("#alertPauseOpts [data-pause]").forEach((b) => b.classList.toggle("active", b.dataset.pause === choice));
+      const until = pauseUntil(choice);
+      $("#alertPauseUntil").textContent = until == null
+        ? "不會自動恢復,要自己再打開"
+        : `${alertUntilText({ until })} 自動恢復告警`;
+    };
+    $("#alertPauseTitle").textContent = title;
+    $("#alertPauseNote").value = "";
+    paint();
+    const close = (result) => {
+      overlay.hidden = true;
+      overlay.removeEventListener("click", onClick);
+      document.removeEventListener("keydown", onKey);
+      resolve(result);
+    };
+    // 確認當下才算 until(對話框開著期間時間會走)
+    const confirm = () => close({ until: pauseUntil(choice), note: $("#alertPauseNote").value.trim() || null });
+    const onClick = (e) => {
+      if (e.target === overlay || e.target.id === "alertPauseCancel") return close(null);
+      if (e.target.id === "alertPauseOk") return confirm();
+      const b = e.target.closest("[data-pause]");
+      if (b) { choice = b.dataset.pause; paint(); }
+    };
+    const onKey = (e) => { if (e.key === "Escape") close(null); };
+    overlay.addEventListener("click", onClick);
+    document.addEventListener("keydown", onKey);
+    overlay.hidden = false;
+  });
+}
+
+// 把一批池塘設成開 / 關,並清掉這些池塘上板子的個別設定(整組跟著走)
+function pondsPatch(pids, on, opt) {
+  const patch = {};
+  for (const pid of pids) {
+    const key = pondKey(pid);
+    const members = pondBoards(pid);
+    patch[`groups/${key}/name`] = pondLabel(pid);
+    patch[`groups/${key}/members`] = members.length ? Object.fromEntries(members.map((id) => [id, true])) : null;
+    patch[`groups/${key}/enabled`] = on;
+    patch[`groups/${key}/until`] = on ? null : opt.until;
+    patch[`groups/${key}/note`] = on ? null : opt.note;
+    for (const id of members) patch[`nodes/${id}`] = null;
+  }
+  return patch;
+}
+
+// 池塘群組開關:有任一池塘開著 → 全部關;全部都關 → 全部開
+async function toggleAlertTag(tag) {
+  const pids = tagPonds(tag);
+  if (!pids.length) { showToast(`「${tag}」底下還沒有池塘`, true); return; }
+  const turnOff = pids.some((pid) => pondAlertOn(pid));
+  let opt = null;
+  if (turnOff) {
+    opt = await chooseAlertPause(`關閉「${tag}」整個群組的告警`);
+    if (!opt) return;
+  }
+  try {
+    await writeAlertControl(pondsPatch(pids, !turnOff, opt));
+    const n = pids.reduce((sum, pid) => sum + pondBoards(pid).length, 0);
+    showToast(`「${tag}」${pids.length} 池、${n} 片告警已${turnOff ? "關閉" : "開啟"}(最多 1 分鐘生效)`);
+  } catch (e) { showToast("設定失敗:" + e.message, true); }
+}
+
+// 單一池塘開關
+async function toggleAlertPond(pid) {
+  const turnOff = pondAlertOn(pid);
+  let opt = null;
+  if (turnOff) {
+    opt = await chooseAlertPause(`關閉「${pondName(pid)}」的告警`);
+    if (!opt) return;
+  }
+  try {
+    await writeAlertControl(pondsPatch([pid], !turnOff, opt));
+    showToast(`「${pondName(pid)}」${pondBoards(pid).length} 片告警已${turnOff ? "關閉" : "開啟"}(最多 1 分鐘生效)`);
+  } catch (e) { showToast("設定失敗:" + e.message, true); }
+}
+
+// 個別板子開關。與池塘(或預設)相同且永久時刪掉個別設定,不留多餘的 entry;
+// 不同時寫個別設定 → 畫面顯示衝突提示
+async function toggleAlertNode(id) {
+  const turnOff = alertState(id).on;
+  let opt = { until: null, note: null };
+  if (turnOff) {
+    opt = await chooseAlertPause(`關閉 ${boardName(id)} 的告警`);
+    if (!opt) return;
+  }
+  const want = !turnOff;
+  const value = want === boardGroupOn(id) && opt.until == null && !opt.note
+    ? null
+    : { enabled: want, ...(opt.until != null && { until: opt.until }), ...(opt.note && { note: opt.note }) };
+  try {
+    await writeAlertControl({ [`nodes/${id}`]: value });
+    showToast(`${boardName(id)} 告警已${want ? "開啟" : "關閉"}(最多 1 分鐘生效)`);
+  } catch (e) { showToast("設定失敗:" + e.message, true); }
+}
+
+// 讓個別設定回到跟池塘一樣(清掉衝突)
+async function resetAlertNode(id) {
+  try {
+    await writeAlertControl({ [`nodes/${id}`]: null });
+    showToast(`${boardName(id)} 已改回跟著池塘`);
+  } catch (e) { showToast("設定失敗:" + e.message, true); }
+}
+
+// 板子綁定池塘(寫 Firestore options.nodePonds),寫完立刻同步告警群組
+async function bindBoardPond(id, pondId) {
+  if (!db) return;
+  const nodePonds = { ...(options.nodePonds || {}) };
+  if (pondId) nodePonds[id] = pondId; else delete nodePonds[id];
+  try {
+    await updateDoc(doc(db, ...DB_ROOT, "settings", "options"), { nodePonds });
+    options.nodePonds = nodePonds;   // onSnapshot 回來前先用新值,讓同步與畫面立即正確
+    await syncAlertGroups();
+    renderNodesPage();
+    showToast(pondId ? `${boardName(id)} 已綁定 ${pondLabel(pondId)}` : `${boardName(id)} 已取消綁定`);
+  } catch (e) { showToast("綁定失敗:" + e.message, true); }
+}
+
+// 一列池塘(池塘群組底下,或「未分群組」裡)
+function alertPondRow(pid) {
+  const boards = pondBoards(pid);
+  const on = pondAlertOn(pid);
+  const g = alertCtl.groups[pondKey(pid)];
+  const conflicts = boards.filter((id) => alertState(id).conflict);
+  const status = on ? "" : `<span class="alert-st off">🔕 已關閉・${escapeHtml(alertUntilText(g))}</span>${g?.note ? `<small class="alert-note-inline">${escapeHtml(g.note)}</small>` : ""}`;
+  const conflict = conflicts.length
+    ? `<p class="alert-conflict">⚠ ${conflicts.map((id) => escapeHtml(boardName(id))).join("、")} 有個別設定,與池塘不同</p>` : "";
+  return `<div class="alert-pond">
+    <div class="alert-name">${escapeHtml(pondName(pid))} <small>${boards.length} 片${boards.length ? `:${boards.map((id) => escapeHtml(boardName(id))).join("、")}` : ""}</small>
+      <button type="button" class="btn-sm${on ? "" : " btn-primary"}" data-alert-action="pond-toggle" data-alert-id="${escapeHtml(pid)}">${on ? "關閉" : "開啟"}</button>
+      ${status}
+    </div>${conflict}
+  </div>`;
+}
+
+// 板子頁的「告警開關」區塊:池塘群組 → 池塘兩層 + 未綁定 / 個別關閉的板子
+function alertControlSection() {
+  const ids = alertableIds();
+  if (!ids.length) return "";
+  const offCount = ids.filter((id) => !alertState(id).on).length;
+  const tagRows = (options.tags || []).map((tag) => {
+    const pids = tagPonds(tag);
+    const offPonds = pids.filter((pid) => !pondAlertOn(pid)).length;
+    const n = pids.reduce((sum, pid) => sum + pondBoards(pid).length, 0);
+    const allOff = pids.length > 0 && offPonds === pids.length;
+    // 還沒綁板子的池塘不逐列顯示(會很長),收成一行;整組開關仍會一起設定它們,之後綁上板子就生效
+    const empties = pids.filter((pid) => !pondBoards(pid).length);
+    const emptyLine = empties.length
+      ? `<p class="alert-pond-empty">尚無板子:${empties.map((pid) => escapeHtml(pondName(pid))).join("、")}</p>` : "";
+    const status = allOff ? `<span class="alert-st off">🔕 全部關閉</span>`
+      : offPonds ? `<span class="alert-st part">${offPonds}/${pids.length} 池已關閉</span>` : "";
+    return `<div class="alert-row">
+      <div class="alert-name alert-tag">${escapeHtml(tag)} <small>${pids.length} 池・${n} 片</small>
+        <button type="button" class="btn-sm${allOff ? " btn-primary" : ""}" data-alert-action="tag-toggle" data-alert-id="${escapeHtml(tag)}">${allOff ? "全部開啟" : "全部關閉"}</button>
+        ${status}
+      </div>
+      ${pids.filter((pid) => pondBoards(pid).length).map(alertPondRow).join("")}
+      ${emptyLine || (pids.length ? "" : `<p class="nodes-empty">這個群組還沒有池塘</p>`)}
+    </div>`;
+  }).join("");
+  // 有綁板子、但池塘沒有任何池塘群組 → 另外列,才關得到
+  const untagged = (options.ponds || []).map((p) => p.id)
+    .filter((pid) => pondBoards(pid).length && !((options.pondTags || {})[pid] || []).some((t) => (options.tags || []).includes(t)));
+  const untaggedRows = untagged.length
+    ? `<div class="alert-row"><div class="alert-name alert-tag">未分群組的池塘</div>${untagged.map(alertPondRow).join("")}</div>` : "";
+  // 沒綁池塘的板子:不受池塘開關控制,提醒去綁
+  const unbound = ids.filter((id) => !boardPond(id));
+  const unboundLine = unbound.length
+    ? `<p class="alert-loose warn">未綁定池塘:${unbound.map((id) => escapeHtml(boardName(id))).join("、")}
+       <small class="block">點方塊開啟詳細資料,選擇綁定的池塘</small></p>` : "";
+  // 被個別關掉的板子:集中列出,免得只能一片片點開看
+  const looseOff = ids.filter((id) => alertState(id).by === "node" && !alertState(id).on);
+  const loose = looseOff.length
+    ? `<p class="alert-loose">個別關閉:${looseOff.map((id) => `${escapeHtml(boardName(id))}(${escapeHtml(alertUntilText(alertCtl.nodes[id]))})`).join("、")}</p>` : "";
+  return `<div class="card nodes-card alert-card">
+    <div class="nodes-head">
+      <span class="nodes-title">🔔 告警開關</span>
+      <span class="nodes-count">${offCount ? `<b class="err">${offCount} 片已關閉</b>` : "全部開啟"}</span>
+    </div>
+    <p class="nodes-empty">可以整個池塘群組、單一池塘、或單片板子(點方塊)開關。群組與池塘在「設定」頁管理,板子綁定池塘後自動歸入。關閉後仍會偵測、記錄斷線,只是不發 Discord、不打電話,最多 1 分鐘生效。</p>
+    ${tagRows || `<p class="nodes-empty">還沒有池塘群組,請先到「設定」頁新增</p>`}
+    ${untaggedRows}${loose}${unboundLine}
+  </div>`;
+}
+
+// 板子詳細(卡片 / modal)裡的綁定池塘 + 告警列
+function alertNodeHtml(id) {
+  if (id === "watchdog" || !nodeLastData?.[id]) return "";
+  const st = alertState(id);
+  const pondOpts = [`<option value="">(未綁定)</option>`]
+    .concat((options.ponds || []).map((p) => `<option value="${escapeHtml(p.id)}"${p.id === st.pid ? " selected" : ""}>${escapeHtml(pondLabel(p.id))}</option>`))
+    .join("");
+  const bind = `<label class="alert-bind">綁定池塘
+    <select data-bind-board="${escapeHtml(id)}">${pondOpts}</select></label>`;
+  const by = st.by === "node" ? "個別設定" : st.pid ? `跟著「${escapeHtml(pondName(st.pid))}」` : "未綁定・預設";
+  const state = st.on ? "告警開啟" : `🔕 已關閉・${escapeHtml(alertUntilText(st.entry))}`;
+  const note = !st.on && st.entry?.note ? `・${escapeHtml(st.entry.note)}` : "";
+  const conflict = st.conflict
+    ? `<p class="alert-conflict">⚠ 個別設定為「${st.on ? "開啟" : "關閉"}」,但「${escapeHtml(pondName(st.pid))}」是${boardGroupOn(id) ? "開啟" : "關閉"}
+       <button type="button" class="btn-sm" data-alert-action="node-reset" data-alert-id="${escapeHtml(id)}">改回跟著池塘</button></p>` : "";
+  return `${bind}<div class="alert-node">
+    <div><span class="alert-st ${st.on ? "on" : "off"}">${state}</span><small>${by}${note}</small></div>
+    <button type="button" class="btn-sm${st.on ? "" : " btn-primary"}" data-alert-action="node-toggle" data-alert-id="${escapeHtml(id)}">${st.on ? "關閉告警" : "開啟告警"}</button>
+  </div>${conflict}`;
+}
+
+function setupAlertControl() {
+  // 告警按鈕散在板子頁與詳細 modal,統一用 document 層級的事件代理
+  document.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-alert-action]");
+    if (!b) return;
+    const id = b.dataset.alertId;
+    ({
+      "tag-toggle": () => toggleAlertTag(id),
+      "pond-toggle": () => toggleAlertPond(id),
+      "node-toggle": () => toggleAlertNode(id),
+      "node-reset": () => resetAlertNode(id),
+    })[b.dataset.alertAction]?.();
+  });
+  document.addEventListener("change", (e) => {
+    const sel = e.target.closest("[data-bind-board]");
+    if (sel) bindBoardPond(sel.dataset.bindBoard, sel.value);
+  });
+  // 開 App 就讀一次告警設定,讓設定頁改了池塘 / 綁定時能立即同步 watchdog 的群組成員
+  loadAlertControl().then(syncAlertGroups);
 }
 
 function renderNodesPage() {
@@ -1323,6 +1711,7 @@ function renderNodesPage() {
   const fixed = Object.keys(NODE_LABELS).map((id) => nodeCard(id, nodeLastData[id])).join("");
   box.innerHTML =
     `<div class="nodes-fixed">${fixed}</div>` +
+    alertControlSection() +
     nodeTileSection("斷電偵測", heartbeatIds(nodeLastData)) +
     nodeTileSection("其他板子", otherNodeIds(nodeLastData));
   if (nodeOpenId) renderNodeModal();
@@ -1347,8 +1736,9 @@ function nodeTile(id) {
     ? `<span class="node-tile-cut" title="近 24 小時斷線 ${all} 次(斷電 ${power} 次)">${power ? `⚡${power}` : ""}${all > power ? ` ✕${all - power}` : ""}</span>`
     : "";
   return `<button type="button" class="node-tile ${st.cls}" data-node="${escapeHtml(id)}" title="${escapeHtml(st.text)}">
-    ${badge}<span class="node-tile-id">${escapeHtml(nodeLabel(id, node))}</span>
+    ${badge}${alertState(id).on ? "" : `<span class="node-tile-mute" title="告警已關閉">🔕</span>`}<span class="node-tile-id">${escapeHtml(nodeLabel(id, node))}</span>
     <span class="node-tile-st">${escapeHtml(short)}</span>
+    ${boardPond(id) ? `<span class="node-tile-pond">${escapeHtml(pondName(boardPond(id)))}</span>` : ""}
   </button>`;
 }
 
@@ -3009,6 +3399,9 @@ async function removeOption(key, idx) {
     const pondTags = { ...(options.pondTags || {}) };
     delete pondTags[item.id];
     patch.pondTags = pondTags;
+    // 綁在這個池塘的板子一併解除綁定
+    const nodePonds = Object.fromEntries(Object.entries(options.nodePonds || {}).filter(([, pid]) => pid !== item.id));
+    patch.nodePonds = nodePonds;
   }
 
   await updateDoc(doc(db, ...DB_ROOT, "settings", "options"), patch);
@@ -3025,6 +3418,7 @@ function switchPage(name) {
   document.body.classList.toggle("on-record", onRecord);  // 控制底部留白
   document.body.classList.toggle("on-stats", name === "stats");  // 統計頁全寬
   document.body.classList.toggle("on-nodes", name === "nodes");  // 板子頁全寬(板子多時一排放得下更多)
+  document.body.classList.toggle("on-settings", name === "settings");  // 設定頁全寬(寬螢幕分欄)
   // 進板子頁:先畫現有資料(不留白畫面),同時重抓一次即時狀態與溫度曲線
   if (name === "nodes") {
     renderNodesPage();
@@ -3054,6 +3448,7 @@ function main() {
   setupTheme();
   setupTabs();
   setupNodesPage();
+  setupAlertControl();
   setupRecordForm();
   setupList();
   setupStats();
