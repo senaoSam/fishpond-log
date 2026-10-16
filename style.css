@@ -169,8 +169,9 @@ html, body {
 .batch-bar .btn-sm:disabled { opacity: 0.45; cursor: not-allowed; }
 
 /* 斷電偵測 / 其他板子:小方塊格狀排列,板子再多也只是多幾排。點方塊看詳細
-   上:● 編號(關告警加 🔕)/ 中:狀態(異常時放大上色)/ 下:池塘 + 近 24 小時斷線次數 */
-.node-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; }
+   上:● 編號 + 近 24 小時斷線次數 / 中:狀態(異常時放大上色)/ 下:池塘(關告警加 🔕)
+   斷線次數和 🔕 分在上下兩排:同一排塞三樣,電腦上的窄方塊會把編號或池塘名稱擠掉 */
+.node-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(124px, 1fr)); gap: 8px; }
 .node-tile {
   --tile-c: #2f9e44;
   position: relative;
@@ -192,15 +193,15 @@ html, body {
 .node-tile.err .node-tile-top::before, .node-tile.pending .node-tile-top::before {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--tile-c) 25%, transparent);
 }
-.node-tile-id { flex: 1; min-width: 0; font-weight: 700; font-size: 0.95rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.node-tile-id { flex: 0 1 auto; min-width: 2.2em; font-weight: 700; font-size: 0.95rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .node-tile-mute { flex: 0 0 auto; font-size: 0.72rem; }
+.node-tile-foot { display: flex; align-items: center; justify-content: space-between; gap: 4px; margin-top: auto; min-width: 0; }
 .node-tile-st { font-size: 0.8rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .node-tile.pending .node-tile-st { color: #e8590c; font-weight: 700; }
 .node-tile.err .node-tile-st { color: #e03131; font-weight: 700; font-size: 0.88rem; }
-.node-tile-foot { display: flex; align-items: center; justify-content: space-between; gap: 4px; margin-top: auto; min-width: 0; }
-.node-tile-pond { flex: 1; min-width: 0; font-size: 0.7rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.node-tile-pond { flex: 1; min-width: 0; font-size: 0.72rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .node-tile-cut {
-  flex: 0 0 auto; font-size: 0.66rem; font-weight: 700; white-space: nowrap;
+  flex: 0 0 auto; margin-left: auto; font-size: 0.66rem; font-weight: 700; white-space: nowrap;
   padding: 1px 5px; border-radius: 999px; color: var(--muted); background: rgba(127, 127, 127, 0.14);
 }
 .node-tile-cut.power { color: #e8590c; background: rgba(232, 89, 12, 0.14); }

@@ -1759,7 +1759,7 @@ function nodeTile(id) {
     : !node || !Number.isFinite(age) ? "無資料"
     : st.cls === "err" ? `失聯 ${nodeShortAgo(age)}` : `${nodeShortAgo(age)}沒回報`;
   const muted = !alertState(id).on;
-  // 底部右側:近 24 小時斷了幾次(含斷電與其他原因;有斷電時橘色加 ⚡)。細節點進去看
+  // 編號右邊:近 24 小時斷了幾次(含斷電與其他原因;有斷電時橘色加 ⚡)。細節點進去看
   const all = powerCount(id, 24), power = powerCount(id, 24, true);
   const cuts = all
     ? `<span class="node-tile-cut${power ? " power" : ""}" title="近 24 小時斷線 ${all} 次(其中斷電 ${power} 次)">${power ? "⚡" : ""}斷${all}次</span>`
@@ -1768,12 +1768,11 @@ function nodeTile(id) {
   const cls = `node-tile ${st.cls}${muted ? " muted" : ""}${nodeBatchMode && nodeBatchSel.has(id) ? " picked" : ""}`;
   return `<button type="button" class="${cls}" data-node="${escapeHtml(id)}" title="${escapeHtml(st.text)}${muted ? "(告警已關閉)" : ""}">
     <span class="node-tile-top">
-      <span class="node-tile-id">${escapeHtml(nodeLabel(id, node))}</span>
-      ${muted ? `<span class="node-tile-mute" title="告警已關閉">🔕</span>` : ""}
+      <span class="node-tile-id">${escapeHtml(nodeLabel(id, node))}</span>${cuts}
     </span>
     <span class="node-tile-st">${escapeHtml(short)}</span>
     <span class="node-tile-foot">
-      <span class="node-tile-pond">${pond ? escapeHtml(pond) : "未設定池塘"}</span>${cuts}
+      <span class="node-tile-pond">${pond ? escapeHtml(pond) : "未設定池塘"}</span>${muted ? `<span class="node-tile-mute" title="告警已關閉">🔕</span>` : ""}
     </span>
   </button>`;
 }
