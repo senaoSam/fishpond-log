@@ -387,7 +387,7 @@ function subscribeData() {
     allRecords = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     // fromCache=true 代表尚未與雲端同步(離線或同步中);hasPendingWrites=有本地未上傳的寫入
     cloudSynced = !snap.metadata.fromCache;
-    if (cloudSynced) setSync("ok", "已同步DB");
+    if (cloudSynced) setSync("ok", "紀錄已同步");
     else setSync("pending", "離線(資料暫存本機)");
     updateSaveDisabled();   // 連線狀態變了 → 連動新增鈕可否按
     renderList();
@@ -921,10 +921,11 @@ function resetForm(opts = {}) {
 const NODE_STALE_MULTIPLE = 5;      // 與 watchdog 的 meta.staleMultiple 一致
 const NODE_DEFAULT_INTERVAL = 60;   // meta.interval 缺失時的保底(秒)
 const NODE_POLL_MS = 60 * 1000;     // 對齊板子的上傳週期
-// 固定的兩片:id → 短名。watchdog 那片固定放在家裡(刻意與感測器不同地點,魚塭斷電
-// 時才有人能發告警),所以叫「家裡板子」而不是它的角色名。
-// 這兩片一律列出(RTDB 裡不見了也要看到「查無資料」);其餘板子從 devices 動態讀。
-const NODE_LABELS = { "pond-site": "溫度感測", "watchdog": "家裡板子" };
+// 固定的兩片:id → 短名(給家人看的,不用角色名)。watchdog 那片固定放在家裡(刻意與感測器
+// 不同地點,魚塭斷電時才有人能發通知),它的工作就是發通知,所以叫「家裡警報板」。
+// pond-site 的探頭在魚塭旁的空氣中,量的是現場氣溫(不是水溫),所以不叫「溫度感測」。
+// 這兩片一律列出(RTDB 裡不見了也要看到「還沒收到資料」);其餘板子從 devices 動態讀。
+const NODE_LABELS = { "pond-site": "魚塭板子", "watchdog": "家裡警報板" };
 // 斷電偵測板(A01、A02…):新板子開機會自己註冊(registry 的 MAC → 編號)並寫進
 // devices/{編號},meta.role = "heartbeat"。App 不寫死清單,有幾片就列幾片。
 const isHeartbeat = (node) => node?.meta?.role === "heartbeat" || node?.meta?.group === "heartbeat";
@@ -944,12 +945,27 @@ function otherNodeIds(data) {
 let nodeTimer = null;
 let nodeFetching = false;
 
-// 相對時間短句:給失聯狀態用(「12 分前」「3 小時前」)
+// 一段時間的短句:給「沒回報 12 分鐘」用。用「已經多久」而不是「幾分前」——
+// 「失聯 50 分前」會被讀成「50 分鐘前失聯」,其實意思是「已經 50 分鐘沒消息」。
 function nodeAgoText(sec) {
-  if (sec < 60) return `${Math.max(0, Math.round(sec))} 秒前`;
-  if (sec < 3600) return `${Math.round(sec / 60)} 分前`;
-  if (sec < 86400) return `${Math.round(sec / 3600)} 小時前`;
-  return `${Math.round(sec / 86400)} 天前`;
+  if (sec < 60) return `${Math.max(0, Math.round(sec))} 秒`;
+  if (sec < 3600) return `${Math.round(sec / 60)} 分鐘`;
+  if (sec < 86400) return `${Math.round(sec / 3600)} 小時`;
+  return `${Math.round(sec / 86400)} 天`;
+}
+// 時:分(補零)
+function nodeHm(d) {
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+// 「最後回報」用:「1 分鐘前(01:55)」;不是今天的補日期「10/16 22:35」
+function nodeRelTime(ts) {
+  const n = Number(ts);
+  if (!n) return "—";
+  if (!nodeTimeValid(n)) return "剛開機,時間還在對";
+  const d = new Date(n * 1000);
+  const ago = Date.now() / 1000 - n;
+  const when = d.toDateString() === new Date().toDateString() ? nodeHm(d) : `${d.getMonth() + 1}/${d.getDate()} ${nodeHm(d)}`;
+  return ago < 60 ? `剛剛(${when})` : `${nodeAgoText(ago)}前(${when})`;
 }
 
 // 板子回報的 unix 秒是否可信(見 nodeState 的說明)
@@ -958,44 +974,54 @@ const nodeTimeValid = (ts) => Number(ts) > 978307200;   // 2001-01-01
 // 單一節點 → { cls, text }。cls 對應 header 那組 ● 顏色。
 function nodeState(id, node) {
   const label = nodeLabel(id, node);
-  if (!node) return { cls: "err", text: `${label} 查無資料` };
+  if (!node) { delete nodeAge[id]; return { cls: "err", text: `${label} 還沒收到資料` }; }
   const ts = Number(node?.latest?.ts);
-  if (!ts) return { cls: "err", text: `${label} 無回報時間` };
+  if (!ts) { delete nodeAge[id]; return { cls: "err", text: `${label} 還沒收到資料` }; }
   // 板子剛開機、還沒向 NTP 校時就寫入時,ts 只是「開機後第幾秒」(例如 18),
-  // 當成 unix 時間會算成「失聯 2 萬天」。早於 2001 年的一律視為時間未同步。
-  if (!nodeTimeValid(ts)) return { cls: "pending", text: `${label} 時間未同步` };
+  // 當成 unix 時間會算成「沒回報 2 萬天」。早於 2001 年的一律視為剛開機、時間還沒對好。
+  if (!nodeTimeValid(ts)) { delete nodeAge[id]; return { cls: "pending", text: `${label} 剛開機` }; }
 
   const interval = Number(node?.meta?.interval) || NODE_DEFAULT_INTERVAL;
   const age = Date.now() / 1000 - ts;          // 板子寫的是 unix 秒
   const stale = interval * NODE_STALE_MULTIPLE;
   nodeAge[id] = age;                           // 給斷電偵測總結挑「最久沒回報」那片
 
-  // 活著:有溫度就顯示溫度(它本身就證明心跳在,比「正常」兩個字有用)
+  // 活著:有溫度就顯示氣溫(它本身就證明有在回報,比「正常」兩個字有用)
   if (age <= stale) {
     const temp = Number(node?.latest?.temp);
-    return { cls: "ok", text: Number.isFinite(temp) ? `${label} ${temp.toFixed(1)}°C` : `${label} 正常` };
+    return { cls: "ok", text: Number.isFinite(temp) ? `${label} 氣溫 ${temp.toFixed(1)}°C` : `${label} 正常` };
   }
-  // 逾時但還不久:可能只是漏一兩輪,黃燈提醒不告警
-  if (age <= stale * 6) return { cls: "pending", text: `${label} ${nodeAgoText(age)}` };
-  return { cls: "err", text: `${label}失聯 ${nodeAgoText(age)}` };
+  // 逾時但還不久(約 5~30 分鐘):黃燈。watchdog 這時已經傳 Discord,沒人按 ✅ 約 10 分鐘後才打電話
+  return { cls: age <= stale * 6 ? "pending" : "err", text: `${label} 沒回報 ${nodeAgoText(age)}` };
+}
+// 剛開機、時間還沒對好(這時 watchdog 不會通知)
+const nodeJustBooted = (node) => { const ts = Number(node?.latest?.ts); return !!ts && !nodeTimeValid(ts); };
+// 暫停通知中的板子(家裡警報板自己不在通知範圍,永遠不算)
+const nodeMuted = (id) => id !== "watchdog" && !alertState(id).on;
+// 去掉名稱的狀態字(卡片 / modal 標題旁用):「沒回報 12 分鐘」;正常有氣溫的只寫「正常」
+function nodeStateShort(id, node) {
+  const st = nodeState(id, node);
+  const t = st.text.replace(nodeLabel(id, node), "").trim();
+  return st.cls === "ok" ? "正常" : t;
 }
 const nodeAge = {};
 
 // 斷電偵測板的 header 總結:板子一多不能逐片列,只列一顆 ●。
-// 已關告警的板子不算(那是「知道了、先別吵」的意思,header 不該再喊),只在尾巴標 🔕 幾片。
-//   全部正常 → 「斷電偵測 3/3 正常」(有關告警的:「斷電偵測 1/1 正常 🔕3」)
-//   有異常   → 直接點名最久沒回報那片,例如「斷電偵測 A02失聯 5 分前」;多片異常再加「等 N 片」
-//   全部關告警 → 灰燈「斷電偵測 🔕 告警全關」
+// 暫停通知的板子不算進燈號(那是「知道了、先別吵」的意思,header 不該再喊紅燈),
+// 但要用字寫出來有幾片暫停——只寫「1/1 正常」會讓人以為全部都好。
+//   全部正常 → 「斷電偵測 3 片正常」(有暫停的:「斷電偵測 1 片正常・3 片暫停通知」)
+//   有狀況   → 直接點名最久沒回報那片,例如「斷電偵測 A02 沒回報 5 分鐘」;多片再加「等 N 片」
+//   全部暫停 → 灰燈「斷電偵測 全部暫停通知」
 function heartbeatSummary(data) {
   const ids = heartbeatIds(data);
   if (!ids.length) return null;
   const watched = ids.filter((id) => alertState(id).on);
   const muted = ids.length - watched.length;
-  const tail = muted ? ` 🔕${muted}` : "";
-  if (!watched.length) return { cls: "unknown", text: `斷電偵測 🔕 告警全關` };
+  const tail = muted ? `・${muted} 片暫停通知` : "";
+  if (!watched.length) return { cls: "unknown", text: `斷電偵測 全部暫停通知` };
   const states = watched.map((id) => ({ id, ...nodeState(id, data[id]) }));
   const bad = states.filter((s) => s.cls !== "ok");
-  if (!bad.length) return { cls: "ok", text: `斷電偵測 ${watched.length}/${watched.length} 正常${tail}` };
+  if (!bad.length) return { cls: "ok", text: `斷電偵測 ${watched.length} 片正常${tail}` };
   const worst = bad.slice().sort((a, b) => (nodeAge[b.id] || 0) - (nodeAge[a.id] || 0))[0];
   const cls = bad.some((s) => s.cls === "err") ? "err" : "pending";
   return { cls, text: `斷電偵測 ${worst.text}${bad.length > 1 ? ` 等 ${bad.length} 片` : ""}${tail}` };
@@ -1008,7 +1034,7 @@ function renderNodeHeader() {
   const data = nodeLastData;
   if (!el || !data) return;
   // 固定兩片一律列出(不 filter):某片在 RTDB 裡整個不見,本身就是要看到的狀態,
-  // 悄悄少一個反而看不出是哪片出事。nodeState 收到 undefined 會回「查無資料」。
+  // 悄悄少一個反而看不出是哪片出事。nodeState 收到 undefined 會回「還沒收到資料」。
   // 斷電偵測板只列一顆總結 ●;其他未知角色的板子(日後新增)逐片列。
   const ids = Object.keys(NODE_LABELS);
   const states = ids.map((id) => nodeState(id, data[id]));
@@ -1026,13 +1052,13 @@ function renderNodeHeader() {
   const hbBad = hbIds.filter((id) => alertState(id).on && nodeState(id, data[id]).cls !== "ok");
   const hbLine = hbIds.length
     ? `斷電偵測 ${hbIds.length} 片:${hbIds.length - hbMuted - hbBad.length} 片正常` +
-      (hbBad.length ? `、${hbBad.length} 片異常(${hbBad.slice(0, 10).join("、")}${hbBad.length > 10 ? "…" : ""})` : "") +
-      (hbMuted ? `、${hbMuted} 片告警已關` : "") + `\n  每片的詳細請到「板子」頁`
+      (hbBad.length ? `、${hbBad.length} 片沒回報(${hbBad.slice(0, 10).join("、")}${hbBad.length > 10 ? "…" : ""})` : "") +
+      (hbMuted ? `、${hbMuted} 片暫停通知` : "") + `\n  每片的詳細請到「板子」頁`
     : [];
   el.title = [...ids, ...otherNodeIds(data)]
     .map((id) => {
       const n = data[id], l = n?.latest || {}, m = n?.meta || {};
-      if (!n) return `${nodeLabel(id, n)}(${id})\n  RTDB 中找不到這個節點`;
+      if (!n) return `${nodeLabel(id, n)}(${id})\n  還沒收到這片的資料`;
       const seen = Number(l.ts) ? new Date(l.ts * 1000).toLocaleString("zh-TW") : "無紀錄";
       return `${nodeLabel(id, n)}(${id})\n  最後回報:${seen}\n  韌體:${m.fw || "?"}  IP:${l.ip || "?"}  WiFi:${l.ssid || "?"}`;
     })
@@ -1055,6 +1081,7 @@ async function refreshNodeStatus() {
     const data = await res.json();
     nodeLastData = data || {};   // 供板子狀態頁使用,不再另抓一次
     nodeLastError = null;
+    nodeFetchedAt = Date.now();  // 板子頁總結卡顯示「幾點更新」
     renderNodeHeader();
   } catch (e) {
     nodeLastError = String(e && e.message || e);
@@ -1066,7 +1093,7 @@ async function refreshNodeStatus() {
     el.title = offline
       ? "這支手機目前沒有網路,所以讀不到板子狀態——不代表板子有問題。"
       : `連不上監測資料庫(${String(e && e.message || e)})。
-可能是 RTDB 異常,或這支手機連不到該網域。`;
+可能是雲端資料庫暫時有問題,或這支手機連不到該網址。`;
     el.hidden = false;
   } finally {
     nodeFetching = false;
@@ -1098,6 +1125,7 @@ const NODE_HISTORY_HOURS = 24;
 const NODE_HISTORY_POINTS = 288;          // 24h ÷ 5 分鐘一筆
 let nodeLastData = null;                  // 最近一次成功抓到的 devices 內容
 let nodeLastError = null;                 // 失敗原因(給狀態頁顯示)
+let nodeFetchedAt = 0;                    // 最近一次成功抓到的時間(ms)
 let nodeHistory = null;                   // [[ts, temp], ...] 由舊到新
 let nodeHistoryLoading = false;
 let nodeIncidents = {};                   // id → 重開機紀錄 [{ ts, reset, gap, … }],新→舊
@@ -1142,15 +1170,16 @@ async function loadNodePowerLog() {
   } catch { /* 讀不到就維持上次的資料 */ }
 }
 
-// outages.cause → 中文。目前看到的只有 power;其他值(網路斷線等)沒有就顯示原文
+// outages.cause → 中文。目前看到的只有 power;網路斷的另外標;其他值沒有就顯示原文
 function outageCauseText(e) {
   if (e.active) return "";
   if (e.cause === "power") return "斷電";
-  if (/net|wifi/i.test(e.cause)) return "網路斷線";
+  if (/net|wifi/i.test(e.cause)) return "網路斷";
   return e.cause || "原因不明";
 }
+const outageIsNet = (e) => /net|wifi/i.test(e.cause || "");
 
-// 近 N 小時內開始的斷線次數(含進行中);onlyPower = 只算 cause 為斷電的
+// 近 N 小時內開始的沒回報次數(含進行中);onlyPower = 只算 cause 為斷電的
 function powerCount(id, hours, onlyPower = false) {
   const since = Date.now() / 1000 - hours * 3600;
   return (nodePowerLog[id] || []).filter((e) => e.start >= since && (!onlyPower || e.cause === "power")).length;
@@ -1162,51 +1191,62 @@ function nodeDurText(sec) {
   if (sec < 60) return `${Math.max(1, Math.round(sec))} 秒`;
   return nodeUptimeText(sec);
 }
-// 重開紀錄區塊(incidents):時間、原因、重開前斷線多久。
-// 卡片上已有「最近重開」一列,所以卡片只放按鈕(limit = 0);modal 列出全部。
+// 重開紀錄(incidents):時間、原因、重開前停了多久。這是維修用的診斷資料,
+// 只放在「進階資訊」裡;卡片只放按鈕(limit = 0),modal 列出全部。
 function resetLogHtml(id, limit) {
   const list = nodeIncidents[id] || [];
   if (!list.length) return "";
   if (!limit) {
-    return `<button type="button" class="power-more" data-node="${escapeHtml(id)}">查看重開紀錄 ${list.length} 筆 ›</button>`;
+    return `<button type="button" class="power-more" data-node="${escapeHtml(id)}">看重開紀錄 ›</button>`;
   }
   const items = list.slice(0, limit).map((e) => {
-    const gap = Number(e.gap) >= 60 ? `斷線 ${nodeDurText(Number(e.gap))}` : "";
-    return `<li><span>${nodeShortTime(e.ts)}</span><b>${escapeHtml(nodeResetText(e.reset))}${gap ? `<em class="cause-other">${gap}</em>` : ""}</b></li>`;
+    const gap = Number(e.gap) >= 60 ? `之前停了 ${nodeDurText(Number(e.gap))}` : "";
+    return `<li><span>${nodeShortTime(e.ts)}</span><b>${escapeHtml(nodeResetText(e.reset))}</b>${gap ? `<small class="power-why">${gap}</small>` : ""}</li>`;
   }).join("");
   return `<div class="power-log"><div class="power-head">重開紀錄<span>共 ${list.length} 次</span></div><ul>${items}</ul></div>`;
 }
 
-// 斷線紀錄區塊:近 24 小時 / 7 天次數 + 最近 limit 筆(每筆附原因)
+// 沒回報紀錄:watchdog 發現某片超過 5 分鐘沒消息就記一筆,恢復後才知道原因(斷電 / 網路斷)。
+// 標題的次數只算斷電(家人在意的是斷電;網路斷的照列,但字淡一點)。
 function powerLogHtml(id, limit) {
   const list = nodePowerLog[id] || [];
-  const head = `<div class="power-head">斷線紀錄<span>近 24 小時 ${powerCount(id, 24)} 次・近 7 天 ${powerCount(id, 24 * 7)} 次</span></div>`;
   if (id === "watchdog") {
-    return `<div class="power-log">${head}<p class="nodes-empty">看門狗本身沒有斷線紀錄:沒有別的板子在監看它。可看上方「最近重開」。</p></div>`;
+    return `<div class="power-log"><div class="power-head">斷電紀錄</div>`
+      + `<p class="nodes-empty">這片自己斷電時沒有人會通知,請偶爾看一下它是不是「正常」。</p></div>`;
   }
-  if (!list.length) return `<div class="power-log">${head}<p class="nodes-empty">沒有斷線紀錄(心跳停超過 5 分鐘才會記)</p></div>`;
+  // 斷電偵測板的紀錄有原因(斷電 / 網路斷),次數只算斷電;魚塭板子的紀錄沒有原因,只能算全部沒回報。
+  // 看板子類型決定,不看清單內容——否則沒紀錄的斷電偵測板會和隔壁那片標題不一樣。
+  const hb = isHeartbeat(nodeLastData?.[id]);
+  const cnt = (h) => powerCount(id, h, hb);
+  const title = hb ? "斷電紀錄" : "沒回報紀錄";
+  const head = `<div class="power-head">${title}<span>近 24 小時 ${cnt(24)} 次・近 7 天 ${cnt(24 * 7)} 次</span></div>`;
+  if (!list.length) {
+    return `<div class="power-log">${head}<p class="nodes-empty">${hb ? "最近沒有斷電" : "最近都有正常回報"}(超過 5 分鐘沒回報才會記一筆)</p></div>`;
+  }
+  const muted = nodeMuted(id) ? " muted" : "";
   const items = list.slice(0, limit).map((e) => e.active
-    ? `<li class="active"><span>${nodeShortTime(e.start)} 起</span><b>斷線中(已 ${nodeDurText(Date.now() / 1000 - e.start)})</b></li>`
-    : `<li><span>${nodeShortTime(e.start)} – ${nodeShortTime(e.end).slice(-5)}</span>`
+    ? `<li class="active"><span>${nodeShortTime(e.start)} 起</span><b>現在沒回報,已 ${nodeDurText(Date.now() / 1000 - e.start)}</b>`
+      + (hb ? `<small class="power-why">恢復後才知道是斷電還是網路斷</small>` : "") + `</li>`
+    : `<li${outageIsNet(e) ? ` class="minor"` : ""}><span>${nodeShortTime(e.start)} – ${nodeShortTime(e.end).slice(-5)}</span>`
       + `<b>${nodeDurText(e.dur)}<em class="cause-${e.cause === "power" ? "power" : "other"}">${escapeHtml(outageCauseText(e))}</em></b></li>`).join("");
   // 卡片只列幾筆;其餘點按鈕開 modal 看全部(modal 不設上限,內部捲動)
   const more = list.length > limit
-    ? `<button type="button" class="power-more" data-node="${escapeHtml(id)}">查看全部 ${list.length} 筆 ›</button>` : "";
-  return `<div class="power-log">${head}<ul>${items}</ul>${more}</div>`;
+    ? `<button type="button" class="power-more" data-node="${escapeHtml(id)}">看全部 ${list.length} 筆 ›</button>` : "";
+  return `<div class="power-log${muted}">${head}<ul>${items}</ul>${more}</div>`;
 }
 
-// 韌體回報的重開原因 → 中文。字串長得像「BROWNOUT (power dip)」,只看開頭的代碼。
+// 韌體回報的重開原因 → 家人看得懂的話。字串長得像「BROWNOUT (power dip)」,只看開頭的代碼。
 const NODE_RESET_TEXT = {
-  POWERON: "通電開機(之前斷電)",
-  BROWNOUT: "電壓不足重開",
-  SW: "程式主動重開",
-  SW_CPU: "程式主動重開",
-  PANIC: "當機重開",
-  INT_WDT: "看門狗重開",
-  TASK_WDT: "看門狗重開",
-  WDT: "看門狗重開",
+  POWERON: "斷電後重新通電",
+  BROWNOUT: "電力不穩重開(多半是電線沒接好,請檢查)",
+  SW: "自動重新啟動",
+  SW_CPU: "自動重新啟動",
+  PANIC: "當機後自動重開",
+  INT_WDT: "卡住後自動重開",
+  TASK_WDT: "卡住後自動重開",
+  WDT: "卡住後自動重開",
   DEEPSLEEP: "睡眠喚醒",
-  EXT: "外部重置",
+  EXT: "按了重置鍵",
 };
 function nodeResetText(reset) {
   const code = String(reset || "").split(/[\s(]/)[0];
@@ -1217,15 +1257,15 @@ function nodeResetText(reset) {
 function nodeUptimeText(sec) {
   if (!Number.isFinite(sec) || sec < 0) return "—";
   const d = Math.floor(sec / 86400), h = Math.floor((sec % 86400) / 3600);
-  if (d > 0) return `${d} 天 ${h} 小時`;
+  if (d > 0) return h ? `${d} 天 ${h} 小時` : `${d} 天`;
   const m = Math.floor((sec % 3600) / 60);
-  return h > 0 ? `${h} 小時 ${m} 分` : `${m} 分`;
+  return h > 0 ? (m ? `${h} 小時 ${m} 分鐘` : `${h} 小時`) : `${m} 分鐘`;
 }
 
 function nodeTimeText(ts) {
   const n = Number(ts);
   if (!n) return "—";
-  if (!nodeTimeValid(n)) return `開機後 ${n} 秒(尚未校時)`;
+  if (!nodeTimeValid(n)) return `剛開機,時間還在對`;
   return new Date(n * 1000).toLocaleString("zh-TW", { hour12: false });
 }
 
@@ -1254,20 +1294,31 @@ async function loadNodeHistory() {
   }
 }
 
-// 溫度折線圖(純 inline SVG,不引入圖表庫——本專案其他圖表也是自己畫的)。
+// 氣溫折線圖(純 inline SVG,不引入圖表庫——本專案其他圖表也是自己畫的)。
 // viewBox 固定、寬度 100%,所以在任何螢幕寬度都不會爆版。
+// SVG 只畫線與格線(preserveAspectRatio="none" 撐滿寬度);刻度文字用 HTML 疊在圖外,
+// 否則寬螢幕上文字會跟著被橫向拉長變形。
+// Y 軸用整數度的刻度(1 / 2 / 5 度一格,取 3~5 格),上下界就是刻度,不會被誤讀。
+// 滑過(手機:手指左右滑)顯示游標與 tooltip,處理在 setupNodeChartHover。
+const NSPARK_W = 320, NSPARK_H = 110;
+function nodeSparkTicks(tMin, tMax) {
+  const span = Math.max(tMax - tMin, 0.5);
+  const step = [1, 2, 5, 10].find((st) => span / st <= 4) || 10;
+  let lo = Math.floor(tMin / step) * step, hi = Math.ceil(tMax / step) * step;
+  if (hi === lo) hi = lo + step;
+  const ticks = [];
+  for (let v = lo; v <= hi + 1e-9; v += step) ticks.push(v);
+  return { lo, hi, ticks };
+}
 function nodeSparkline(points) {
   if (!points || points.length < 2) {
-    return `<p class="nodes-empty">尚無足夠的溫度紀錄可畫圖</p>`;
+    return `<p class="nodes-empty">氣溫紀錄還不夠,暫時畫不出圖</p>`;
   }
-  // SVG 只畫線(preserveAspectRatio="none" 讓線條撐滿任何寬度);刻度文字改用 HTML 放在圖外,
-  // 否則寬螢幕上文字會跟著被橫向拉長變形。
-  const W = 320, H = 80;
+  const W = NSPARK_W, H = NSPARK_H;
   const temps = points.map((p) => p[1]);
   const tMin = Math.min(...temps), tMax = Math.max(...temps);
-  // 上下各留一點空間,並避免整段溫度相同時除以 0
-  const lo = Math.floor(tMin * 2) / 2 - 0.5, hi = Math.ceil(tMax * 2) / 2 + 0.5;
-  const span = (hi - lo) || 1;
+  const { lo, hi, ticks } = nodeSparkTicks(tMin, tMax);
+  const span = hi - lo;
   const x0 = points[0][0], x1 = points[points.length - 1][0];
   const xSpan = (x1 - x0) || 1;
   const px = (t) => ((t - x0) / xSpan) * W;
@@ -1275,81 +1326,140 @@ function nodeSparkline(points) {
 
   const d = points.map((p, i) => `${i ? "L" : "M"}${px(p[0]).toFixed(1)},${py(p[1]).toFixed(1)}`).join("");
   const area = `${d}L${W},${H}L0,${H}Z`;
-  // 顯示真正的時:分。兩端若跨日,前面補 M/D,否則 24 小時的兩端會同樣是「23:xx」,
-  // 看起來像沒有跨距。
+  const grid = ticks.map((v) => `<line x1="0" y1="${py(v).toFixed(1)}" x2="${W}" y2="${py(v).toFixed(1)}" class="nspark-grid" />`).join("");
+  const yLabels = ticks.map((v) => `<span style="top:${((1 - (v - lo) / span) * 100).toFixed(2)}%">${v}°</span>`).join("");
+  // X 刻度:頭、中、尾。兩端跨日時補 M/D,否則 24 小時的兩端會同樣是「23:xx」
   const sameDayEnds = new Date(x0 * 1000).getDate() === new Date(x1 * 1000).getDate();
   const tick = (t) => {
     const dt = new Date(t * 1000);
-    const hm = `${String(dt.getHours()).padStart(2, "0")}:${String(dt.getMinutes()).padStart(2, "0")}`;
-    return sameDayEnds ? hm : `${dt.getMonth() + 1}/${dt.getDate()} ${hm}`;
+    return sameDayEnds ? nodeHm(dt) : `${dt.getMonth() + 1}/${dt.getDate()} ${nodeHm(dt)}`;
   };
+  const at = (v) => nodeHm(new Date(points.find((p) => p[1] === v)[0] * 1000));
   return `
     <div class="nspark-wrap">
-      <div class="nspark-y"><span>${hi.toFixed(1)}</span><span>${lo.toFixed(1)}</span></div>
-      <div class="nspark-plot">
+      <div class="nspark-y" aria-hidden="true">${yLabels}</div>
+      <div class="nspark-plot" data-nspark data-lo="${lo}" data-hi="${hi}">
         <svg class="nspark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img"
-             aria-label="最近 ${NODE_HISTORY_HOURS} 小時溫度,範圍 ${tMin.toFixed(1)} 到 ${tMax.toFixed(1)} 度">
-          <line x1="0" y1="0" x2="0" y2="${H}" class="nspark-grid" />
-          <line x1="0" y1="${H}" x2="${W}" y2="${H}" class="nspark-grid" />
+             aria-label="最近 ${NODE_HISTORY_HOURS} 小時氣溫,範圍 ${tMin.toFixed(1)} 到 ${tMax.toFixed(1)} 度">
+          ${grid}
           <path d="${area}" class="nspark-area" />
           <path d="${d}" class="nspark-line" />
         </svg>
-        <div class="nspark-x"><span>${tick(x0)}</span><span>${tick(x1)}</span></div>
+        <div class="nspark-cursor" hidden><i class="nspark-vline"></i><i class="nspark-dot"></i></div>
       </div>
-    </div>`;
+      <span></span>
+      <div class="nspark-x"><span>${tick(x0)}</span><span>${tick((x0 + x1) / 2)}</span><span>${tick(x1)}</span></div>
+    </div>
+    <p class="nspark-range">最高 <b>${tMax.toFixed(1)}°C</b>(${at(tMax)})・最低 <b>${tMin.toFixed(1)}°C</b>(${at(tMin)})</p>`;
+}
+
+// 氣溫圖的游標 + tooltip。圖每分鐘會重畫、也會出現在 modal 裡,所以委派在 document 上;
+// 資料直接用 nodeHistory(只有魚塭板子有這張圖)。手機用手指在圖上左右滑(touch-action: pan-y,
+// 上下滑仍可捲動頁面)。
+function setupNodeChartHover() {
+  const hideCursor = (plot) => {
+    const c = plot?.querySelector(".nspark-cursor");
+    if (c) c.hidden = true;
+    chartTipHide();
+  };
+  const onMove = (e) => {
+    const plot = e.target.closest?.("[data-nspark]");
+    if (!plot || !nodeHistory || nodeHistory.length < 2) return;
+    const r = plot.getBoundingClientRect();
+    const frac = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
+    const x0 = nodeHistory[0][0], x1 = nodeHistory[nodeHistory.length - 1][0];
+    const t = x0 + frac * (x1 - x0);
+    // 二分搜尋最近的一筆
+    let i = 0, j = nodeHistory.length - 1;
+    while (j - i > 1) { const m = (i + j) >> 1; if (nodeHistory[m][0] < t) i = m; else j = m; }
+    const [ts, temp] = t - nodeHistory[i][0] <= nodeHistory[j][0] - t ? nodeHistory[i] : nodeHistory[j];
+    const lo = Number(plot.dataset.lo), hi = Number(plot.dataset.hi);
+    const c = plot.querySelector(".nspark-cursor");
+    c.hidden = false;
+    c.style.left = `${((ts - x0) / ((x1 - x0) || 1)) * 100}%`;
+    c.querySelector(".nspark-dot").style.top = `${(1 - (temp - lo) / ((hi - lo) || 1)) * 100}%`;
+    const dt = new Date(ts * 1000);
+    chartTipShow(`${dt.getMonth() + 1}/${dt.getDate()} ${nodeHm(dt)}|氣溫 ${temp.toFixed(1)}°C`, e.clientX, e.clientY);
+  };
+  document.addEventListener("pointermove", onMove);
+  document.addEventListener("pointerdown", onMove);
+  document.addEventListener("pointerout", (e) => {
+    const plot = e.target.closest?.("[data-nspark]");
+    if (plot && !plot.contains(e.relatedTarget)) hideCursor(plot);
+  });
+  // 手指離開 / 被捲動取消:收起游標
+  document.addEventListener("pointerup", (e) => { if (e.pointerType !== "mouse") hideCursor(e.target.closest?.("[data-nspark]")); });
+  document.addEventListener("pointercancel", (e) => hideCursor(e.target.closest?.("[data-nspark]")));
 }
 
 // 一列「標籤:值」
-function nodeRow(k, v) {
-  return `<div class="nodes-row"><span>${escapeHtml(k)}</span><b>${escapeHtml(String(v))}</b></div>`;
+function nodeRow(k, v, cls = "") {
+  return `<div class="nodes-row${cls ? ` ${cls}` : ""}"><span>${escapeHtml(k)}</span><b>${escapeHtml(String(v))}</b></div>`;
 }
 
-// 單片板子一張卡
+// 「進階資訊(維修用)」摺疊區開著的板子:頁面每分鐘重畫,不記住的話一更新就自己收起來
+const nodeAdvOpen = new Set();
+
+// 單片板子一張卡。家人要看的(狀態、氣溫、最後回報、斷電紀錄、通知開關)放外面;
+// 韌體 / IP / WiFi 這類維修用的收進預設收合的「進階資訊」。
 function nodeCard(id, node, logLimit = 3) {
-  // logLimit:斷線紀錄列幾筆(卡片 3 筆;modal 傳 Infinity = 全部,並列出重開紀錄)
+  // logLimit:斷電紀錄列幾筆(卡片 3 筆;modal 傳 Infinity = 全部,並列出重開紀錄)
   const label = nodeLabel(id, node);
   const icon = id === "pond-site" ? "🌡️" : id === "watchdog" ? "🏠" : isHeartbeat(node) ? "🔌" : "📟";
   const st = nodeState(id, node);
   const head = `
     <div class="nodes-head">
       <span class="nodes-title">${icon} ${escapeHtml(label)}</span>
-      <span class="node-dot ${st.cls}">${escapeHtml(st.text.replace(label, "").trim() || "正常")}</span>
+      <span class="node-dot ${st.cls}${nodeMuted(id) && node ? " muted" : ""}">${escapeHtml(nodeStateShort(id, node))}</span>
     </div>`;
 
   if (!node) {
     return `<div class="card nodes-card">${head}
-      <p class="nodes-empty">RTDB 中找不到這個節點(${escapeHtml(id)})。板子可能從未上傳過,或資料被清掉了。</p>
+      <p class="nodes-empty">還沒收到這片的資料(可能還沒裝好或沒通電)。</p>
+      <p class="nodes-empty nodes-tech">編號:${escapeHtml(id)}</p>
     </div>`;
   }
 
   const l = node.latest || {}, m = node.meta || {};
+  // 家裡警報板正在發通知:最重要的一件事,放最上面
+  const alerting = l.alerting === true
+    ? `<p class="nodes-alerting">⚠ 正在發通知(有板子沒回報,已傳 Discord,沒人按 ✅ 會打電話)</p>` : "";
   const rows = [];
-  if (Number.isFinite(Number(l.temp))) rows.push(nodeRow("溫度", `${Number(l.temp).toFixed(1)}°C`));
-  if (Number.isFinite(Number(l.checks))) rows.push(nodeRow("已檢查", `${Number(l.checks).toLocaleString()} 次`));
-  if (typeof l.alerting === "boolean") rows.push(nodeRow("告警中", l.alerting ? "是 ⚠️" : "否"));
-  rows.push(nodeRow("最後回報", nodeTimeText(l.ts)));
-  if (Number(m.bootAt)) {
-    rows.push(nodeRow("開機至今", nodeTimeValid(m.bootAt) ? nodeUptimeText(Date.now() / 1000 - Number(m.bootAt)) : "—(開機時尚未校時)"));
+  if (Number.isFinite(Number(l.temp))) rows.push(nodeRow("現場氣溫", `${Number(l.temp).toFixed(1)}°C`));
+  if (l.alerting === false) rows.push(nodeRow("正在發通知", "沒有"));
+  rows.push(nodeRow("最後回報", nodeRelTime(l.ts)));
+
+  const adv = [];
+  if (Number.isFinite(Number(l.checks))) adv.push(nodeRow("已檢查", `${Number(l.checks).toLocaleString()} 次`));
+  // 開機至今 = 現在 − 開機時間;板子沒回報時這個數字還會一直往上加,不顯示才不會誤導
+  if (Number(m.bootAt) && st.cls === "ok") {
+    adv.push(nodeRow("開機至今", nodeTimeValid(m.bootAt) ? nodeUptimeText(Date.now() / 1000 - Number(m.bootAt)) : "—(開機那時還沒對時)"));
   }
   const inc = nodeIncidents[id]?.[0];
   if (inc) {
-    // 例:「10/14 22:47 電壓不足重開(斷線 14 小時 42 分)」—— 斷線 = 重開前最後一次回報到這次
-    const gap = Number(inc.gap) >= 60 ? `(斷線 ${nodeUptimeText(Number(inc.gap))})` : "";
-    rows.push(nodeRow("最近重開", `${nodeTimeText(inc.ts)} ${nodeResetText(inc.reset)}${gap}`));
+    // 例:「2026/10/14 22:47 電力不穩重開(之前停了 14 小時 42 分)」
+    const gap = Number(inc.gap) >= 60 ? `(之前停了 ${nodeUptimeText(Number(inc.gap))})` : "";
+    adv.push(nodeRow("最近重開", `${nodeTimeText(inc.ts)} ${nodeResetText(inc.reset)}${gap}`));
   }
-  if (Number.isFinite(Number(l.rssi))) rows.push(nodeRow("訊號", `${l.rssi} dBm`));
-  rows.push(nodeRow("韌體", m.fw || "—"));
-  rows.push(nodeRow("上傳週期", Number(m.interval) ? `${m.interval} 秒` : "—"));
-  rows.push(nodeRow("IP", l.ip || "—"));
-  rows.push(nodeRow("WiFi", l.ssid || "—"));
-  if (m.mac) rows.push(nodeRow("MAC", m.mac));
+  if (Number.isFinite(Number(l.rssi))) adv.push(nodeRow("WiFi 訊號", `${l.rssi} dBm`));
+  adv.push(nodeRow("韌體", m.fw || "—"));
+  adv.push(nodeRow("上傳週期", Number(m.interval) ? `${m.interval} 秒` : "—"));
+  adv.push(nodeRow("IP", l.ip || "—"));
+  adv.push(nodeRow("WiFi 名稱", l.ssid || "—"));
+  if (m.mac) adv.push(nodeRow("MAC", m.mac));
+  adv.push(nodeRow("編號", id));
+  const advHtml = `<details class="nodes-adv" data-adv="${escapeHtml(id)}"${nodeAdvOpen.has(id) ? " open" : ""}>
+    <summary>進階資訊(維修用)</summary>
+    <div class="nodes-rows">${adv.join("")}</div>
+    ${resetLogHtml(id, logLimit === Infinity ? Infinity : 0)}
+  </details>`;
 
-  // 溫度曲線只有魚塭那片有
+  // 氣溫曲線只有魚塭那片有。探頭在魚塭旁的空氣中,量的是氣溫,不是水溫
   const chart = id === "pond-site"
-    ? `<div class="nodes-chart"><div class="nodes-chart-t">最近 ${NODE_HISTORY_HOURS} 小時溫度</div>${nodeSparkline(nodeHistory)}</div>`
+    ? `<div class="nodes-chart"><div class="nodes-chart-t">魚塭旁氣溫(近 ${NODE_HISTORY_HOURS} 小時,不是水溫)</div>${nodeSparkline(nodeHistory)}</div>`
     : "";
 
-  return `<div class="card nodes-card">${head}${alertNodeHtml(id)}${chart}<div class="nodes-rows">${rows.join("")}</div>${powerLogHtml(id, logLimit)}${resetLogHtml(id, logLimit === Infinity ? Infinity : 0)}</div>`;
+  return `<div class="card nodes-card">${head}${alerting}${alertNodeHtml(id)}${chart}<div class="nodes-rows">${rows.join("")}</div>${powerLogHtml(id, logLimit)}${advHtml}</div>`;
 }
 
 // ============================================================
@@ -1469,42 +1579,64 @@ function alertState(id) {
   }
   return { on: groupOn, by: pid ? "pond" : "default", entry: pid ? alertCtl.groups[pondKey(pid)] : null, pid, conflict: false };
 }
-// 「到 18:00」/「到 10/16 18:00」/「永久」
+// 剩多久:「2 小時 5 分」「25 分」「3 天 2 小時」
+function alertLeftText(sec) {
+  return nodeUptimeText(Math.max(60, sec));
+}
+// 「18:00 恢復(還有 2 小時 5 分)」/「10/18 08:00 恢復(…)」/「直到手動恢復」
 function alertUntilText(e) {
-  if (!e || e.until == null) return "永久";
-  const d = new Date(Number(e.until) * 1000);
-  const hm = d.toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit", hour12: false });
-  return d.toDateString() === new Date().toDateString() ? `到 ${hm}` : `到 ${d.getMonth() + 1}/${d.getDate()} ${hm}`;
+  if (!e || e.until == null) return "直到手動恢復";
+  const u = Number(e.until);
+  const d = new Date(u * 1000);
+  const today = new Date();
+  const tomorrow0 = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
+  const when = d.getTime() === tomorrow0.getTime() ? "今晚 12 點"
+    : d.toDateString() === today.toDateString() ? nodeHm(d) : `${d.getMonth() + 1}/${d.getDate()} ${nodeHm(d)}`;
+  const left = u - nowSec();
+  return `${when} 恢復${left > 0 ? `(還有 ${alertLeftText(left)})` : ""}`;
 }
 // 告警可以設定的板子:看門狗自己不被監看,不列
 function alertableIds() {
   return Object.keys(nodeLastData || {}).filter((id) => id !== "watchdog").sort();
 }
 const boardName = (id) => nodeLabel(id, nodeLastData?.[id]);
+// 「A01、A02、A03」;太多時「A01、A02、A03 等 12 片」
+function boardNames(ids, max = 3) {
+  return ids.slice(0, max).map(boardName).join("、") + (ids.length > max ? ` 等 ${ids.length} 片` : "");
+}
+const alertSaveFail = (e) => `沒存成功,請再試一次(${e.message})`;
+const ALERT_APPLY_HINT = ",1 分鐘內生效";
 
-// 關閉告警的對話框:先選關閉多久(預設 1 小時,下方即時顯示到幾點)+ 選填備註,
-// 按「確認關閉」才回傳 { until, note };取消 / 點背景 / Esc 回傳 null。
+// 暫停通知的對話框:先選暫停多久(預設 1 小時,下方即時顯示幾點恢復)+ 選填備註,
+// 按「開始暫停」才回傳 { until, note };取消 / 點背景 / Esc 回傳 null。
+// 「直到我手動恢復」是配合轉換電路這類長時間施工用的(不然會一直被自己吵),放最後、單獨一排。
 function pauseUntil(choice) {
   const now = new Date();
   return {
     "1h": nowSec() + 3600,
     "4h": nowSec() + 4 * 3600,
     today: Math.floor(new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).getTime() / 1000),
+    "3d": nowSec() + 3 * 86400,
     forever: null,
   }[choice];
 }
-function chooseAlertPause(title) {
+// title:「文安2池 要暫停通知多久?」;scope:影響範圍(「1 片板子:A01」)
+function chooseAlertPause(title, scope = "") {
   return new Promise((resolve) => {
     const overlay = $("#alertPauseOverlay");
     let choice = "1h";
     const paint = () => {
       $$("#alertPauseOpts [data-pause]").forEach((b) => b.classList.toggle("active", b.dataset.pause === choice));
       const until = pauseUntil(choice);
-      $("#alertPauseUntil").textContent = until == null
-        ? "不會自動恢復,要自己再打開"
-        : `${alertUntilText({ until })} 自動恢復告警`;
+      const el = $("#alertPauseUntil");
+      el.textContent = until == null
+        ? "不會自動恢復。弄好後記得回來按「恢復通知」。"
+        : `${alertUntilText({ until })},時間到會自動恢復通知`;
+      el.classList.toggle("warn", until == null);
     };
     $("#alertPauseTitle").textContent = title;
+    $("#alertPauseScope").textContent = scope;
+    $("#alertPauseScope").hidden = !scope;
     $("#alertPauseNote").value = "";
     paint();
     const close = (result) => {
@@ -1544,44 +1676,79 @@ function pondsPatch(pids, on, opt) {
   return patch;
 }
 
-// 池塘群組開關:有任一池塘開著 → 全部關;全部都關 → 全部開
-async function toggleAlertTag(tag) {
+// 開關池塘 / 整組會清掉底下板子的單獨設定 → 有的話先講清楚再做,免得單獨暫停的板子被默默打開
+async function confirmClearOwn(pids, on) {
+  const own = pids.flatMap(pondBoards).filter((id) => alertLive(alertCtl.nodes[id]));
+  if (!own.length) return true;
+  return showConfirm(
+    `${boardNames(own)} 目前是單獨設定,這次會一起改成跟池塘一樣(${on ? "恢復通知" : "暫停通知"})。要繼續嗎?`,
+    { okText: "繼續" });
+}
+// 恢復通知時,如果有板子正在沒回報,一恢復就會馬上傳 Discord、打電話 → 先問
+async function confirmResumeBad(ids) {
+  // 黃燈(5~30 分鐘)的一恢復也會馬上通知;剛開機、或資料整個不見的不會,不必問
+  const bad = ids.filter((id) => {
+    const n = nodeLastData?.[id];
+    return n && !nodeJustBooted(n) && nodeState(id, n).cls !== "ok";
+  });
+  if (!bad.length) return true;
+  return showConfirm(
+    `${boardNames(bad)} 現在沒回報,恢復後會馬上傳 Discord、打電話。確定要恢復嗎?`,
+    { okText: "恢復通知" });
+}
+
+// 池塘群組:整組暫停 / 整組恢復(兩個方向各一顆按鈕,部分暫停時兩顆都有)
+async function setAlertTag(tag, on) {
   const pids = tagPonds(tag);
   if (!pids.length) { showToast(`「${tag}」底下還沒有池塘`, true); return; }
-  const turnOff = pids.some((pid) => pondAlertOn(pid));
+  // 只改這次真的要變的池塘:已經暫停的池塘保留原本的時間與備註
+  // (例如轉換電路設的「直到手動恢復」,不能被整組暫停 1 小時蓋掉)
+  const target = pids.filter((pid) => pondAlertOn(pid) !== on);
+  if (!target.length) return;
+  const kept = pids.length - target.length;
+  const boards = target.flatMap(pondBoards);
+  if (on && !(await confirmResumeBad(boards))) return;
+  if (!(await confirmClearOwn(target, on))) return;
   let opt = null;
-  if (turnOff) {
-    opt = await chooseAlertPause(`關閉「${tag}」整個群組的告警`);
+  if (!on) {
+    opt = await chooseAlertPause(`「${tag}」整組要暫停通知多久?`,
+      `${target.length} 池、${boards.length} 片板子${boards.length ? `:${boardNames(boards, 6)}` : ""}`
+      + (kept ? `(已經暫停的 ${kept} 池維持原本的設定)` : ""));
     if (!opt) return;
   }
   try {
-    await writeAlertControl(pondsPatch(pids, !turnOff, opt));
-    const n = pids.reduce((sum, pid) => sum + pondBoards(pid).length, 0);
-    showToast(`「${tag}」${pids.length} 池、${n} 片告警已${turnOff ? "關閉" : "開啟"}(最多 1 分鐘生效)`);
-  } catch (e) { showToast("設定失敗:" + e.message, true); }
+    await writeAlertControl(pondsPatch(target, on, opt));
+    showToast(on ? `已恢復「${tag}」${target.length} 池的通知${ALERT_APPLY_HINT}` : `已暫停「${tag}」${target.length} 池的通知,${alertUntilText(opt)}${ALERT_APPLY_HINT}`);
+  } catch (e) { showToast(alertSaveFail(e), true); }
 }
 
 // 單一池塘開關
 async function toggleAlertPond(pid) {
   const turnOff = pondAlertOn(pid);
+  const boards = pondBoards(pid);
+  if (!turnOff && !(await confirmResumeBad(boards))) return;
+  if (!(await confirmClearOwn([pid], !turnOff))) return;
   let opt = null;
   if (turnOff) {
-    opt = await chooseAlertPause(`關閉「${pondName(pid)}」的告警`);
+    opt = await chooseAlertPause(`「${pondName(pid)}」要暫停通知多久?`, `${boards.length} 片板子${boards.length ? `:${boardNames(boards, 6)}` : ""}`);
     if (!opt) return;
   }
   try {
     await writeAlertControl(pondsPatch([pid], !turnOff, opt));
-    showToast(`「${pondName(pid)}」${pondBoards(pid).length} 片告警已${turnOff ? "關閉" : "開啟"}(最多 1 分鐘生效)`);
-  } catch (e) { showToast("設定失敗:" + e.message, true); }
+    showToast(turnOff
+      ? `已暫停「${pondName(pid)}」的通知,${alertUntilText(opt)}${ALERT_APPLY_HINT}`
+      : `已恢復「${pondName(pid)}」的通知${ALERT_APPLY_HINT}`);
+  } catch (e) { showToast(alertSaveFail(e), true); }
 }
 
 // 個別板子開關。與池塘(或預設)相同且永久時刪掉個別設定,不留多餘的 entry;
 // 不同時寫個別設定 → 畫面顯示衝突提示
 async function toggleAlertNode(id) {
   const turnOff = alertState(id).on;
+  if (!turnOff && !(await confirmResumeBad([id]))) return;
   let opt = { until: null, note: null };
   if (turnOff) {
-    opt = await chooseAlertPause(`關閉 ${boardName(id)} 的告警`);
+    opt = await chooseAlertPause(`${boardName(id)} 要暫停通知多久?`, "只暫停這一片");
     if (!opt) return;
   }
   const want = !turnOff;
@@ -1590,16 +1757,28 @@ async function toggleAlertNode(id) {
     : { enabled: want, ...(opt.until != null && { until: opt.until }), ...(opt.note && { note: opt.note }) };
   try {
     await writeAlertControl({ [`nodes/${id}`]: value });
-    showToast(`${boardName(id)} 告警已${want ? "開啟" : "關閉"}(最多 1 分鐘生效)`);
-  } catch (e) { showToast("設定失敗:" + e.message, true); }
+    showToast(want
+      ? `已恢復 ${boardName(id)} 的通知${ALERT_APPLY_HINT}`
+      : `已暫停 ${boardName(id)} 的通知,${alertUntilText(opt)}${ALERT_APPLY_HINT}`);
+  } catch (e) { showToast(alertSaveFail(e), true); }
+}
+
+// 單獨暫停的板子一次全部恢復(做法同 toggleAlertNode 的恢復:跟池塘一樣就刪掉個別設定)
+async function resumeAlertNodes(ids) {
+  if (!ids.length || !(await confirmResumeBad(ids))) return;
+  const patch = Object.fromEntries(ids.map((id) => [`nodes/${id}`, boardGroupOn(id) ? null : { enabled: true }]));
+  try {
+    await writeAlertControl(patch);
+    showToast(`已恢復 ${ids.length} 片的通知${ALERT_APPLY_HINT}`);
+  } catch (e) { showToast(alertSaveFail(e), true); }
 }
 
 // 讓個別設定回到跟池塘一樣(清掉衝突)
 async function resetAlertNode(id) {
   try {
     await writeAlertControl({ [`nodes/${id}`]: null });
-    showToast(`${boardName(id)} 已改回跟著池塘`);
-  } catch (e) { showToast("設定失敗:" + e.message, true); }
+    showToast(`${boardName(id)} 已改成跟池塘一樣`);
+  } catch (e) { showToast(alertSaveFail(e), true); }
 }
 
 // 板子綁定池塘(寫 Firestore options.nodePonds),寫完立刻同步告警群組
@@ -1612,96 +1791,255 @@ async function bindBoardPond(id, pondId) {
     options.nodePonds = nodePonds;   // onSnapshot 回來前先用新值,讓同步與畫面立即正確
     await syncAlertGroups();
     renderNodesPage();
-    showToast(pondId ? `${boardName(id)} 已設定在 ${pondLabel(pondId)}` : `${boardName(id)} 已改為未設定池塘`);
-  } catch (e) { showToast("設定池塘失敗:" + e.message, true); }
+    // 綁到一個正在暫停的池塘,這片也會跟著暫停 → 要講,不然以為它會通知
+    const followsPaused = pondId && alertState(id).by === "pond" && !pondAlertOn(pondId);
+    showToast(pondId
+      ? `✓ ${boardName(id)} 已設定在 ${pondLabel(pondId)}${followsPaused ? `(這個池塘暫停通知中,這片也會跟著暫停)` : ""}`
+      : `✓ ${boardName(id)} 已取消指定池塘`);
+  } catch (e) { showToast("沒存成功,請再試一次(" + e.message + ")", true); }
 }
 
-// 一列池塘(池塘群組底下,或「未分群組」裡)
+// 從池塘這邊增減板子:勾選 = 放在這池,取消勾選 = 移出(變成沒指定池塘)。
+// 列出所有可設定的板子(看門狗除外),每片標出目前在哪,勾了別池的板子 = 從那池移過來。
+// 只在畫面上改勾選狀態(不重畫整個清單,捲動位置才不會跳),按「儲存」才回傳 { added, removed }。
+function choosePondBoards(pid) {
+  return new Promise((resolve) => {
+    const overlay = $("#pondBoardsOverlay");
+    const list = $("#pondBoardsList");
+    const ids = alertableIds();
+    const before = new Set(pondBoards(pid));
+    const sel = new Set(before);
+    const where = (id) => {
+      const cur = boardPond(id);
+      return cur === pid ? "在這池" : cur ? `目前在「${pondName(cur)}」` : "沒指定池塘";
+    };
+    $("#pondBoardsTitle").textContent = `「${pondName(pid)}」的板子`;
+    list.innerHTML = ids.length
+      ? ids.map((id) => `<label class="pb-item${sel.has(id) ? " on" : ""}">
+          <input type="checkbox" data-pb="${escapeHtml(id)}"${sel.has(id) ? " checked" : ""} />
+          <b>${escapeHtml(boardName(id))}</b><small>${escapeHtml(where(id))}</small>
+        </label>`).join("")
+      : `<p class="nodes-empty">還沒有任何板子</p>`;
+    list.scrollTop = 0;
+    const diff = () => ({
+      added: ids.filter((id) => sel.has(id) && !before.has(id)),
+      removed: ids.filter((id) => !sel.has(id) && before.has(id)),
+    });
+    const paint = () => {
+      const { added, removed } = diff();
+      const moved = (id) => boardPond(id) && boardPond(id) !== pid ? `(從「${pondName(boardPond(id))}」移過來)` : "";
+      $("#pondBoardsSummary").innerHTML = !added.length && !removed.length ? `<span class="pb-none">還沒有變更</span>`
+        : [added.length && `<b>加入</b> ${added.map((id) => escapeHtml(boardName(id) + moved(id))).join("、")}`,
+           removed.length && `<b>移出</b> ${removed.map((id) => escapeHtml(boardName(id))).join("、")}(變成沒指定池塘)`]
+          .filter(Boolean).join("<br>");
+      $("#pondBoardsOk").disabled = !added.length && !removed.length;
+    };
+    paint();
+    const close = (result) => {
+      overlay.hidden = true;
+      overlay.removeEventListener("click", onClick);
+      list.removeEventListener("change", onChange);
+      document.removeEventListener("keydown", onKey);
+      resolve(result);
+    };
+    const onChange = (e) => {
+      const cb = e.target.closest("[data-pb]");
+      if (!cb) return;
+      cb.checked ? sel.add(cb.dataset.pb) : sel.delete(cb.dataset.pb);
+      cb.closest(".pb-item").classList.toggle("on", cb.checked);
+      paint();
+    };
+    const onClick = (e) => {
+      if (e.target === overlay || e.target.id === "pondBoardsCancel" || e.target.id === "pondBoardsClose") return close(null);
+      if (e.target.id === "pondBoardsOk") return close(diff());
+    };
+    const onKey = (e) => { if (e.key === "Escape") close(null); };
+    overlay.addEventListener("click", onClick);
+    list.addEventListener("change", onChange);
+    document.addEventListener("keydown", onKey);
+    overlay.hidden = false;
+  });
+}
+async function editPondBoards(pid) {
+  const r = await choosePondBoards(pid);
+  if (!r || !db || (!r.added.length && !r.removed.length)) return;
+  const nodePonds = { ...(options.nodePonds || {}) };
+  r.added.forEach((id) => { nodePonds[id] = pid; });
+  r.removed.forEach((id) => { delete nodePonds[id]; });
+  try {
+    await updateDoc(doc(db, ...DB_ROOT, "settings", "options"), { nodePonds });
+    options.nodePonds = nodePonds;   // onSnapshot 回來前先用新值,讓同步與畫面立即正確
+    await syncAlertGroups();
+    renderNodesPage();
+    // 加進一個正在暫停的池塘,跟著池塘走的板子也會一起暫停 → 要講,不然以為它會通知
+    const followsPaused = !pondAlertOn(pid) && r.added.some((id) => alertState(id).by === "pond");
+    showToast(`✓「${pondName(pid)}」`
+      + [r.added.length && `加入 ${boardNames(r.added)}`, r.removed.length && `移出 ${boardNames(r.removed)}`].filter(Boolean).join("、")
+      + (followsPaused ? "(這個池塘暫停通知中,加入的板子也會跟著暫停)" : ""));
+  } catch (e) { showToast("沒存成功,請再試一次(" + e.message + ")", true); }
+}
+
+// 暫停狀態 + 備註(池塘列 / 單獨暫停清單共用)
+function alertOffHtml(e) {
+  return `<span class="alert-st off">🔕 暫停中・${escapeHtml(alertUntilText(e))}</span>`
+    + (e?.note ? `<small class="alert-note-inline">${escapeHtml(e.note)}</small>` : "");
+}
+
+// 通知區的每一列都長一樣:左邊名稱 + 小字說明 + 狀態,右邊固定一顆按鈕(列與列之間細線分隔)
+function alertLineHtml({ name, meta = "", status = "", btn = "", cls = "" }) {
+  return `<div class="alert-line${cls ? ` ${cls}` : ""}">
+    <div class="alert-main">
+      <div class="alert-name">${name}${meta ? ` <small>${meta}</small>` : ""}</div>
+      ${status ? `<div class="alert-sub">${status}</div>` : ""}
+    </div>
+    ${btn ? `<div class="alert-btns">${btn}</div>` : ""}
+  </div>`;
+}
+const alertBtn = (action, id, text, primary = false) =>
+  `<button type="button" class="btn-sm${primary ? " btn-primary" : ""}" data-alert-action="${action}"${id != null ? ` data-alert-id="${escapeHtml(id)}"` : ""}>${text}</button>`;
+// 一組:小標題(右邊可放一顆整組按鈕)+ 內容
+function alertGroupHtml(title, body, headBtn = "") {
+  return `<div class="alert-group">
+    <div class="alert-group-head"><span class="alert-group-t">${title}</span>${headBtn}</div>
+    ${body}
+  </div>`;
+}
+
+// 一列池塘(池塘群組底下,或「沒分群組」裡)
 function alertPondRow(pid) {
   const boards = pondBoards(pid);
   const on = pondAlertOn(pid);
   const g = alertCtl.groups[pondKey(pid)];
   const conflicts = boards.filter((id) => alertState(id).conflict);
-  const status = on ? "" : `<span class="alert-st off">🔕 已關閉・${escapeHtml(alertUntilText(g))}</span>${g?.note ? `<small class="alert-note-inline">${escapeHtml(g.note)}</small>` : ""}`;
   const conflict = conflicts.length
-    ? `<p class="alert-conflict">⚠ ${conflicts.map((id) => escapeHtml(boardName(id))).join("、")} 有個別設定,與池塘不同</p>` : "";
-  return `<div class="alert-pond">
-    <div class="alert-name">${escapeHtml(pondName(pid))} <small>${boards.length} 片${boards.length ? `:${boards.map((id) => escapeHtml(boardName(id))).join("、")}` : ""}</small>
-      <button type="button" class="btn-sm${on ? "" : " btn-primary"}" data-alert-action="pond-toggle" data-alert-id="${escapeHtml(pid)}">${on ? "關閉" : "開啟"}</button>
-      ${status}
-    </div>${conflict}
+    ? `<span class="alert-conflict">⚠ ${conflicts.map((id) => escapeHtml(boardName(id))).join("、")} 是單獨設定,和這個池塘不一樣</span>` : "";
+  return alertLineHtml({
+    cls: "alert-pond",
+    name: escapeHtml(pondName(pid)),
+    meta: `${boards.length} 片${boards.length ? `:${boards.map((id) => escapeHtml(boardName(id))).join("、")}` : ""}`,
+    status: (on ? `<span class="alert-st on">會通知</span>` : alertOffHtml(g)) + conflict,
+    btn: alertBtn("pond-boards", pid, "增減板子") + alertBtn("pond-toggle", pid, on ? "暫停通知" : "恢復通知", !on),
+  });
+}
+
+// 還沒放板子的池塘:列成一排池塘名稱按鈕,點了直接開「增減板子」加板子進去
+function emptyPondsHtml(pids, lead) {
+  if (!pids.length) return "";
+  return `<div class="alert-pond-empty">${lead}
+    <div class="alert-pond-chips">${pids.map((pid) => `<button type="button" class="chip-btn" data-alert-action="pond-boards" data-alert-id="${escapeHtml(pid)}">＋ ${escapeHtml(pondName(pid))}</button>`).join("")}</div>
   </div>`;
 }
 
-// 板子頁的「告警開關」區塊:池塘群組 → 池塘兩層 + 未綁定 / 個別關閉的板子
+// 板子頁的「通知」區塊,分三組(有內容才出現):
+//   單獨暫停的板子(可直接恢復)→ 還沒指定池塘(提醒去設定)→ 依池塘(池塘群組 → 池塘)
 function alertControlSection() {
   const ids = alertableIds();
   if (!ids.length) return "";
   const offCount = ids.filter((id) => !alertState(id).on).length;
+
+  // 單獨暫停的板子:每片一列、直接按「恢復通知」,不必一片片點開方塊
+  const looseOff = ids.filter((id) => { const s = alertState(id); return s.by === "node" && !s.on; });
+  const loose = looseOff.length
+    ? alertGroupHtml(`單獨暫停的板子(${looseOff.length})`,
+        looseOff.map((id) => alertLineHtml({
+          name: escapeHtml(boardName(id)),
+          meta: boardPond(id) ? escapeHtml(pondName(boardPond(id))) : "沒指定池塘",
+          status: alertOffHtml(alertCtl.nodes[id]),
+          btn: alertBtn("node-toggle", id, "恢復通知", true),
+        })).join(""),
+        looseOff.length >= 2 ? alertBtn("resume-all", null, "全部恢復") : "")
+    : "";
+
+  // 沒指定池塘的板子:不受池塘開關控制,提醒去設定(按鈕直接進「一次設定多片的池塘」)
+  //「一次設定多片」只管斷電偵測板;魚塭板子 / 其他板子各一列,按「設定」開它的詳細改「所在池塘」。
+  // 不寫「一樣會通知」:清單裡可能有單獨暫停中的板子,會和上面那組互相矛盾。
+  const unbound = ids.filter((id) => !boardPond(id));
+  const unboundHb = unbound.filter((id) => isHeartbeat(nodeLastData[id]));
+  const unboundOther = unbound.filter((id) => !isHeartbeat(nodeLastData[id]));
+  const unboundGroup = unbound.length
+    ? alertGroupHtml(`還沒指定池塘(${unbound.length})`,
+        (unboundHb.length ? `<p class="alert-group-note"><b>${escapeHtml(boardNames(unboundHb, 6))}</b></p>` : "")
+        + unboundOther.map((id) => alertLineHtml({ name: escapeHtml(boardName(id)), btn: alertBtn("open-node", id, "設定") })).join("")
+        + `<p class="alert-group-note">沒指定池塘的板子,不能跟著池塘一起暫停。</p>`,
+        unboundHb.length ? alertBtn("bind-unbound", null, "現在指定") : "")
+    : "";
+
+  // 依池塘:池塘群組一列(整組按鈕),底下縮排列出有板子的池塘
   const tagRows = (options.tags || []).map((tag) => {
     const pids = tagPonds(tag);
-    const offPonds = pids.filter((pid) => !pondAlertOn(pid)).length;
-    const n = pids.reduce((sum, pid) => sum + pondBoards(pid).length, 0);
-    const allOff = pids.length > 0 && offPonds === pids.length;
-    // 還沒綁板子的池塘不逐列顯示(會很長),收成一行;整組開關仍會一起設定它們,之後綁上板子就生效
+    // 狀態與按鈕只看有板子的池塘(畫面上看得到的那幾列);整組暫停時仍會連空池塘一起設定
+    const used = pids.filter((pid) => pondBoards(pid).length);
+    const offPonds = used.filter((pid) => !pondAlertOn(pid)).length;
+    const n = used.reduce((sum, pid) => sum + pondBoards(pid).length, 0);
+    const allOff = used.length > 0 && offPonds === used.length;
+    // 還沒放板子的池塘不逐列顯示(會很長),收成一句;整組暫停仍會一起設定它們,之後放上板子就生效
     const empties = pids.filter((pid) => !pondBoards(pid).length);
     const emptyLine = empties.length
-      ? `<p class="alert-pond-empty">尚無板子:${empties.map((pid) => escapeHtml(pondName(pid))).join("、")}</p>` : "";
-    const status = allOff ? `<span class="alert-st off">🔕 全部關閉</span>`
-      : offPonds ? `<span class="alert-st part">${offPonds}/${pids.length} 池已關閉</span>` : "";
-    return `<div class="alert-row">
-      <div class="alert-name alert-tag">${escapeHtml(tag)} <small>${pids.length} 池・${n} 片</small>
-        <button type="button" class="btn-sm${allOff ? " btn-primary" : ""}" data-alert-action="tag-toggle" data-alert-id="${escapeHtml(tag)}">${allOff ? "全部開啟" : "全部關閉"}</button>
-        ${status}
-      </div>
-      ${pids.filter((pid) => pondBoards(pid).length).map(alertPondRow).join("")}
-      ${emptyLine || (pids.length ? "" : `<p class="nodes-empty">這個群組還沒有池塘</p>`)}
+      ? emptyPondsHtml(empties, used.length ? `另有 ${empties.length} 池還沒放板子,點池塘名稱加板子:` : `${empties.length} 池都還沒放板子,點池塘名稱加板子:`)
+      : pids.length ? "" : `<p class="alert-pond-empty">這個群組還沒有池塘</p>`;
+    const status = allOff ? `<span class="alert-st off">🔕 整組暫停中</span>`
+      : offPonds ? `<span class="alert-st part">${offPonds} 池暫停中</span>` : "";
+    const btns = n
+      ? (allOff ? "" : alertBtn("tag-off", tag, "整組暫停")) + (offPonds ? alertBtn("tag-on", tag, "整組恢復", true) : "")
+      : "";
+    return `<div class="alert-tagrow">
+      ${alertLineHtml({ cls: "alert-tag", name: escapeHtml(tag), meta: `${n} 片板子`, status, btn: btns })}
+      ${used.map(alertPondRow).join("")}
+      ${emptyLine}
     </div>`;
   }).join("");
-  // 有綁板子、但池塘沒有任何池塘群組 → 另外列,才關得到
-  const untagged = (options.ponds || []).map((p) => p.id)
-    .filter((pid) => pondBoards(pid).length && !((options.pondTags || {})[pid] || []).some((t) => (options.tags || []).includes(t)));
-  const untaggedRows = untagged.length
-    ? `<div class="alert-row"><div class="alert-name alert-tag">未分群組的池塘</div>${untagged.map(alertPondRow).join("")}</div>` : "";
-  // 沒綁池塘的板子:不受池塘開關控制,提醒去綁
-  const unbound = ids.filter((id) => !boardPond(id));
-  const unboundLine = unbound.length
-    ? `<p class="alert-loose warn">還沒設定池塘的板子 ${unbound.length} 片:${unbound.slice(0, 10).map((id) => escapeHtml(boardName(id))).join("、")}${unbound.length > 10 ? ` 等` : ""}
-       <small class="block">用下方「斷電偵測」的「一次設定多片」就能一起設定</small></p>` : "";
-  // 被個別關掉的板子:集中列出,免得只能一片片點開看
-  const looseOff = ids.filter((id) => alertState(id).by === "node" && !alertState(id).on);
-  const loose = looseOff.length
-    ? `<p class="alert-loose">個別關閉:${looseOff.map((id) => `${escapeHtml(boardName(id))}(${escapeHtml(alertUntilText(alertCtl.nodes[id]))})`).join("、")}</p>` : "";
+  // 沒有任何池塘群組的池塘 → 另外列:有板子的才暫停得到,沒板子的才加得了板子
+  const untaggedAll = (options.ponds || []).map((p) => p.id)
+    .filter((pid) => !((options.pondTags || {})[pid] || []).some((t) => (options.tags || []).includes(t)));
+  const untagged = untaggedAll.filter((pid) => pondBoards(pid).length);
+  const untaggedEmpty = untaggedAll.filter((pid) => !pondBoards(pid).length);
+  const untaggedRows = untaggedAll.length
+    ? `<div class="alert-tagrow">${alertLineHtml({ cls: "alert-tag", name: "沒分群組的池塘" })}${untagged.map(alertPondRow).join("")}`
+      + emptyPondsHtml(untaggedEmpty, untagged.length ? `另有 ${untaggedEmpty.length} 池還沒放板子,點池塘名稱加板子:` : "還沒放板子,點池塘名稱加板子:")
+      + `</div>` : "";
+  const byPond = alertGroupHtml("依池塘",
+    (tagRows + untaggedRows) || `<p class="alert-group-note">還沒有池塘群組,可到「設定」頁新增</p>`);
+
   return `<div class="card nodes-card alert-card">
     <div class="nodes-head">
-      <span class="nodes-title">🔔 告警開關</span>
-      <span class="nodes-count">${offCount ? `<b class="err">${offCount} 片已關閉</b>` : "全部開啟"}</span>
+      <span class="nodes-title">🔔 通知(Discord・電話)</span>
+      <span class="nodes-count">${offCount ? `<b class="part">${offCount} 片暫停中</b>` : "全部會通知"}</span>
     </div>
-    <p class="nodes-empty">可以整個池塘群組、單一池塘、或單片板子(點方塊)開關。群組與池塘在「設定」頁管理,板子設定好池塘後,就會跟著該池塘開關。關閉後仍會偵測、記錄斷線,只是不發 Discord、不打電話,最多 1 分鐘生效。</p>
-    ${tagRows || `<p class="nodes-empty">還沒有池塘群組,請先到「設定」頁新增</p>`}
-    ${untaggedRows}${loose}${unboundLine}
+    <p class="nodes-desc">板子沒回報時,會傳 Discord、打電話。暫停期間照樣記錄,只是不通知。</p>
+    ${loose}${unboundGroup}${byPond}
   </div>`;
 }
 
-// 板子詳細(卡片 / modal)裡的綁定池塘 + 告警列
+// 板子詳細(卡片 / modal)裡的通知列 + 所在池塘
 function alertNodeHtml(id) {
   if (id === "watchdog" || !nodeLastData?.[id]) return "";
   const st = alertState(id);
-  const pondOpts = [`<option value="">(未設定)</option>`]
+  const pondOpts = [`<option value="">(沒指定池塘)</option>`]
     .concat((options.ponds || []).map((p) => `<option value="${escapeHtml(p.id)}"${p.id === st.pid ? " selected" : ""}>${escapeHtml(pondLabel(p.id))}</option>`))
     .join("");
   const bind = `<label class="alert-bind">所在池塘
     <select data-bind-board="${escapeHtml(id)}">${pondOpts}</select></label>`;
-  const by = st.by === "node" ? "個別設定" : st.pid ? `跟著「${escapeHtml(pondName(st.pid))}」` : "未設定池塘・預設";
-  const state = st.on ? "告警開啟" : `🔕 已關閉・${escapeHtml(alertUntilText(st.entry))}`;
+  const by = st.by === "node" ? "這片單獨設定" : st.pid ? `跟「${escapeHtml(pondName(st.pid))}」一起` : "還沒指定池塘";
+  const state = st.on ? "會通知" : `🔕 暫停中・${escapeHtml(alertUntilText(st.entry))}`;
   const note = !st.on && st.entry?.note ? `・${escapeHtml(st.entry.note)}` : "";
   const conflict = st.conflict
-    ? `<p class="alert-conflict">⚠ 個別設定為「${st.on ? "開啟" : "關閉"}」,但「${escapeHtml(pondName(st.pid))}」是${boardGroupOn(id) ? "開啟" : "關閉"}
-       <button type="button" class="btn-sm" data-alert-action="node-reset" data-alert-id="${escapeHtml(id)}">改回跟著池塘</button></p>` : "";
-  return `${bind}<div class="alert-node">
+    ? `<p class="alert-conflict">⚠ 這片單獨設成「${st.on ? "會通知" : "暫停"}」,但「${escapeHtml(pondName(st.pid))}」是${boardGroupOn(id) ? "會通知" : "暫停"}
+       <button type="button" class="btn-sm" data-alert-action="node-reset" data-alert-id="${escapeHtml(id)}">改成跟池塘一樣</button></p>` : "";
+  return `<div class="alert-node">
     <div><span class="alert-st ${st.on ? "on" : "off"}">${state}</span><small>${by}${note}</small></div>
-    <button type="button" class="btn-sm${st.on ? "" : " btn-primary"}" data-alert-action="node-toggle" data-alert-id="${escapeHtml(id)}">${st.on ? "關閉告警" : "開啟告警"}</button>
-  </div>${conflict}`;
+    <button type="button" class="btn-sm${st.on ? "" : " btn-primary"}" data-alert-action="node-toggle" data-alert-id="${escapeHtml(id)}">${st.on ? "暫停通知" : "恢復通知"}</button>
+  </div>${conflict}${bind}`;
+}
+
+// 「現在指定」:直接進「一次設定多片」並只顯示沒指定池塘的,捲到方塊區
+function startBindUnbound() {
+  closeNodeModal();
+  nodeBatchMode = true;
+  nodeBatchSel.clear();
+  nodeFilterBeforeBind = nodeFilter;   // 離開設定模式時還原
+  nodeFilter = "unbound";
+  renderNodesPage();
+  $("#nodeTiles")?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function setupAlertControl() {
@@ -1711,10 +2049,15 @@ function setupAlertControl() {
     if (!b) return;
     const id = b.dataset.alertId;
     ({
-      "tag-toggle": () => toggleAlertTag(id),
+      "tag-off": () => setAlertTag(id, false),
+      "tag-on": () => setAlertTag(id, true),
       "pond-toggle": () => toggleAlertPond(id),
       "node-toggle": () => toggleAlertNode(id),
       "node-reset": () => resetAlertNode(id),
+      "resume-all": () => resumeAlertNodes(alertableIds().filter((x) => { const s = alertState(x); return s.by === "node" && !s.on; })),
+      "bind-unbound": startBindUnbound,
+      "open-node": () => openNodeModal(id),
+      "pond-boards": () => editPondBoards(id),
     })[b.dataset.alertAction]?.();
   });
   document.addEventListener("change", (e) => {
@@ -1725,30 +2068,91 @@ function setupAlertControl() {
   loadAlertControl().then(syncAlertGroups);
 }
 
+// 頁首的「現在狀況」:家人打開這頁只想知道一件事——有沒有事要處理。
+// 會通知的板子有狀況 → 紅 / 黃,點名是哪幾片;沒有 → 綠「一切正常」。
+// 暫停通知的另外一行灰字說明(轉換電路等施工時會刻意暫停,不算「有事」,但要看得到)。
+function nodesSummaryHtml() {
+  const data = nodeLastData;
+  const fetched = nodeFetchedAt ? nodeHm(new Date(nodeFetchedAt)) : "";
+  // 讀不到最新資料:不要用舊資料下「一切正常」或「已通知」的結論
+  if (nodeLastError || (nodeFetchedAt && Date.now() - nodeFetchedAt > 2 * NODE_POLL_MS)) {
+    const offline = navigator.onLine === false;
+    return `<div class="card nodes-card nodes-sum unknown">
+      <div class="nodes-sum-t">暫時讀不到最新狀態</div>
+      <div class="nodes-sum-s">${offline ? "請檢查手機網路・" : ""}${fetched ? `最後更新 ${fetched}` : ""}${
+        !offline && nodeLastError ? ` <small class="nodes-tech">(${escapeHtml(nodeLastError)})</small>` : ""}</div>
+    </div>`;
+  }
+  const all = [...Object.keys(NODE_LABELS), ...heartbeatIds(data), ...otherNodeIds(data)];
+  const bad = all.filter((id) => nodeState(id, data[id]).cls !== "ok");
+  const watchedBad = bad.filter((id) => !nodeMuted(id));
+  const mutedBad = bad.filter(nodeMuted);
+  const paused = all.filter((id) => data[id] && nodeMuted(id));
+  let cls, title, sub;
+  if (watchedBad.length) {
+    cls = watchedBad.some((id) => nodeState(id, data[id]).cls === "err") ? "err" : "pending";
+    const one = watchedBad.length === 1 ? nodeStateShort(watchedBad[0], data[watchedBad[0]]) : "沒回報";
+    title = `⚠ ${escapeHtml(boardNames(watchedBad))} ${escapeHtml(one)}`;
+    // 說法照 watchdog 的實際行為:沒回報約 5 分鐘就傳 Discord,沒人按 ✅ 再過約 10 分鐘才打電話;
+    // 剛開機不會通知;整個不見的(devices 裡沒有)watchdog 看不到,也不會通知
+    sub = watchedBad.includes("watchdog")
+      ? "家裡警報板沒回報時,其他板子出事也不會有人收到通知,請去看看"
+      : watchedBad.every((id) => !data[id]) ? "還沒收到資料,不會通知,請檢查這片"
+      : watchedBad.every((id) => nodeJustBooted(data[id])) ? "剛開機,等它對好時間"
+      : "已傳 Discord,沒人按 ✅ 會打電話";
+  } else if (data.watchdog?.latest?.alerting === true) {
+    // 板子剛恢復時,家裡警報板的狀態最多晚 1 分鐘才更新
+    cls = "pending";
+    title = "⚠ 家裡警報板正在發通知";
+    sub = "如果板子剛恢復,1 分鐘內會停;沒停請看 Discord";
+  } else {
+    cls = "ok";
+    title = "✅ 一切正常";
+    const watched = all.filter((id) => !nodeMuted(id));
+    sub = paused.length ? `會通知的 ${watched.length} 片板子都有回報` : `${all.length} 片板子都有回報`;
+  }
+  const pausedNote = !mutedBad.length ? ""
+    : mutedBad.length === paused.length ? (paused.length > 1 ? "(都沒回報)" : "(沒回報)")
+    : `(其中 ${mutedBad.length} 片沒回報)`;
+  const pausedLine = paused.length
+    ? `<p class="nodes-sum-paused">🔕 ${escapeHtml(boardNames(paused))} 暫停通知中${pausedNote}</p>` : "";
+  return `<div class="card nodes-card nodes-sum ${cls}">
+    <div class="nodes-sum-t">${title}</div>
+    <div class="nodes-sum-s">${escapeHtml(sub)}${fetched ? `・${fetched} 更新` : ""}</div>
+    ${pausedLine}
+  </div>`;
+}
+
 function renderNodesPage() {
   const box = $("#nodesContainer");
   if (!box) return;
   if (!nodeLastData) {
     box.innerHTML = `<div class="card"><p class="nodes-empty">${
-      nodeLastError ? `讀不到板子資料:${escapeHtml(nodeLastError)}` : "查詢中…"
+      nodeLastError ? `暫時讀不到板子資料,請檢查手機網路。<small class="nodes-tech">(${escapeHtml(nodeLastError)})</small>` : "查詢中…"
     }</p></div>`;
     return;
   }
-  // 固定兩片用完整卡片(寬螢幕並排);斷電偵測板 / 其他板子數量會很多,改用小方塊格狀排列,
-  // 點方塊才開完整資料(modal)。避免板子一多整頁無限往下長。
+  // 順序照家人關心的程度:現在狀況 → 斷電偵測方塊 → 通知開關 → 其他 → 固定兩片。
+  // 斷電偵測板 / 其他板子數量會很多,用小方塊格狀排列,點方塊才開完整資料(modal),避免整頁無限往下長。
   const fixed = Object.keys(NODE_LABELS).map((id) => nodeCard(id, nodeLastData[id])).join("");
-  box.innerHTML =
-    `<div class="nodes-fixed">${fixed}</div>` +
-    alertControlSection() +
-    nodeTileSection("斷電偵測", heartbeatIds(nodeLastData), { batch: true }) +
-    nodeTileSection("其他板子", otherNodeIds(nodeLastData));
+  // 版面:電腦上主欄(現在狀況、方塊、通知)+ 右側固定寬的側欄(魚塭板子、家裡警報板),
+  // 兩欄上緣對齊;手機上側欄自然接在主欄後面,順序不變。
+  box.innerHTML = `<div class="nodes-layout">
+    <div class="nodes-main">${
+      nodesSummaryHtml() +
+      nodeTileSection("斷電偵測", heartbeatIds(nodeLastData), { batch: true, anchor: "nodeTiles" }) +
+      alertControlSection() +
+      nodeTileSection("其他板子", otherNodeIds(nodeLastData))
+    }</div>
+    <aside class="nodes-side">${fixed}</aside>
+  </div>`;
   if (nodeOpenId) renderNodeModal();
 }
 
-// 方塊上的短狀態:正常 / 7分 / 失聯2時。完整說明在 modal 裡。
+// 方塊上的短狀態:正常 / 沒回報 7分鐘。完整說明在 modal 裡。
 function nodeShortAgo(sec) {
-  if (sec < 3600) return `${Math.max(1, Math.round(sec / 60))}分`;
-  if (sec < 86400) return `${Math.round(sec / 3600)}時`;
+  if (sec < 3600) return `${Math.max(1, Math.round(sec / 60))}分鐘`;
+  if (sec < 86400) return `${Math.round(sec / 3600)}小時`;
   return `${Math.round(sec / 86400)}天`;
 }
 function nodeTile(id) {
@@ -1756,60 +2160,72 @@ function nodeTile(id) {
   const st = nodeState(id, node);
   const age = nodeAge[id];
   const short = st.cls === "ok" ? "正常"
-    : !node || !Number.isFinite(age) ? "無資料"
-    : st.cls === "err" ? `失聯 ${nodeShortAgo(age)}` : `${nodeShortAgo(age)}沒回報`;
+    : nodeJustBooted(node) ? "剛開機"
+    : !node || !Number.isFinite(age) ? "還沒收到資料"
+    : `沒回報 ${nodeShortAgo(age)}`;
   const muted = !alertState(id).on;
-  // 編號右邊:近 24 小時斷了幾次(含斷電與其他原因;有斷電時橘色加 ⚡)。細節點進去看
-  const all = powerCount(id, 24), power = powerCount(id, 24, true);
-  const cuts = all
-    ? `<span class="node-tile-cut${power ? " power" : ""}" title="近 24 小時斷線 ${all} 次(其中斷電 ${power} 次)">${power ? "⚡" : ""}斷${all}次</span>`
-    : "";
+  // 編號右邊:近 24 小時斷電幾次(只算斷電;網路斷不在意,點進去才看得到)
+  const power = powerCount(id, 24, true);
+  const cuts = power
+    ? `<span class="node-tile-cut power" title="近 24 小時斷電 ${power} 次">⚡斷電${power}次</span>` : "";
   const pond = boardPond(id) ? pondName(boardPond(id)) : "";
   const cls = `node-tile ${st.cls}${muted ? " muted" : ""}${nodeBatchMode && nodeBatchSel.has(id) ? " picked" : ""}`;
-  return `<button type="button" class="${cls}" data-node="${escapeHtml(id)}" title="${escapeHtml(st.text)}${muted ? "(告警已關閉)" : ""}">
+  return `<button type="button" class="${cls}" data-node="${escapeHtml(id)}" title="${escapeHtml(st.text)}${muted ? "(暫停通知中)" : ""}">
     <span class="node-tile-top">
       <span class="node-tile-id">${escapeHtml(nodeLabel(id, node))}</span>${cuts}
     </span>
     <span class="node-tile-st">${escapeHtml(short)}</span>
     <span class="node-tile-foot">
-      <span class="node-tile-pond">${pond ? escapeHtml(pond) : "未設定池塘"}</span>${muted ? `<span class="node-tile-mute" title="告警已關閉">🔕</span>` : ""}
+      <span class="node-tile-pond${pond ? "" : " none"}">${pond ? escapeHtml(pond) : "沒指定池塘"}</span>${muted ? `<span class="node-tile-mute">🔕暫停</span>` : ""}
     </span>
   </button>`;
 }
 
-// 一組方塊:標題列附統計(正常 / 異常),可切「全部 / 只看異常 / 未綁定」。
+// 一組方塊:標題列附統計(正常 / 沒回報),可切「全部 / 只看有狀況的 / 沒指定池塘」。
 // 排序固定照編號,不因狀態跳動 —— 線路多時,位置固定比較好找。
-// batch = true 的區塊(斷電偵測)有「批次綁定」:點方塊多選、或用編號範圍選取,一次綁到同一個池塘。
+// batch = true 的區塊(斷電偵測)有「一次設定多片的池塘」:點方塊多選、或用編號範圍選取,一次設到同一個池塘。
 let nodeFilter = "all";   // all | bad | unbound
-function nodeTileSection(title, ids, { batch = false } = {}) {
+function nodeTileSection(title, ids, { batch = false, anchor = "" } = {}) {
   if (!ids.length) return "";
   const bad = ids.filter((id) => nodeState(id, nodeLastData[id]).cls !== "ok");
+  // 紅字只給會通知的;暫停中的灰字(顏色規則:紅 = 會通知而且出事,灰 = 暫停中)
+  const badOn = bad.filter((id) => !nodeMuted(id)), badMuted = bad.filter(nodeMuted);
   const unbound = ids.filter((id) => !boardPond(id));
   const shown = nodeFilter === "bad" ? bad : nodeFilter === "unbound" ? unbound : ids;
-  const empty = nodeFilter === "bad" ? "全部正常 👍" : "全部都設定好池塘了 👍";
+  const empty = nodeFilter === "bad" ? "全部正常 👍" : "全部都指定好池塘了 👍";
   const tiles = shown.length
     ? `<div class="node-grid">${shown.map(nodeTile).join("")}</div>`
     : `<p class="nodes-empty">${empty}</p>`;
   const chip = (key, label) => `<button type="button" class="chip-btn${nodeFilter === key ? " active" : ""}" data-node-filter="${key}">${label}</button>`;
   const batchBtn = batch
-    ? `<button type="button" class="btn-sm nodes-batch-btn${nodeBatchMode ? " btn-primary" : ""}" data-batch="toggle">${nodeBatchMode ? "取消" : "一次設定多片"}</button>` : "";
-  return `<div class="card nodes-card">
+    ? `<button type="button" class="btn-sm nodes-batch-btn${nodeBatchMode ? " btn-primary" : ""}" data-batch="toggle">${nodeBatchMode ? "取消" : "一次設定多片的池塘"}</button>` : "";
+  const hasPower = ids.some((id) => powerCount(id, 24, true));
+  const hasMuted = ids.some((id) => !alertState(id).on);
+  const legend = [hasPower && "⚡ 近 24 小時斷電次數", hasMuted && "🔕 暫停通知(不傳 Discord、不打電話)", "點方塊看詳細"].filter(Boolean).join("・");
+  return `<div class="card nodes-card"${anchor ? ` id="${anchor}"` : ""}>
     <div class="nodes-head">
       <span class="nodes-title">${escapeHtml(title)}${batchBtn}</span>
-      <span class="nodes-count">${ids.length - bad.length}/${ids.length} 正常${bad.length ? `<b class="err">・${bad.length} 異常</b>` : ""}</span>
+      <span class="nodes-count">${ids.length - bad.length}/${ids.length} 正常${badOn.length ? `<b class="err">・${badOn.length} 片沒回報</b>` : ""}${badMuted.length ? `・${badMuted.length} 片暫停中沒回報` : ""}</span>
     </div>
     <div class="nodes-filter">
-      ${chip("all", `全部 ${ids.length}`)}${chip("bad", `只看異常 ${bad.length}`)}${chip("unbound", `未設定池塘 ${unbound.length}`)}
+      ${chip("all", `全部 ${ids.length}`)}${chip("bad", `只看有狀況的 ${bad.length}`)}${chip("unbound", `沒指定池塘 ${unbound.length}`)}
     </div>
     ${batch && nodeBatchMode ? nodeBatchTools(shown) : ""}
     ${tiles}
+    <p class="node-legend">${legend}</p>
     ${batch && nodeBatchMode ? nodeBatchBar() : ""}
   </div>`;
 }
 
-// ---------- 批次綁定 ----------
+// ---------- 一次設定多片的池塘 ----------
 let nodeBatchMode = false;
 const nodeBatchSel = new Set();
+let nodeFilterBeforeBind = null;   //「現在指定」進來前的篩選
+function exitBatchMode() {
+  nodeBatchMode = false;
+  nodeBatchSel.clear();
+  if (nodeFilterBeforeBind != null) { nodeFilter = nodeFilterBeforeBind; nodeFilterBeforeBind = null; }
+}
 // 輸入框 / 下拉的值存起來:頁面每分鐘重畫,不存會被清掉
 const nodeBatchForm = { from: "", to: "", pond: "" };
 
@@ -1819,10 +2235,10 @@ function boardIdParts(id) {
   return m ? [m[1].toUpperCase(), Number(m[2])] : null;
 }
 
-// 上方工具列:編號範圍選取、全選目前顯示的、清除
+// 上方工具列:步驟說明、編號範圍選取、全選目前顯示的、清除
 function nodeBatchTools(shown) {
   return `<div class="batch-tools">
-    <p class="nodes-empty">點選要設定的板子,或輸入編號一次選一段。</p>
+    <p class="nodes-empty">① 點選板子(或輸入編號一次選一段) ② 在最下面選池塘 ③ 按「套用」</p>
     <div class="batch-range">
       <input type="text" class="batch-input" data-batch-field="from" placeholder="從 A10" value="${escapeHtml(nodeBatchForm.from)}" />
       <span>~</span>
@@ -1830,16 +2246,17 @@ function nodeBatchTools(shown) {
       <button type="button" class="btn-sm" data-batch="range">選這一段</button>
     </div>
     <div class="batch-quick">
-      <button type="button" class="btn-sm" data-batch="all" data-batch-ids="${escapeHtml(shown.join(","))}">全選目前顯示的 ${shown.length} 片</button>
+      <button type="button" class="btn-sm" data-batch="all" data-batch-ids="${escapeHtml(shown.join(","))}">全選下面的 ${shown.length} 片</button>
       <button type="button" class="btn-sm" data-batch="clear">清除選取</button>
     </div>
   </div>`;
 }
 
-// 下方固定列(捲動時黏在分頁列上方):已選幾片 → 綁到哪個池塘 → 取消 / 套用
+// 下方固定列(捲動時黏在分頁列上方):已選幾片 → 設到哪個池塘 → 取消 / 套用
 function nodeBatchBar() {
-  const opts = [`<option value="">選擇池塘…</option>`, `<option value="__none"${nodeBatchForm.pond === "__none" ? " selected" : ""}>(未設定)</option>`]
+  const opts = [`<option value="">選擇池塘…</option>`]
     .concat((options.ponds || []).map((p) => `<option value="${escapeHtml(p.id)}"${p.id === nodeBatchForm.pond ? " selected" : ""}>${escapeHtml(pondLabel(p.id))}</option>`))
+    .concat(`<option value="__none"${nodeBatchForm.pond === "__none" ? " selected" : ""}>(清除池塘設定)</option>`)
     .join("");
   return `<div class="batch-bar">
     <b>已選 ${nodeBatchSel.size} 片</b>
@@ -1851,10 +2268,10 @@ function nodeBatchBar() {
 
 function selectBoardRange() {
   const a = boardIdParts(nodeBatchForm.from), b = boardIdParts(nodeBatchForm.to || nodeBatchForm.from);
-  if (!a || !b) { showToast("編號格式要像 A10", true); return; }
+  if (!a || !b) { showToast("請輸入板子編號,例如 A10", true); return; }
   // 只打數字時沿用另一端的字首(例如「A10 ~ 25」)
   const prefix = a[0] || b[0] || "A";
-  if ((a[0] || prefix) !== (b[0] || prefix)) { showToast("範圍兩端的字首要相同", true); return; }
+  if ((a[0] || prefix) !== (b[0] || prefix)) { showToast("前面的英文字母要一樣(例如 A10 到 A25)", true); return; }
   const lo = Math.min(a[1], b[1]), hi = Math.max(a[1], b[1]);
   const hit = heartbeatIds(nodeLastData).filter((id) => {
     const p = boardIdParts(id);
@@ -1866,7 +2283,7 @@ function selectBoardRange() {
   renderNodesPage();
 }
 
-// 一次寫入:所有選取的板子綁到同一個池塘(或解除綁定),再同步告警群組
+// 一次寫入:所有選取的板子設到同一個池塘(或清除),再同步告警群組
 async function applyBatchBind() {
   if (!db || !nodeBatchSel.size || !nodeBatchForm.pond) return;
   const pondId = nodeBatchForm.pond === "__none" ? "" : nodeBatchForm.pond;
@@ -1877,11 +2294,10 @@ async function applyBatchBind() {
     await updateDoc(doc(db, ...DB_ROOT, "settings", "options"), { nodePonds });
     options.nodePonds = nodePonds;   // onSnapshot 回來前先用新值
     await syncAlertGroups();
-    nodeBatchSel.clear();
-    nodeBatchMode = false;   // 套用完就離開批次模式;要再設定下一批,重按「一次設定多片」
+    exitBatchMode();   // 套用完就離開;要再設定下一批,重按「一次設定多片的池塘」
     renderNodesPage();
-    showToast(pondId ? `${ids.length} 片已設定在 ${pondLabel(pondId)}` : `${ids.length} 片已改為未設定池塘`);
-  } catch (e) { showToast("設定池塘失敗:" + e.message, true); }
+    showToast(pondId ? `✓ ${ids.length} 片已設定在 ${pondLabel(pondId)}` : `✓ ${ids.length} 片已清除池塘設定`);
+  } catch (e) { showToast("沒存成功,請再試一次(" + e.message + ")", true); }
 }
 
 // 點方塊 → modal 顯示該板完整資料(沿用 nodeCard);資料每分鐘更新時 modal 一起更新。
@@ -1891,7 +2307,7 @@ function renderNodeModal() {
   // 狀態直接放在標題名稱後面(「A01 ● 正常」),卡片本身的標題列在 modal 裡隱藏
   const label = nodeLabel(nodeOpenId, node);
   const st = nodeState(nodeOpenId, node);
-  $("#nodeModalTitle").innerHTML = `${escapeHtml(label)}<span class="node-dot ${st.cls}">${escapeHtml(st.text.replace(label, "").trim() || "正常")}</span>`;
+  $("#nodeModalTitle").innerHTML = `${escapeHtml(label)}<span class="node-dot ${st.cls}${nodeMuted(nodeOpenId) && node ? " muted" : ""}">${escapeHtml(nodeStateShort(nodeOpenId, node))}</span>`;
   $("#nodeModalBody").innerHTML = nodeCard(nodeOpenId, node, Infinity);
 }
 function openNodeModal(id) {
@@ -1920,7 +2336,7 @@ function setupNodesPage() {
     const b = e.target.closest("[data-batch]");
     if (!b) return;
     ({
-      toggle: () => { nodeBatchMode = !nodeBatchMode; nodeBatchSel.clear(); renderNodesPage(); },
+      toggle: () => { if (nodeBatchMode) exitBatchMode(); else { nodeBatchMode = true; nodeBatchSel.clear(); } renderNodesPage(); },
       range: selectBoardRange,
       all: () => { b.dataset.batchIds.split(",").filter(Boolean).forEach((id) => nodeBatchSel.add(id)); renderNodesPage(); },
       clear: () => { nodeBatchSel.clear(); renderNodesPage(); },
@@ -1940,9 +2356,18 @@ function setupNodesPage() {
   box.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && e.target.dataset?.batchField) selectBoardRange();
   });
+  // 記住「進階資訊」摺疊區開著哪幾片(toggle 事件不冒泡,用 capture 接)
+  document.addEventListener("toggle", (e) => {
+    const d = e.target;
+    if (!d.matches?.("details[data-adv]")) return;
+    d.open ? nodeAdvOpen.add(d.dataset.adv) : nodeAdvOpen.delete(d.dataset.adv);
+  }, true);
   $("#nodeModalClose").addEventListener("click", closeNodeModal);
   $("#nodeOverlay").addEventListener("click", (e) => { if (e.target.id === "nodeOverlay") closeNodeModal(); });
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("#nodeOverlay").hidden) closeNodeModal(); });
+  // Esc:上面還疊著確認框 / 暫停框時只關那一層(它們自己會處理),不要連板子 modal 一起關
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !$("#nodeOverlay").hidden && $("#modalOverlay").hidden && $("#alertPauseOverlay").hidden && $("#pondBoardsOverlay").hidden) closeNodeModal();
+  });
 }
 
 // ============================================================
@@ -2421,28 +2846,28 @@ function renderOverview() {
     el.addEventListener("click", () => openSingleMonth(el.dataset.gmonth)));
 }
 
-// 跟隨滑鼠的圖表 tooltip(委派在統計容器上,hover [data-tip] 顯示)
-function setupChartTooltip() {
+// 跟隨滑鼠的圖表 tooltip:text 用「|」分行,第一行粗體。統計頁與板子頁的氣溫圖共用
+function chartTipShow(text, x, y) {
   const tip = $("#chartTip");
-  const containers = ["#statsOverview", "#statsContainer"].map($);
+  tip.innerHTML = text.split("|").map((line, i) =>
+    i === 0 ? `<b>${escapeHtml(line)}</b>` : escapeHtml(line)).join("<br>");
+  tip.hidden = false;
+  // 預設在滑鼠右下,靠近右/下邊界時翻向左/上,避免超出視窗
+  const pad = 14;
+  const w = tip.offsetWidth, h = tip.offsetHeight;
+  let left = x + pad, top = y + pad;
+  if (left + w > window.innerWidth - 8) left = x - w - pad;
+  if (top + h > window.innerHeight - 8) top = y - h - pad;
+  tip.style.left = left + "px";
+  tip.style.top = top + "px";
+}
+function chartTipHide() { $("#chartTip").hidden = true; }
 
-  const show = (text, x, y) => {
-    tip.innerHTML = text.split("|").map((line, i) =>
-      i === 0 ? `<b>${escapeHtml(line)}</b>` : escapeHtml(line)).join("<br>");
-    tip.hidden = false;
-    move(x, y);
-  };
-  const move = (x, y) => {
-    // 預設在滑鼠右下,靠近右/下邊界時翻向左/上,避免超出視窗
-    const pad = 14;
-    const w = tip.offsetWidth, h = tip.offsetHeight;
-    let left = x + pad, top = y + pad;
-    if (left + w > window.innerWidth - 8) left = x - w - pad;
-    if (top + h > window.innerHeight - 8) top = y - h - pad;
-    tip.style.left = left + "px";
-    tip.style.top = top + "px";
-  };
-  const hide = () => { tip.hidden = true; };
+// 統計頁:委派在統計容器上,hover [data-tip] 顯示
+function setupChartTooltip() {
+  const containers = ["#statsOverview", "#statsContainer"].map($);
+  const show = chartTipShow;
+  const hide = chartTipHide;
 
   for (const c of containers) {
     if (!c) continue;
@@ -3600,6 +4025,7 @@ function main() {
   setupTheme();
   setupTabs();
   setupNodesPage();
+  setupNodeChartHover();
   setupAlertControl();
   setupRecordForm();
   setupList();

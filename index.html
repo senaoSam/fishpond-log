@@ -200,7 +200,7 @@
     <!-- 資料來自 esp32 專案的 RTDB(與本站 Firestore 不同專案),見 app.js 的節點心跳章節 -->
     <section id="page-nodes" class="page">
       <h2>板子狀態</h2>
-      <p class="hint">魚塭溫度探頭、家裡看門狗與斷電偵測板的即時狀態。進入本頁會重新抓一次,之後每分鐘更新。</p>
+      <p class="hint">看魚塭有沒有斷電、板子是不是正常。每分鐘自動更新。</p>
       <div id="nodesContainer"></div>
     </section>
   </main>
@@ -256,23 +256,42 @@
     </div>
   </div>
 
-  <!-- 關閉告警:選關閉多久 + 備註 → 確認(板子頁)-->
+  <!-- 暫停通知:選暫停多久 + 備註 → 確認(板子頁)-->
   <div id="alertPauseOverlay" class="modal-overlay" hidden>
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="alertPauseTitle">
       <h3 id="alertPauseTitle" class="preview-title"></h3>
-      <p class="hint">關閉期間仍會偵測、記錄斷線,只是不發 Discord、不打電話。</p>
-      <label class="alert-pause-label">關閉多久</label>
+      <p class="alert-pause-scope" id="alertPauseScope" hidden></p>
+      <p class="hint">暫停期間照樣偵測、記錄,只是不傳 Discord、不打電話。</p>
+      <label class="alert-pause-label">暫停多久</label>
       <div class="seg alert-pause-opts" id="alertPauseOpts">
         <button type="button" class="seg-btn active" data-pause="1h">1 小時</button>
         <button type="button" class="seg-btn" data-pause="4h">4 小時</button>
-        <button type="button" class="seg-btn" data-pause="today">到今天結束</button>
-        <button type="button" class="seg-btn" data-pause="forever">永久</button>
+        <button type="button" class="seg-btn" data-pause="today">到今晚 12 點</button>
+        <button type="button" class="seg-btn" data-pause="3d">3 天</button>
+        <button type="button" class="seg-btn alert-pause-forever" data-pause="forever">直到我手動恢復(施工、轉換電路用)</button>
       </div>
       <p class="alert-pause-until" id="alertPauseUntil"></p>
-      <input type="text" id="alertPauseNote" class="modal-input" placeholder="備註(選填,例如:換馬達)" />
+      <input type="text" id="alertPauseNote" class="modal-input" placeholder="備註(選填,例如:轉換電路中、換馬達)" />
       <div class="modal-actions">
         <button type="button" class="btn-ghost" id="alertPauseCancel">取消</button>
-        <button type="button" class="btn-primary btn-danger" id="alertPauseOk">確認關閉</button>
+        <button type="button" class="btn-primary" id="alertPauseOk">開始暫停</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 池塘的板子:勾選哪些板子放在這個池塘(板子頁「依池塘」的「增減板子」)-->
+  <div id="pondBoardsOverlay" class="modal-overlay" hidden>
+    <div class="modal pond-boards-modal" role="dialog" aria-modal="true" aria-labelledby="pondBoardsTitle">
+      <div class="preview-head">
+        <h3 id="pondBoardsTitle" class="preview-title"></h3>
+        <button type="button" class="preview-x" id="pondBoardsClose" aria-label="關閉">×</button>
+      </div>
+      <p class="hint">勾選 = 放在這個池塘;取消勾選 = 移出(變成沒指定池塘)。</p>
+      <div id="pondBoardsList" class="pb-list"></div>
+      <p id="pondBoardsSummary" class="pb-summary"></p>
+      <div class="modal-actions">
+        <button type="button" class="btn-ghost" id="pondBoardsCancel">取消</button>
+        <button type="button" class="btn-primary" id="pondBoardsOk">儲存</button>
       </div>
     </div>
   </div>

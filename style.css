@@ -72,7 +72,9 @@ html, body {
   font-size: 0.7rem; opacity: 0.8; font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-.build-stamp::before { content: "🕒"; margin-right: 2px; }
+/* 前面寫「版」:用 🕒 會被家人當成現在時間 */
+.build-stamp::before { content: "版 "; }
+.build-stamp { opacity: 0.6; }
 .sync-status.ok::before { content: "● "; color: #b2f2bb; }
 .sync-status.err::before { content: "● "; color: #ffc9c9; }
 .sync-status.pending::before { content: "● "; color: #ffd8a8; }
@@ -113,8 +115,8 @@ html, body {
 /* ---------- 板子狀態頁 ---------- */
 .nodes-card { padding: 12px 14px; }
 .nodes-head {
-  display: flex; align-items: center; justify-content: space-between;
-  gap: 8px; flex-wrap: wrap; margin-bottom: 10px;
+  display: flex; align-items: center; justify-content: flex-start;
+  gap: 6px 12px; flex-wrap: wrap; margin-bottom: 10px;
 }
 .nodes-title { font-weight: 700; font-size: 1.02rem; }
 /* 卡片上的燈號是深色字(header 上那組是白字),顏色要自己指定 */
@@ -123,6 +125,9 @@ html, body {
 .nodes-head .node-dot.err::before { color: #e03131; }
 .nodes-head .node-dot.pending::before { color: #f08c00; }
 .nodes-head .node-dot.unknown::before { color: var(--muted); }
+/* 暫停通知中的板子:燈號一律灰(和方塊的灰色虛線框一致,不再出現紅點) */
+.nodes-head .node-dot.muted::before, #nodeModalTitle .node-dot.muted::before { color: var(--muted); }
+.power-log.muted li.active b { color: var(--muted); }
 
 .nodes-rows { display: flex; flex-direction: column; }
 .nodes-row {
@@ -136,8 +141,15 @@ html, body {
 .nodes-row > b { text-align: right; word-break: break-word; font-variant-numeric: tabular-nums; }
 
 .nodes-empty { color: var(--muted); font-size: 0.88rem; margin: 6px 0; }
-/* 固定兩片(魚塭 / 家裡板子):手機直排,寬螢幕並排 */
-.nodes-fixed { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap: 0 16px; }
+/* 版面:整頁最寬 1200px 置中。電腦上主欄 + 右側 380px 側欄(魚塭板子、家裡警報板),兩欄上緣對齊;
+   900px 以下變一欄,側欄接在主欄後面 */
+#page-nodes { max-width: 1200px; margin: 0 auto; }
+.nodes-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0 16px; align-items: start; }
+@media (min-width: 900px) {
+  .nodes-layout { grid-template-columns: minmax(0, 1fr) 380px; }
+}
+.nodes-main, .nodes-side { min-width: 0; }
+.nodes-desc { font-size: 0.85rem; color: var(--muted); margin: -4px 0 0; }
 .nodes-count { font-size: 0.82rem; color: var(--muted); }
 .nodes-count .err { color: #e03131; font-weight: 700; }
 .nodes-filter { display: flex; gap: 8px; margin: 2px 0 12px; }
@@ -167,11 +179,19 @@ html, body {
 .batch-bar select { flex: 1; min-width: 0; max-width: 280px; margin: 0; }
 .batch-bar .btn-sm.btn-primary, .batch-bar .btn-sm { margin: 0; width: auto; padding: 8px 14px; white-space: nowrap; }
 .batch-bar .btn-sm:disabled { opacity: 0.45; cursor: not-allowed; }
+/* 手機上一行擠不下:池塘下拉自己佔第一行(才看得到選了哪個池塘),第二行放已選幾片與按鈕 */
+@media (max-width: 520px) {
+  .batch-bar { flex-wrap: wrap; }
+  .batch-bar select { flex: 1 0 100%; max-width: none; order: -1; }
+  .batch-bar b { flex: 1; }
+}
+/*「現在指定」捲到方塊區時,不要讓卡片頂端被固定的 header 蓋住 */
+#nodeTiles { scroll-margin-top: 72px; }
 
 /* 斷電偵測 / 其他板子:小方塊格狀排列,板子再多也只是多幾排。點方塊看詳細
    上:● 編號 + 近 24 小時斷線次數 / 中:狀態(異常時放大上色)/ 下:池塘(關告警加 🔕)
    斷線次數和 🔕 分在上下兩排:同一排塞三樣,電腦上的窄方塊會把編號或池塘名稱擠掉 */
-.node-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(124px, 1fr)); gap: 8px; }
+.node-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(144px, 1fr)); gap: 8px; }
 .node-tile {
   --tile-c: #2f9e44;
   position: relative;
@@ -194,21 +214,23 @@ html, body {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--tile-c) 25%, transparent);
 }
 .node-tile-id { flex: 0 1 auto; min-width: 2.2em; font-weight: 700; font-size: 0.95rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.node-tile-mute { flex: 0 0 auto; font-size: 0.72rem; }
+.node-tile-mute { flex: 0 0 auto; font-size: 0.74rem; color: var(--muted); white-space: nowrap; }
 .node-tile-foot { display: flex; align-items: center; justify-content: space-between; gap: 4px; margin-top: auto; min-width: 0; }
 .node-tile-st { font-size: 0.8rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .node-tile.pending .node-tile-st { color: #e8590c; font-weight: 700; }
 .node-tile.err .node-tile-st { color: #e03131; font-weight: 700; font-size: 0.88rem; }
-.node-tile-pond { flex: 1; min-width: 0; font-size: 0.72rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.node-tile-pond { flex: 1; min-width: 0; font-size: 0.8rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .node-tile-cut {
   flex: 0 0 auto; margin-left: auto; font-size: 0.66rem; font-weight: 700; white-space: nowrap;
   padding: 1px 5px; border-radius: 999px; color: var(--muted); background: rgba(127, 127, 127, 0.14);
 }
 .node-tile-cut.power { color: #e8590c; background: rgba(232, 89, 12, 0.14); }
-/* 關了告警:整塊淡化(還是看得到狀態,但不搶眼),異常也不再用紅底 */
-.node-tile.muted { opacity: 0.6; }
-.node-tile.muted.err, .node-tile.muted.pending { background: var(--field); }
-.node-tile.muted.picked { opacity: 1; }
+/* 暫停通知:灰色虛線框(和「出事」的紅色分開——紅 = 會通知而且出事,灰 = 暫停中,綠 = 正常)。
+   狀態字還是看得到,只是不搶眼 */
+.node-tile.muted { --tile-c: #adb5bd; border: 1px dashed var(--muted); background: var(--field); }
+.node-tile.muted .node-tile-st { color: var(--muted); font-weight: 600; font-size: 0.8rem; }
+.node-tile.muted .node-tile-top::before { box-shadow: none; }
+.node-legend { font-size: 0.76rem; color: var(--muted); margin: 8px 0 0; }
 
 /* 斷電紀錄(卡片 / modal 底部) */
 .power-log { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 8px; }
@@ -220,6 +242,9 @@ html, body {
 .power-log li b { margin-left: auto; text-align: right; }
 .power-log li span { color: var(--muted); }
 .power-log li.active b { color: #e03131; }
+.power-log li .power-why { flex-basis: 100%; text-align: right; font-size: 0.76rem; color: var(--muted); }
+/* 網路斷的:家人不在意,字淡一點 */
+.power-log li.minor { opacity: 0.6; font-size: 0.8rem; }
 /* 原因小標:斷電橘、其他灰 */
 .power-log li em { white-space: nowrap; font-style: normal; font-size: 0.74rem; font-weight: 600; margin-left: 6px; padding: 1px 6px; border-radius: 999px; }
 .power-log li em.cause-power { color: #e8590c; background: rgba(232, 89, 12, 0.12); }
@@ -230,45 +255,85 @@ html, body {
   text-align: left; cursor: pointer;
 }
 
-/* ---------- 告警開關 ---------- */
-.alert-row { padding: 10px 0; border-top: 1px solid var(--border); }
-.alert-name { font-weight: 700; display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
-.alert-name .btn-sm { margin: 0 0 0 12px; }
-.alert-name small { font-weight: 400; color: var(--muted); margin-left: 4px; }
-.alert-members-line { font-size: 0.8rem; color: var(--muted); margin: 2px 0 4px; word-break: break-word; }
+/* ---------- 通知(告警開關)----------
+   整區只用一種「列」:左邊名稱 + 小字 + 狀態,右邊按鈕;列與列細線分隔。
+   分組用小標題(單獨暫停 / 還沒指定池塘 / 依池塘),不另外加框。 */
+.alert-group { margin-top: 14px; }
+.alert-group-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding-bottom: 6px; border-bottom: 1px solid var(--border);
+}
+.alert-group-t { font-size: 0.8rem; font-weight: 700; color: var(--muted); letter-spacing: 0.02em; }
+.alert-group-note { font-size: 0.85rem; color: var(--muted); margin: 8px 0 0; word-break: break-word; }
+.alert-line {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 10px 0; border-bottom: 1px solid var(--border);
+}
+/* 電腦上滑過整列反白,左邊名稱和右邊按鈕比較好對 */
+@media (hover: hover) {
+  .alert-line { margin: 0 -8px; padding-left: 8px; padding-right: 8px; border-radius: 6px; }
+  .alert-line:hover { background: rgba(127, 127, 127, 0.07); }
+}
+.alert-main { flex: 1; min-width: 0; }
+.alert-name { font-weight: 600; font-size: 0.95rem; word-break: break-word; }
+.alert-name small { font-weight: 400; font-size: 0.8rem; color: var(--muted); margin-left: 4px; }
+.alert-sub { margin-top: 4px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.alert-btns { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; flex: 0 0 auto; }
+/* 池塘群組那列字大一點;底下的池塘縮排 */
+.alert-tag .alert-name { font-weight: 700; font-size: 1rem; }
+.alert-pond { padding-left: 18px; }
+@media (hover: hover) { .alert-pond { padding-left: 26px; } }
+.alert-pond-empty { font-size: 0.8rem; color: var(--muted); margin: 0; padding: 8px 0 10px 18px; border-bottom: 1px solid var(--border); }
+/* 手機上池塘列有兩顆按鈕(增減板子、暫停通知):按鈕換到下一行靠右,左邊的字才不會被擠成一條 */
+@media (max-width: 520px) {
+  .alert-pond { flex-wrap: wrap; row-gap: 6px; }
+  .alert-pond .alert-btns { flex: 1 0 100%; }
+}
+.alert-pond-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.alert-pond-chips .chip-btn { flex: 0 0 auto; min-width: 0; padding: 5px 10px; font-size: 0.8rem; }
 .alert-st { display: inline-block; font-size: 0.8rem; font-weight: 600; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
 .alert-st.on { color: #2f9e44; background: rgba(47, 158, 68, 0.12); }
-.alert-st.off { color: #e03131; background: rgba(224, 49, 49, 0.12); }
+.alert-st.off { color: var(--muted); background: rgba(127, 127, 127, 0.16); white-space: normal; }
 .alert-st.part { color: #e8590c; background: rgba(232, 89, 12, 0.12); }
-.alert-tag { font-size: 1rem; margin-bottom: 4px; }
-/* 池塘列:縮排在池塘群組底下 */
-.alert-pond { padding: 6px 0 6px 14px; border-left: 2px solid var(--border); margin-left: 4px; }
-.alert-pond .alert-name { font-weight: 600; font-size: 0.92rem; }
-.alert-pond-empty { font-size: 0.78rem; color: var(--muted); margin: 4px 0 0 20px; }
-.alert-note-inline { color: var(--muted); font-weight: 400; font-size: 0.78rem; }
-.alert-note { font-size: 0.8rem; color: var(--muted); margin: 4px 0 0; }
+.alert-note-inline { color: var(--muted); font-weight: 400; font-size: 0.8rem; }
 .alert-conflict { font-size: 0.8rem; color: #e8590c; margin: 6px 0 0; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-.alert-conflict .btn-sm { margin: 0; }
-.alert-loose { font-size: 0.85rem; color: #e03131; margin: 8px 0 0; padding-top: 8px; border-top: 1px solid var(--border); }
+span.alert-conflict { display: inline; margin: 0; }
+.nodes-count .part { color: #e8590c; font-weight: 700; }
+/* 板子詳細(卡片 / modal)裡的通知列 */
 .alert-node { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 2px 0 10px; }
 .alert-node small { display: block; font-size: 0.76rem; color: var(--muted); margin-top: 3px; }
-.alert-node .btn-sm { margin: 0; flex: 0 0 auto; }
 .alert-node > div { flex: 1; min-width: 0; }
-/* 告警按鈕「開啟」時會加 .btn-primary(醒目),但 .btn-primary 全域是 width:100% 的大按鈕 → 這裡壓回小按鈕 */
-.alert-node .btn-sm, .alert-name .btn-sm, .alert-conflict .btn-sm {
-  width: auto; padding: 6px 12px; font-size: 0.85rem; font-weight: 600; border-radius: 8px; white-space: nowrap;
+/* .btn-primary 全域是 width:100% 的大按鈕 → 這區的按鈕一律壓回小按鈕 */
+.alert-node .btn-sm, .alert-conflict .btn-sm, .alert-line .btn-sm, .alert-group-head .btn-sm {
+  margin: 0; flex: 0 0 auto; width: auto; padding: 6px 12px; font-size: 0.85rem; font-weight: 600; border-radius: 8px; white-space: nowrap;
 }
+.alert-bind { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; color: var(--muted); margin: 2px 0 8px; }
+.alert-bind select { flex: 1; min-width: 0; margin: 0; }
+/* 暫停對話框 */
 .alert-pause-label { font-size: 0.85rem; color: var(--muted); margin-top: 4px; }
 .seg.alert-pause-opts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 6px 0 4px; }
 .alert-pause-opts .seg-btn { margin: 0; }
+.alert-pause-opts .alert-pause-forever { grid-column: 1 / -1; font-size: 0.85rem; }
 .alert-pause-until { font-size: 0.8rem; color: var(--muted); margin: 0 0 12px; }
+.alert-pause-until.warn { color: #e8590c; font-weight: 600; }
+.alert-pause-scope { font-size: 0.85rem; margin: 2px 0 6px; word-break: break-word; }
 #alertPauseOverlay { z-index: 130; }
-.alert-members-line small { color: var(--muted); }
-.alert-loose.warn { color: #e8590c; }
-.alert-loose small { color: var(--muted); }
-.alert-loose small.block { display: block; margin-top: 2px; }
-.alert-bind { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; color: var(--muted); margin: 2px 0 8px; }
-.alert-bind select { flex: 1; min-width: 0; margin: 0; }
+/* 增減板子對話框:勾選清單(每列整列可點,手機好按)+ 下方即時寫出這次會變什麼 */
+#pondBoardsOverlay { z-index: 130; }
+.pond-boards-modal { max-width: 420px; }
+.pb-list { overflow-y: auto; flex: 1 1 auto; -webkit-overflow-scrolling: touch; margin: 4px 0 10px; border: 1px solid var(--border); border-radius: 10px; }
+label.pb-item {
+  display: flex; align-items: center; gap: 10px; margin: 0; min-height: 46px; padding: 8px 12px;
+  border-bottom: 1px solid var(--border); cursor: pointer; font-weight: 400;
+}
+label.pb-item:last-child { border-bottom: 0; }
+.pb-item input[type="checkbox"] { width: 20px; height: 20px; margin: 0; padding: 0; flex: 0 0 auto; accent-color: var(--primary); }
+.pb-item b { font-weight: 700; }
+.pb-item small { margin-left: auto; font-size: 0.8rem; color: var(--muted); text-align: right; }
+.pb-item.on { background: color-mix(in srgb, var(--primary) 9%, transparent); }
+.pb-summary { flex: 0 0 auto; font-size: 0.85rem; line-height: 1.6; margin: 0 0 12px; word-break: break-word; }
+.pb-summary .pb-none { color: var(--muted); }
+#pondBoardsOk:disabled { opacity: 0.45; cursor: not-allowed; }
 
 /* 板子詳細 modal:沿用 nodeCard,拿掉卡片外框;內容長時內部捲動 */
 .node-modal { max-width: 420px; }
@@ -281,14 +346,43 @@ html, body {
 #nodeModalTitle .node-dot.err::before { color: #e03131; }
 #nodeModalTitle .node-dot.pending::before { color: #f08c00; }
 
-/* 溫度曲線 */
+/* 頁首「現在狀況」:大字結論;有狀況時整張卡淡淡上色(和其他卡片同樣的框,不另加裝飾) */
+.nodes-sum.err { border-color: rgba(224, 49, 49, 0.45); background: color-mix(in srgb, #e03131 6%, var(--card)); }
+.nodes-sum.unknown .nodes-sum-t { color: var(--muted); }
+.nodes-sum.pending { border-color: rgba(240, 140, 0, 0.45); background: color-mix(in srgb, #f08c00 6%, var(--card)); }
+.nodes-sum-t { font-size: 1.15rem; font-weight: 700; line-height: 1.35; word-break: break-word; }
+.nodes-sum.err .nodes-sum-t { color: #e03131; }
+.nodes-sum-s { font-size: 0.85rem; color: var(--muted); margin-top: 4px; }
+.nodes-sum-paused { font-size: 0.85rem; color: var(--muted); margin: 8px 0 0; padding-top: 8px; border-top: 1px solid var(--border); }
+/* 家裡警報板正在發通知 */
+.nodes-alerting { margin: 0 0 10px; padding: 8px 10px; border-radius: 8px; font-weight: 700; color: #e03131; background: rgba(224, 49, 49, 0.1); }
+/* 進階資訊(維修用):預設收合 */
+.nodes-adv { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 6px; }
+.nodes-adv > summary { cursor: pointer; font-size: 0.85rem; color: var(--muted); padding: 6px 0; }
+.nodes-adv[open] > summary { margin-bottom: 2px; }
+.nodes-adv .nodes-row { font-size: 0.82rem; }
+.nodes-tech { font-size: 0.76rem; color: var(--muted); }
+
+/* 氣溫曲線 */
 .nodes-chart { margin: 4px 0 12px; }
 .nodes-chart-t { font-size: 0.78rem; color: var(--muted); margin-bottom: 4px; }
-.nspark-wrap { display: flex; gap: 6px; }
-.nspark-y { display: flex; flex-direction: column; justify-content: space-between; height: 80px; font-size: 0.7rem; line-height: 1; color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
-.nspark-plot { flex: 1; min-width: 0; }
-.nspark { width: 100%; height: 80px; display: block; overflow: visible; }
+/* 左:Y 軸刻度欄 / 右:圖;下一列:空格 + X 刻度(和圖對齊) */
+.nspark-wrap { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 6px; }
+.nspark-y { position: relative; height: 110px; min-width: 2.2em; font-size: 0.7rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.nspark-y span { position: absolute; right: 0; transform: translateY(-50%); line-height: 1; white-space: nowrap; }
+/* touch-action: pan-y = 手指左右滑看數值,上下滑仍可捲動頁面 */
+.nspark-plot { position: relative; min-width: 0; touch-action: pan-y; cursor: crosshair; }
+.nspark-range { font-size: 0.8rem; color: var(--muted); margin: 6px 0 0; font-variant-numeric: tabular-nums; }
+.nspark-range b { color: var(--text); }
+.nspark { width: 100%; height: 110px; display: block; overflow: visible; }
 .nspark-x { display: flex; justify-content: space-between; margin-top: 4px; font-size: 0.7rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+/* 游標:直線 + 圓點(位置用 %,由 setupNodeChartHover 設定) */
+.nspark-cursor { position: absolute; top: 0; bottom: 0; width: 0; pointer-events: none; }
+.nspark-vline { position: absolute; top: 0; bottom: 0; left: 0; border-left: 1px dashed var(--muted); }
+.nspark-dot {
+  position: absolute; left: 0; width: 9px; height: 9px; border-radius: 50%; transform: translate(-50%, -50%);
+  background: var(--primary); border: 2px solid var(--card);
+}
 .nspark-line { fill: none; stroke: var(--primary); stroke-width: 1.6; vector-effect: non-scaling-stroke; }
 .nspark-area { fill: var(--primary); opacity: 0.12; stroke: none; }
 .nspark-grid { stroke: var(--border); stroke-width: 1; vector-effect: non-scaling-stroke; }
@@ -930,6 +1024,8 @@ body.on-record #main { padding-bottom: 172px; }
    編輯 modal(預設 100)< 池塘選取 < 確認框(刪除 double check 一律最上層) */
 #pondPickerOverlay { z-index: 120; }
 #modalOverlay { z-index: 140; }
+/* 疊在板子 modal 上的確認框:加陰影,深色模式下才看得出是浮在上面一層 */
+#modalOverlay .modal { box-shadow: 0 10px 40px rgba(0, 0, 0, 0.55); border: 1px solid var(--border); }
 .modal {
   width: 100%;
   max-width: 360px;
