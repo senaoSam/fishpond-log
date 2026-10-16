@@ -376,6 +376,7 @@ function subscribeData() {
     renderOptionSelects();
     renderSettings();
     renderPondFilter();
+    renderNodeHeader();   // 板子綁的池塘會影響告警狀態 → header 總結
     renderRecordTags();
     syncAlertGroups();   // 池塘 / 綁定可能變了 → 同步 watchdog 的告警群組(名稱、成員)
   }, (err) => { console.error(err); setSync("err", "讀取設定失敗"); }));
@@ -981,17 +982,63 @@ function nodeState(id, node) {
 const nodeAge = {};
 
 // 斷電偵測板的 header 總結:板子一多不能逐片列,只列一顆 ●。
-//   全部正常 → 「斷電偵測 3/3 正常」
+// 已關告警的板子不算(那是「知道了、先別吵」的意思,header 不該再喊),只在尾巴標 🔕 幾片。
+//   全部正常 → 「斷電偵測 3/3 正常」(有關告警的:「斷電偵測 1/1 正常 🔕3」)
 //   有異常   → 直接點名最久沒回報那片,例如「斷電偵測 A02失聯 5 分前」;多片異常再加「等 N 片」
+//   全部關告警 → 灰燈「斷電偵測 🔕 告警全關」
 function heartbeatSummary(data) {
   const ids = heartbeatIds(data);
   if (!ids.length) return null;
-  const states = ids.map((id) => ({ id, ...nodeState(id, data[id]) }));
+  const watched = ids.filter((id) => alertState(id).on);
+  const muted = ids.length - watched.length;
+  const tail = muted ? ` 🔕${muted}` : "";
+  if (!watched.length) return { cls: "unknown", text: `斷電偵測 🔕 告警全關` };
+  const states = watched.map((id) => ({ id, ...nodeState(id, data[id]) }));
   const bad = states.filter((s) => s.cls !== "ok");
-  if (!bad.length) return { cls: "ok", text: `斷電偵測 ${ids.length}/${ids.length} 正常` };
+  if (!bad.length) return { cls: "ok", text: `斷電偵測 ${watched.length}/${watched.length} 正常${tail}` };
   const worst = bad.slice().sort((a, b) => (nodeAge[b.id] || 0) - (nodeAge[a.id] || 0))[0];
   const cls = bad.some((s) => s.cls === "err") ? "err" : "pending";
-  return { cls, text: `斷電偵測 ${worst.text}${bad.length > 1 ? ` 等 ${bad.length} 片` : ""}` };
+  return { cls, text: `斷電偵測 ${worst.text}${bad.length > 1 ? ` 等 ${bad.length} 片` : ""}${tail}` };
+}
+
+// 用最近一次抓到的 devices 畫 header。告警設定(alertCtl)讀到 / 改了之後也會重畫,
+// 所以剛開 App 時關了告警的板子可能先閃一下,讀到設定就消失。
+function renderNodeHeader() {
+  const el = $("#nodeStatus");
+  const data = nodeLastData;
+  if (!el || !data) return;
+  // 固定兩片一律列出(不 filter):某片在 RTDB 裡整個不見,本身就是要看到的狀態,
+  // 悄悄少一個反而看不出是哪片出事。nodeState 收到 undefined 會回「查無資料」。
+  // 斷電偵測板只列一顆總結 ●;其他未知角色的板子(日後新增)逐片列。
+  const ids = Object.keys(NODE_LABELS);
+  const states = ids.map((id) => nodeState(id, data[id]));
+  const hb = heartbeatSummary(data);
+  if (hb) states.push(hb);
+  for (const id of otherNodeIds(data)) states.push(nodeState(id, data[id]));
+  el.innerHTML = states
+    .map((s) => `<span class="node-dot ${s.cls}">${escapeHtml(s.text)}</span>`)
+    .join("");
+  // 細節收在 title 裡:韌體版本 / IP / 連上哪個 WiFi,自己除錯時滑過可看。
+  // 斷電偵測板會有幾十片,逐片列 hover 會長到看不完 → 只用一行總結,
+  // 點名「有開告警且異常」的編號;每片的詳細到板子頁看。
+  const hbIds = heartbeatIds(data);
+  const hbMuted = hbIds.filter((id) => !alertState(id).on).length;
+  const hbBad = hbIds.filter((id) => alertState(id).on && nodeState(id, data[id]).cls !== "ok");
+  const hbLine = hbIds.length
+    ? `斷電偵測 ${hbIds.length} 片:${hbIds.length - hbMuted - hbBad.length} 片正常` +
+      (hbBad.length ? `、${hbBad.length} 片異常(${hbBad.slice(0, 10).join("、")}${hbBad.length > 10 ? "…" : ""})` : "") +
+      (hbMuted ? `、${hbMuted} 片告警已關` : "") + `\n  每片的詳細請到「板子」頁`
+    : [];
+  el.title = [...ids, ...otherNodeIds(data)]
+    .map((id) => {
+      const n = data[id], l = n?.latest || {}, m = n?.meta || {};
+      if (!n) return `${nodeLabel(id, n)}(${id})\n  RTDB 中找不到這個節點`;
+      const seen = Number(l.ts) ? new Date(l.ts * 1000).toLocaleString("zh-TW") : "無紀錄";
+      return `${nodeLabel(id, n)}(${id})\n  最後回報:${seen}\n  韌體:${m.fw || "?"}  IP:${l.ip || "?"}  WiFi:${l.ssid || "?"}`;
+    })
+    .concat(hbLine)
+    .join("\n");
+  el.hidden = false;
 }
 
 // 抓一次 RTDB 並更新 header。這一行永遠顯示,連抓不到時也是——看不到板子本身
@@ -1008,28 +1055,7 @@ async function refreshNodeStatus() {
     const data = await res.json();
     nodeLastData = data || {};   // 供板子狀態頁使用,不再另抓一次
     nodeLastError = null;
-    // 固定兩片一律列出(不 filter):某片在 RTDB 裡整個不見,本身就是要看到的狀態,
-    // 悄悄少一個反而看不出是哪片出事。nodeState 收到 undefined 會回「查無資料」。
-    // 斷電偵測板只列一顆總結 ●;其他未知角色的板子(日後新增)逐片列。
-    const ids = Object.keys(NODE_LABELS);
-    const states = ids.map((id) => nodeState(id, data?.[id]));
-    const hb = heartbeatSummary(data);
-    if (hb) states.push(hb);
-    for (const id of otherNodeIds(data)) states.push(nodeState(id, data[id]));
-    el.innerHTML = states
-      .map((s) => `<span class="node-dot ${s.cls}">${escapeHtml(s.text)}</span>`)
-      .join("");
-    // 細節收在 title 裡:韌體版本 / IP / 連上哪個 WiFi,自己除錯時滑過可看
-    el.title = [...ids, ...heartbeatIds(data), ...otherNodeIds(data)]
-      .map((id) => {
-        const n = data?.[id], l = n?.latest || {}, m = n?.meta || {};
-        if (!n) return `${nodeLabel(id, n)}(${id})
-  RTDB 中找不到這個節點`;
-        const seen = Number(l.ts) ? new Date(l.ts * 1000).toLocaleString("zh-TW") : "無紀錄";
-        return `${nodeLabel(id, n)}(${id})\n  最後回報:${seen}\n  韌體:${m.fw || "?"}  IP:${l.ip || "?"}  WiFi:${l.ssid || "?"}`;
-      })
-      .join("\n");
-    el.hidden = false;
+    renderNodeHeader();
   } catch (e) {
     nodeLastError = String(e && e.message || e);
     // 分兩種:手機沒網路是本機問題(灰),連得出去卻讀不到才是真異常(紅)。
@@ -1358,6 +1384,7 @@ async function loadAlertControl() {
     const d = (await r.json()) || {};
     alertCtl = { groups: d.groups || {}, nodes: d.nodes || {} };
     alertLoaded = true;
+    renderNodeHeader();   // header 的斷電偵測總結要排除關告警的板子
   } catch { /* 讀不到就維持上次的資料 */ }
 }
 
@@ -1730,17 +1757,24 @@ function nodeTile(id) {
   const age = nodeAge[id];
   const short = st.cls === "ok" ? "正常"
     : !node || !Number.isFinite(age) ? "無資料"
-    : st.cls === "err" ? `失聯${nodeShortAgo(age)}` : nodeShortAgo(age);
-  // 右上角:近 24 小時斷線次數(⚡ = 斷電;其他原因另計)
+    : st.cls === "err" ? `失聯 ${nodeShortAgo(age)}` : `${nodeShortAgo(age)}沒回報`;
+  const muted = !alertState(id).on;
+  // 底部右側:近 24 小時斷了幾次(含斷電與其他原因;有斷電時橘色加 ⚡)。細節點進去看
   const all = powerCount(id, 24), power = powerCount(id, 24, true);
-  const badge = all
-    ? `<span class="node-tile-cut" title="近 24 小時斷線 ${all} 次(斷電 ${power} 次)">${power ? `⚡${power}` : ""}${all > power ? ` ✕${all - power}` : ""}</span>`
+  const cuts = all
+    ? `<span class="node-tile-cut${power ? " power" : ""}" title="近 24 小時斷線 ${all} 次(其中斷電 ${power} 次)">${power ? "⚡" : ""}斷${all}次</span>`
     : "";
-  const picked = nodeBatchMode && nodeBatchSel.has(id) ? " picked" : "";
-  return `<button type="button" class="node-tile ${st.cls}${picked}" data-node="${escapeHtml(id)}" title="${escapeHtml(st.text)}">
-    ${badge}${alertState(id).on ? "" : `<span class="node-tile-mute" title="告警已關閉">🔕</span>`}<span class="node-tile-id">${escapeHtml(nodeLabel(id, node))}</span>
+  const pond = boardPond(id) ? pondName(boardPond(id)) : "";
+  const cls = `node-tile ${st.cls}${muted ? " muted" : ""}${nodeBatchMode && nodeBatchSel.has(id) ? " picked" : ""}`;
+  return `<button type="button" class="${cls}" data-node="${escapeHtml(id)}" title="${escapeHtml(st.text)}${muted ? "(告警已關閉)" : ""}">
+    <span class="node-tile-top">
+      <span class="node-tile-id">${escapeHtml(nodeLabel(id, node))}</span>
+      ${muted ? `<span class="node-tile-mute" title="告警已關閉">🔕</span>` : ""}
+    </span>
     <span class="node-tile-st">${escapeHtml(short)}</span>
-    ${boardPond(id) ? `<span class="node-tile-pond">${escapeHtml(pondName(boardPond(id)))}</span>` : ""}
+    <span class="node-tile-foot">
+      <span class="node-tile-pond">${pond ? escapeHtml(pond) : "未設定池塘"}</span>${cuts}
+    </span>
   </button>`;
 }
 

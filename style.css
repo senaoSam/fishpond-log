@@ -152,7 +152,10 @@ html, body {
 .batch-input { width: 84px; margin: 0; padding: 6px 8px; font-size: 0.9rem; }
 .batch-tools .btn-sm { margin: 0; width: auto; }
 .node-tile.picked { outline: 3px solid var(--primary); outline-offset: -1px; }
-.node-tile.picked::after { content: "✓"; position: absolute; bottom: 2px; right: 5px; font-size: 0.8rem; font-weight: 700; color: var(--primary); }
+.node-tile.picked::after {
+  content: "✓"; position: absolute; top: -6px; right: -6px; width: 20px; height: 20px; border-radius: 50%;
+  display: grid; place-items: center; font-size: 0.75rem; font-weight: 700; color: #fff; background: var(--primary);
+}
 /* 下方黏在分頁列上方,板子很多、捲到很下面時也按得到「套用」 */
 .batch-bar {
   position: sticky; bottom: calc(76px + env(safe-area-inset-bottom)); z-index: 5;
@@ -165,29 +168,46 @@ html, body {
 .batch-bar .btn-sm.btn-primary, .batch-bar .btn-sm { margin: 0; width: auto; padding: 8px 14px; white-space: nowrap; }
 .batch-bar .btn-sm:disabled { opacity: 0.45; cursor: not-allowed; }
 
-/* 斷電偵測 / 其他板子:小方塊格狀排列,板子再多也只是多幾排。點方塊看詳細 */
-.node-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: 8px; }
+/* 斷電偵測 / 其他板子:小方塊格狀排列,板子再多也只是多幾排。點方塊看詳細
+   上:● 編號(關告警加 🔕)/ 中:狀態(異常時放大上色)/ 下:池塘 + 近 24 小時斷線次數 */
+.node-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; }
 .node-tile {
-  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
-  min-height: 58px; padding: 6px 4px; margin: 0;
-  border: 1px solid var(--border); border-left-width: 4px; border-radius: 10px;
+  --tile-c: #2f9e44;
+  position: relative;
+  display: flex; flex-direction: column; align-items: stretch; gap: 3px;
+  min-height: 72px; padding: 8px 9px 7px; margin: 0;
+  border: 1px solid var(--border); border-radius: 12px;
   background: var(--field); color: var(--text); cursor: pointer;
-  font: inherit; line-height: 1.2;
+  font: inherit; line-height: 1.2; text-align: left;
+  transition: transform 0.08s ease;
 }
-.node-tile-id { font-weight: 700; font-size: 0.92rem; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.node-tile-st { font-size: 0.74rem; color: var(--muted); white-space: nowrap; }
-.node-tile.ok { border-left-color: #2f9e44; }
-.node-tile.pending { border-left-color: #f08c00; }
-.node-tile.pending .node-tile-st { color: #e8590c; font-weight: 600; }
-.node-tile.err { border-left-color: #e03131; background: rgba(224, 49, 49, 0.1); }
-.node-tile.err .node-tile-st { color: #e03131; font-weight: 700; }
-
-/* 方塊右上角:近 24 小時斷電次數 */
-.node-tile { position: relative; }
+.node-tile:active { transform: scale(0.97); }
+.node-tile.pending { --tile-c: #f08c00; border-color: rgba(240, 140, 0, 0.55); background: rgba(240, 140, 0, 0.08); }
+.node-tile.err { --tile-c: #e03131; border-color: rgba(224, 49, 49, 0.6); background: rgba(224, 49, 49, 0.1); }
+.node-tile-top { display: flex; align-items: center; gap: 6px; min-width: 0; }
+/* 狀態燈:異常時外圈光暈,一眼就找得到 */
+.node-tile-top::before {
+  content: ""; flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%; background: var(--tile-c);
+}
+.node-tile.err .node-tile-top::before, .node-tile.pending .node-tile-top::before {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--tile-c) 25%, transparent);
+}
+.node-tile-id { flex: 1; min-width: 0; font-weight: 700; font-size: 0.95rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.node-tile-mute { flex: 0 0 auto; font-size: 0.72rem; }
+.node-tile-st { font-size: 0.8rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.node-tile.pending .node-tile-st { color: #e8590c; font-weight: 700; }
+.node-tile.err .node-tile-st { color: #e03131; font-weight: 700; font-size: 0.88rem; }
+.node-tile-foot { display: flex; align-items: center; justify-content: space-between; gap: 4px; margin-top: auto; min-width: 0; }
+.node-tile-pond { flex: 1; min-width: 0; font-size: 0.7rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .node-tile-cut {
-  position: absolute; top: 2px; right: 4px;
-  font-size: 0.66rem; font-weight: 700; color: #e8590c;
+  flex: 0 0 auto; font-size: 0.66rem; font-weight: 700; white-space: nowrap;
+  padding: 1px 5px; border-radius: 999px; color: var(--muted); background: rgba(127, 127, 127, 0.14);
 }
+.node-tile-cut.power { color: #e8590c; background: rgba(232, 89, 12, 0.14); }
+/* 關了告警:整塊淡化(還是看得到狀態,但不搶眼),異常也不再用紅底 */
+.node-tile.muted { opacity: 0.6; }
+.node-tile.muted.err, .node-tile.muted.pending { background: var(--field); }
+.node-tile.muted.picked { opacity: 1; }
 
 /* 斷電紀錄(卡片 / modal 底部) */
 .power-log { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 8px; }
@@ -237,7 +257,6 @@ html, body {
 .alert-node .btn-sm, .alert-name .btn-sm, .alert-conflict .btn-sm {
   width: auto; padding: 6px 12px; font-size: 0.85rem; font-weight: 600; border-radius: 8px; white-space: nowrap;
 }
-.node-tile-mute { position: absolute; top: 2px; left: 4px; font-size: 0.66rem; }
 .alert-pause-label { font-size: 0.85rem; color: var(--muted); margin-top: 4px; }
 .seg.alert-pause-opts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 6px 0 4px; }
 .alert-pause-opts .seg-btn { margin: 0; }
@@ -249,7 +268,6 @@ html, body {
 .alert-loose small.block { display: block; margin-top: 2px; }
 .alert-bind { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; color: var(--muted); margin: 2px 0 8px; }
 .alert-bind select { flex: 1; min-width: 0; margin: 0; }
-.node-tile-pond { font-size: 0.68rem; color: var(--muted); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* 板子詳細 modal:沿用 nodeCard,拿掉卡片外框;內容長時內部捲動 */
 .node-modal { max-width: 420px; }
