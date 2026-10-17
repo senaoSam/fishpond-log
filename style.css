@@ -64,7 +64,9 @@ html, body {
   background: var(--header);
   color: #fff;
 }
-.sync-status { font-size: 0.72rem; opacity: 0.9; }
+.sync-status { font-size: 0.72rem; opacity: 0.9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+/* 有說明可看(待上傳 / 未離線保存):點一下跳完整說明 */
+.sync-status.has-help { cursor: pointer; text-decoration: underline dotted; text-underline-offset: 2px; }
 /* header 右側:時間戳 + 主題切換 */
 .header-right { display: flex; align-items: center; gap: 8px; }
 /* 建置時間戳:低調顯示在主題鈕左邊,用來確認線上非 cache */
@@ -570,6 +572,25 @@ select { appearance: none; background-image: url("data:image/svg+xml;utf8,<svg x
 .btn-big { padding: 16px; font-size: 1.1rem; margin-top: 4px; }
 /* 儲存成功:按鈕短暫變綠閃爍 */
 .btn-ok-flash { background: var(--ok) !important; animation: ok-pulse 0.4s ease; }
+/* 處理中:畫面中間一張小卡轉圈,背後淡淡一層擋住點擊(在一般 modal 之上、確認框之下) */
+.busy-overlay {
+  position: fixed; inset: 0; z-index: 135;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0, 0, 0, 0.18); animation: fade-in 0.12s ease;
+}
+.busy-card {
+  display: flex; align-items: center; padding: 14px 22px; border-radius: 14px;
+  background: var(--card); color: var(--text); font-weight: 700; font-size: 1rem;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3); border: 1px solid var(--border);
+}
+.busy-card .btn-spin { color: var(--primary); }
+/* 按鈕上的轉圈(上傳中) */
+.btn-spin {
+  display: inline-block; width: 1em; height: 1em; margin-right: 8px; vertical-align: -0.15em;
+  border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%;
+  animation: btn-spin 0.75s linear infinite;
+}
+@keyframes btn-spin { to { transform: rotate(360deg); } }
 @keyframes ok-pulse { 0% { transform: scale(1); } 40% { transform: scale(1.04); } 100% { transform: scale(1); } }
 .btn-ghost {
   width: 100%;
@@ -886,6 +907,14 @@ tr.total td { font-weight: 800; background: var(--total-bg); border-top: 2px sol
   background: var(--primary);
   border-radius: 999px;
 }
+/* 還沒上傳的那筆:整列淡橘底 + 橘色左框,下面一行說明(網路很慢時一眼看得到) */
+.today-item.pending {
+  background: color-mix(in srgb, #e8590c 8%, var(--card));
+  border-color: rgba(232, 89, 12, 0.5);
+  border-left: 5px solid #e8590c;
+}
+.today-pending { display: block; margin: 4px 0 8px; font-size: 0.8rem; font-weight: 700; color: #e8590c; }
+.today-pending-count { color: #e8590c; font-weight: 700; }
 /* 左上角建立時間:絕對定位小字。上方留出時間高度,下方收緊不留多餘空白 */
 .today-item.has-time { padding-top: 20px; padding-bottom: 0; }
 .today-time {
@@ -906,6 +935,11 @@ tr.total td { font-weight: 800; background: var(--total-bg); border-top: 2px sol
   white-space: nowrap;
 }
 .rec-temp { font-size: 0.92em; }
+/* 還沒被雲端確認收到的紀錄(只在這支手機上) */
+.rec-pending {
+  display: inline-block; white-space: nowrap; font-size: 0.78em; font-weight: 700;
+  padding: 1px 7px; border-radius: 999px; color: #e8590c; background: rgba(232, 89, 12, 0.12);
+}
 
 /* ---------- 記錄頁:該池標籤選擇 ---------- */
 .record-tags {
@@ -1168,6 +1202,8 @@ body.on-record #main { padding-bottom: 172px; }
 }
 
 /* ---------- 短訊提示 (toast) ---------- */
+/* 長的提示會換行:膠囊形狀換成圓角方塊才不怪 */
+.toast.long { border-radius: 14px; }
 .toast {
   position: fixed;
   left: 50%;

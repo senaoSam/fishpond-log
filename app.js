@@ -5,10 +5,93 @@ import { firebaseConfig, dbSecret, DB_ROOT } from "./firebase-config.js";
 import { NODE_RTDB, latestPondTemp, pondTempAt } from "./pondtemp.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
-  getFirestore, collection, doc, addDoc, setDoc, updateDoc, deleteDoc,
-  getDoc, onSnapshot, query, orderBy, serverTimestamp,
-  enableIndexedDbPersistence
+  initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
+  collection, doc,
+  addDoc as fsAddDoc, setDoc as fsSetDoc, updateDoc as fsUpdateDoc, deleteDoc as fsDeleteDoc,
+  getDoc, onSnapshot, query, orderBy, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+// ---------- 示範模式(只在本機)----------
+// 網址加 ?demo=毫秒:所有寫入都不送出。紀錄的新增 / 編輯 / 刪除只在畫面上模擬,
+// 假裝雲端過這麼久才確認收到;?demo=fail 假裝雲端拒收。其他寫入(設定、板子頁)一樣等、一樣回結果,但不會真的改。
+// 用來看「上傳中」提示與標記的實際效果,不會在資料庫留下任何東西;重新整理就恢復原狀。
+// 只在 localhost 生效,線上網址帶 ?demo 也不會啟動。
+const DEMO = (() => {
+  const v = new URLSearchParams(location.search).get("demo");
+  if (v == null || !/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) return null;
+  return v === "fail" ? { ms: 1000, fail: true } : { ms: Number(v) || 1000, fail: false };
+})();
+const demoRecords = new Map();   // id → 示範新增 / 修改後的紀錄
+const demoDeleted = new Set();   // 示範刪除的 id
+const demoPending = new Set();   // 示範中「還沒被雲端確認」的 id
+let lastRealRecords = [];        // 雲端讀到的紀錄(示範的改動疊在上面)
+let lastRealPending = [];        // 雲端那邊真的還沒上傳的 id
+function demoMerge(real) {
+  const out = real.filter((r) => !demoDeleted.has(r.id)).map((r) => demoRecords.get(r.id) || r);
+  for (const [id, r] of demoRecords) if (!real.some((x) => x.id === id)) out.push(r);
+  return out;
+}
+function demoRefresh() {
+  allRecords = demoMerge(lastRealRecords);
+  pendingRaw = new Set([...lastRealPending, ...demoPending]);
+  refreshPending();
+  renderSyncStatus();
+  renderList();
+  renderStatsView();
+  renderTodayList();
+}
+// serverTimestamp() 換成現在時間(示範的紀錄不會經過雲端)
+function demoClean(data) {
+  const now = new Date().toISOString();
+  return { ...data, ...("createdAt" in data && { createdAt: now }), ...("updatedAt" in data && { updatedAt: now }) };
+}
+// 像 Firestore 的本地寫入:畫面立刻改,過 DEMO.ms 才「確認」;fail 時復原並拒絕
+function demoOp(kind, id, data) {
+  return new Promise((resolve, reject) => {
+    const prev = demoRecords.get(id), wasDeleted = demoDeleted.has(id);
+    const base = prev || lastRealRecords.find((r) => r.id === id);
+    if (kind === "add") demoRecords.set(id, { id, ...data });
+    if (kind === "update") demoRecords.set(id, { ...base, ...data, id });
+    if (kind === "delete") { demoRecords.delete(id); demoDeleted.add(id); }
+    if (kind !== "delete") demoPending.add(id);
+    demoRefresh();
+    setTimeout(() => {
+      demoPending.delete(id);
+      if (DEMO.fail) {
+        if (prev) demoRecords.set(id, prev); else demoRecords.delete(id);
+        if (!wasDeleted) demoDeleted.delete(id);
+        demoRefresh();
+        reject(Object.assign(new Error("示範:雲端拒收"), { code: "permission-denied" }));
+      } else {
+        demoRefresh();
+        resolve({ id });
+      }
+    }, DEMO.ms);
+  });
+}
+// 紀錄以外的寫入(設定、板子頁):示範時一樣等 DEMO.ms 再回成功 / 失敗,看得到轉圈與結果,但資料不會真的改
+const demoBlocked = () => new Promise((resolve, reject) => setTimeout(() => DEMO.fail
+  ? reject(Object.assign(new Error("示範:雲端拒收"), { code: "permission-denied" }))
+  : resolve(), DEMO.ms));
+const isRecordsCol = (ref) => ref?.id === "records";
+const isRecordDoc = (ref) => ref?.parent?.id === "records";
+// 全 App 的寫入都走這四個(示範模式時攔下來)
+function addDoc(ref, data) {
+  if (!DEMO) return fsAddDoc(ref, data);
+  return isRecordsCol(ref) ? demoOp("add", "demo-" + uid(), demoClean(data)) : demoBlocked();
+}
+function updateDoc(ref, data) {
+  if (!DEMO) return fsUpdateDoc(ref, data);
+  return isRecordDoc(ref) ? demoOp("update", ref.id, demoClean(data)) : demoBlocked();
+}
+function deleteDoc(ref) {
+  if (!DEMO) return fsDeleteDoc(ref);
+  return isRecordDoc(ref) ? demoOp("delete", ref.id) : demoBlocked();
+}
+function setDoc(ref, data, opts) {
+  if (!DEMO) return fsSetDoc(ref, data, opts);
+  return isRecordDoc(ref) ? demoOp("add", ref.id, demoClean(data)) : demoBlocked();
+}
 
 // ---------- 部署版本時間戳 ----------
 // header 會顯示「月/日/時」,用來肉眼確認線上載入的是新版而非 cache。
@@ -56,6 +139,15 @@ const OPTION_LABELS = {
 // ---------- 全域狀態 ----------
 let db = null;
 let cloudSynced = false;    // 目前資料是否已與雲端同步(false=離線/同步中,寫入暫存本機)
+let pendingRecordIds = new Set();   // 畫面上標「上傳中」的紀錄(只在這支手機上)
+let pendingRaw = new Set();         // snapshot 裡 hasPendingWrites 的紀錄(含剛送出的)
+const holdPending = new Set();      // 新增 / 編輯按鈕還在轉的那筆:雲端就算先確認了,也標到按鈕轉完,兩邊同時結束
+const quietPending = new Set();     // 只是背景補溫度的那筆(紀錄本身已存好):不標「上傳中」,免得已新增又閃一次
+let slowWrites = 0;                 // 等超過 10 秒還沒確認、已先放開的寫入(含刪除、設定這類不在紀錄清單裡的)
+let persistOff = false;             // 離線保存沒開成功:沒上傳的寫入只在記憶體,關掉分頁就沒了
+let recordsFirstSnap = false;       // 紀錄已收到第一次 snapshot(之前一律顯示「連線中」)
+let recordsListenErr = "";          // 紀錄 listener 出錯(之後不會再更新)
+let savingRecord = false;           // 新增中(等溫度那幾秒):按鈕維持停用,避免按兩次記成兩筆
 let allRecords = [];        // 由 Firestore 即時同步的全部紀錄(含 id)
 let options = { ...DEFAULT_OPTIONS };
 let editingId = null;       // 目前正在編輯的紀錄 id(null = 新增模式)
@@ -223,7 +315,8 @@ function setupTheme() {
 //  自訂對話框 / 提示(取代瀏覽器原生 alert / confirm)
 // ============================================================
 // 顯示確認對話框,回傳 Promise<boolean>。
-function showConfirm(message, { okText = "確定", danger = false } = {}) {
+// cancel:false = 只有一顆確認鈕(單純告知用)
+function showConfirm(message, { okText = "確定", danger = false, cancel = true } = {}) {
   return new Promise((resolve) => {
     const overlay = $("#modalOverlay");
     const okBtn = $("#modalOk");
@@ -231,9 +324,11 @@ function showConfirm(message, { okText = "確定", danger = false } = {}) {
     $("#modalText").textContent = message;
     okBtn.textContent = okText;
     okBtn.classList.toggle("btn-danger", danger);
+    cancelBtn.hidden = !cancel;
 
     const close = (result) => {
       overlay.hidden = true;
+      cancelBtn.hidden = false;
       okBtn.removeEventListener("click", onOk);
       cancelBtn.removeEventListener("click", onCancel);
       overlay.removeEventListener("click", onBackdrop);
@@ -311,18 +406,164 @@ function showPrompt(message, defaultValue = "", { okText = "儲存", validate = 
 
 // 短訊提示(取代資訊型 alert)。isErr=true 顯示紅底。
 let toastTimer = null;
-function showToast(message, isErr = false) {
+// 紅字(錯誤)還沒到時間前,一般提示不能蓋掉它——錯誤常常是唯一的線索。
+let toastErrUntil = 0, toastHoldIsErr = false;
+// hold:這則顯示期間,一般提示不能蓋掉(錯誤一律 hold;「網路很慢」那則也要 hold,
+// 不然緊接著的「已設定…」會把它蓋掉)
+function showToast(message, isErr = false, ms = 2600, hold = isErr) {
   const el = $("#toast");
+  if (!isErr && Date.now() < toastErrUntil) return 0;
   el.textContent = message;
-  el.className = "toast" + (isErr ? " err" : "");
+  el.className = "toast" + (isErr ? " err" : "") + (message.length > 26 ? " long" : "");
   el.hidden = false;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { el.hidden = true; }, 2600);
+  toastTimer = setTimeout(() => { el.hidden = true; }, ms);
+  toastErrUntil = hold ? Date.now() + ms : 0;
+  toastHoldIsErr = isErr;
+}
+
+// 寫入結果的用字(新增 / 編輯按鈕用)
+const WRITE_TEXT = {
+  新增: { ack: "✔ 已上傳", fail: "這筆沒有記到" },
+  更新: { ack: "✔ 修改已上傳", fail: "這次修改沒有存到" },
+};
+// 寫入失敗:要按才會關的對話框,寫清楚哪一筆沒記到(英文錯誤原文只進 console)
+function showWriteFail(verb, what, err) {
+  showFailDialog(`${WRITE_TEXT[verb].fail}${what ? ` ${what}` : ""}`, err);
+}
+// 失敗對話框:title =「這筆沒有記到 北 3包」這類,底下一句原因
+function showFailDialog(title, err) {
+  console.error(err);
+  const why = err?.code === "permission-denied" ? "雲端拒收(權限不符)。"
+    : err?.name === "AbortError" || err?.name === "TypeError" ? "網路有問題,請確認網路後再試一次。"
+    : `請再試一次。(錯誤代碼:${err?.code || err?.message || "unknown"})`;
+  showConfirm(`⚠ ${title}\n\n${why}`, { okText: "知道了", cancel: false });
+}
+
+// 其他寫入(刪除紀錄、設定頁、板子頁)都走這裡:畫面中間轉圈「儲存中…」至少 1 秒,
+// 這段期間擋住其他操作(避免連按、或還沒存好就去做下一件事);等真的完成才算成功。
+// 回傳 "ok"(已完成)/ "slow"(網路很慢,已記在手機、會自動補傳)/ false(失敗,已跳對話框)。
+//   local:true  = Firestore:沒網路時會先存在手機、之後自動上傳 → 等太久不算失敗
+//   local:false = 板子頁的通知開關(RTDB,用 fetch 直接寫):不會先存在手機 → 沒成功就是沒存到
+let busyCount = 0;
+function showBusy(label) {
+  busyCount++;
+  $("#busyText").textContent = label;
+  $("#busyOverlay").hidden = false;
+}
+function hideBusy() {
+  if (--busyCount <= 0) { busyCount = 0; $("#busyOverlay").hidden = true; }
+}
+async function busyWrite(label, writeFn, { fail, local = true }) {
+  const startedAt = Date.now();
+  showBusy(label);
+  let res, write;
+  try {
+    write = Promise.resolve().then(writeFn);
+    res = await waitWrite(write, startedAt);
+  } catch (err) {
+    res = { ok: false, err };
+  } finally {
+    hideBusy();
+  }
+  if (res.ok) return "ok";
+  if (res.slow && local) {
+    showToast("⏳ 網路很慢,還在上傳中。已記在這支手機,會自動補傳,不用重做。", false, 7000, true);
+    slowWrites++;
+    renderSyncStatus();
+    // 真的上傳了:可以蓋過自己那則「網路很慢」(但不蓋錯誤提示)
+    write.then(() => { if (!toastHoldIsErr) toastErrUntil = 0; showToast("✔ 剛剛的變更已上傳"); }, (err) => showFailDialog(fail, err))
+      .finally(() => { slowWrites--; renderSyncStatus(); });
+    return "slow";
+  }
+  showFailDialog(fail, res.err || Object.assign(new Error("timeout"), { name: "AbortError" }));
+  return false;
+}
+
+
+// 新增 / 編輯的「按下去等結果」:按鈕轉圈顯示上傳中,至少轉 WRITE_MIN_SPIN_MS(太快一閃而過看不出有在上傳),
+// 等雲端確認才算成功。回傳 { ok } / { ok:false, err } / { slow:true }:
+//   slow = 等了 WRITE_SLOW_MS 還沒確認。這時不能說「沒有記到」——那筆已經存在手機、之後會自動上傳,
+//   說沒記到家人會重記一次變兩筆;所以先放開按鈕,讓清單的 ⏳ 和之後的「✔ 已上傳」接手。
+const WRITE_MIN_SPIN_MS = 1000;
+const WRITE_SLOW_MS = 10000;
+function waitWrite(promise, startedAt = Date.now()) {
+  const atLeast = (v) => new Promise((r) => setTimeout(() => r(v), Math.max(0, WRITE_MIN_SPIN_MS - (Date.now() - startedAt))));
+  return Promise.race([
+    promise.then(() => atLeast({ ok: true }), (err) => atLeast({ ok: false, err })),
+    new Promise((r) => setTimeout(() => r({ slow: true }), Math.max(0, WRITE_SLOW_MS - (Date.now() - startedAt)))),
+  ]);
+}
+// 等太久先放開之後:真的上傳了補一句,真的失敗了跳對話框
+function followSlowWrite(promise, verb, what) {
+  slowWrites++;
+  renderSyncStatus();
+  promise.then(() => { if (!toastHoldIsErr) toastErrUntil = 0; showToast(`${WRITE_TEXT[verb].ack} ${what}`); }, (err) => showWriteFail(verb, what, err))
+    .finally(() => { slowWrites--; renderSyncStatus(); });
+}
+const SPIN_HTML = (text) => `<span class="btn-spin" aria-hidden="true"></span>${text}`;
+
+// header 的同步狀態:有沒上傳的紀錄就直接寫幾筆(比「已同步」準:那只代表讀得到雲端)
+// 點一下 header 狀態看完整說明(手機看不到 title)
+const SYNC_HELP_PERSIST_OFF = "這個瀏覽器沒辦法把還沒上傳的紀錄存在手機裡。網路不好時新增的紀錄,上傳完前關掉 App 就會不見。";
+const SYNC_HELP_PENDING = "這幾筆還在這支手機上,網路恢復、App 開著時會自動上傳。上傳前請不要清除瀏覽器資料或刪掉 App。";
+function syncPendingCount() {
+  // 同一筆新增會同時算在兩邊 → 取大的,不相加
+  return Math.max(pendingRecordIds.size, slowWrites);
+}
+function renderSyncStatus() {
+  const el = $("#syncStatus");
+  if (!el || !db) return;
+  const n = syncPendingCount();
+  const warn = (persistOff ? "・⚠ 未離線保存" : "") + (DEMO ? `・🧪 示範(${DEMO.fail ? "拒收" : DEMO.ms / 1000 + " 秒"})不寫入` : "");
+  if (recordsListenErr) setSync("err", `讀取紀錄失敗${warn}`);
+  else if (n) setSync("pending", `${n} 筆待上傳${warn}`);
+  else if (!recordsFirstSnap) setSync("", `魚塭連線中${warn}`);
+  else if (cloudSynced) setSync("ok", `紀錄已同步${warn}`);
+  else setSync("pending", persistOff ? "離線・⚠ 關掉會遺失" : "離線(資料暫存本機)");
+  el.title = persistOff ? SYNC_HELP_PERSIST_OFF : n ? SYNC_HELP_PENDING : "";
+  el.classList.toggle("has-help", !!el.title);
+}
+// pendingRaw + holdPending → pendingRecordIds。按下新增那一刻就標「上傳中」(不延遲),
+// 清單和按鈕的「上傳中」同時開始、同時結束。
+function refreshPending() {
+  const next = new Set([...[...pendingRaw].filter((id) => !quietPending.has(id)), ...holdPending]);
+  const changed = next.size !== pendingRecordIds.size || [...next].some((id) => !pendingRecordIds.has(id));
+  pendingRecordIds = next;
+  return changed;
+}
+// 背景補溫度這類小更新:紀錄本身已經在雲端了,不標「上傳中」
+async function quietUpdate(ref, data) {
+  quietPending.add(ref.id);
+  try { return await updateDoc(ref, data); }
+  finally { quietPending.delete(ref.id); refreshPending(); renderSyncStatus(); renderTodayList(); renderList(); }
+}
+// 按鈕轉完:放開這筆的「上傳中」標記(雲端真的還沒確認的話,pendingRaw 會讓它繼續標著)
+function releaseHold(id) {
+  holdPending.delete(id);
+  refreshPending();
+  renderSyncStatus();
+  renderTodayList();
+  renderList();
 }
 
 // ============================================================
 //  Firebase 初始化
 // ============================================================
+// 試開一個 IndexedDB(開完就關):開不了 = 這個瀏覽器不能離線保存
+function probeIndexedDb() {
+  return new Promise((resolve) => {
+    try {
+      if (!window.indexedDB) return resolve(false);
+      const req = indexedDB.open("fishpond-persist-probe");
+      // 試完就刪掉,不在瀏覽器裡留一個空的資料庫
+      req.onsuccess = () => { try { req.result.close(); indexedDB.deleteDatabase("fishpond-persist-probe"); } catch {} resolve(true); };
+      req.onerror = () => resolve(false);
+      req.onblocked = () => resolve(true);
+    } catch { resolve(false); }
+  });
+}
+
 function initFirebase() {
   if (firebaseConfig.apiKey.startsWith("請填入")) {
     setSync("err", "未設定 Firebase");
@@ -336,9 +577,26 @@ function initFirebase() {
   }
   try {
     const app = initializeApp(firebaseConfig);
-    db = getFirestore(app);
-    // 啟用離線快取(失敗不影響主功能,例如多分頁開啟時)
-    enableIndexedDbPersistence(db).catch(() => {});
+    // 離線保存:還沒上傳的寫入存在手機(IndexedDB),關掉 App 也不會掉,下次上線自動補傳。
+    // 用多分頁共用的版本(舊的 enableIndexedDbPersistence 同時只能一個分頁用,
+    // 電腦開兩個分頁、或 Android 的 Chrome 分頁 + 主畫面 App 同時開,後開的就沒有離線保存)。
+    // 必須在任何 Firestore 操作之前呼叫。
+    db = initializeFirestore(app, {
+      localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+    });
+    // 這個寫法失敗時 SDK 只會自己退回記憶體(不丟錯),所以另外試開一次 IndexedDB:
+    // 開不了(瀏覽器不支援 / 被封鎖)就標記 persistOff,header 一直顯示警告。
+    probeIndexedDb().then((ok) => { if (!ok) { persistOff = true; renderSyncStatus(); } });
+    // 不能離線保存、又有還沒上傳的 → 離開前讓瀏覽器問一下。
+    // 只在電腦上有用:手機滑掉 App、切走、被系統回收都不會觸發,主要防線是 header / 清單的標示。
+    window.addEventListener("beforeunload", (e) => {
+      if (persistOff && syncPendingCount()) { e.preventDefault(); e.returnValue = ""; }
+    });
+    // header 的同步狀態:有說明時點一下看完整說明(手機看不到 title)
+    $("#syncStatus")?.addEventListener("click", () => {
+      const t = $("#syncStatus").title;
+      if (t) showConfirm(t, { okText: "知道了", cancel: false });
+    });
     return true;
   } catch (e) {
     console.error(e);
@@ -384,11 +642,18 @@ function subscribeData() {
   // 2) 紀錄
   const q = query(collection(db, ...DB_ROOT, "records"), orderBy("date", "desc"));
   unsubscribers.push(onSnapshot(q, { includeMetadataChanges: true }, (snap) => {
-    allRecords = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-    // fromCache=true 代表尚未與雲端同步(離線或同步中);hasPendingWrites=有本地未上傳的寫入
+    // serverTimestamps:"estimate":還沒上傳的 createdAt / updatedAt 先用本機時間估(只影響讀出來的值),
+    // 否則是 null → 剛記的那筆沒有時間、排到當天最下面
+    lastRealRecords = snap.docs.map((d) => ({ id: d.id, ...d.data({ serverTimestamps: "estimate" }) }));
+    allRecords = DEMO ? demoMerge(lastRealRecords) : lastRealRecords;
+    // fromCache=true 代表尚未與雲端同步(離線或同步中);hasPendingWrites=這筆有本地未上傳的寫入。
+    // 雲端確認收到時(includeMetadataChanges)會再觸發一次,hasPendingWrites 變 false → 標記消失
     cloudSynced = !snap.metadata.fromCache;
-    if (cloudSynced) setSync("ok", "紀錄已同步");
-    else setSync("pending", "離線(資料暫存本機)");
+    recordsFirstSnap = true;
+    lastRealPending = snap.docs.filter((d) => d.metadata.hasPendingWrites).map((d) => d.id);
+    pendingRaw = new Set([...lastRealPending, ...demoPending]);
+    refreshPending();
+    renderSyncStatus();
     updateSaveDisabled();   // 連線狀態變了 → 連動新增鈕可否按
     renderList();
     renderStatsView();
@@ -398,7 +663,8 @@ function subscribeData() {
     if (cloudSynced) retryPendingSiteTemp();
   }, (err) => {
     console.error(err); cloudSynced = false;
-    setSync("err", "讀取紀錄失敗"); updateSaveDisabled();
+    recordsListenErr = err?.code || "error";
+    renderSyncStatus(); updateSaveDisabled();
   }));
 }
 
@@ -612,11 +878,11 @@ function updateSaveDisabled() {
   const btn = $("#saveBtn");
   if (!btn) return;
   const hasPond = !!$("#pondSelect").value || $("#pondInput").value.trim() !== "";
-  btn.disabled = !hasPond || !cloudSynced;
+  // 記錄中(等溫度那幾秒):snapshot 進來也不能把按鈕重新打開,不然按兩次會記成兩筆
+  btn.disabled = savingRecord || !hasPond || !cloudSynced;
   // 儲存動畫進行中(btn-ok-flash)不要蓋掉「✔ 已新增」的回饋文字
-  if (!btn.classList.contains("btn-ok-flash")) {
-    btn.textContent = cloudSynced ? "新增" : "未連線,無法新增";
-  }
+  if (savingRecord) btn.innerHTML = SPIN_HTML("上傳中…");
+  else if (!btn.classList.contains("btn-ok-flash")) btn.textContent = cloudSynced ? "新增" : "未連線,無法新增";
 }
 
 // 讀取包數(整數)
@@ -647,9 +913,8 @@ function renderRecordTags() {
     `).join("")}`;
   box.querySelectorAll("[data-rectag]").forEach((b) =>
     b.addEventListener("click", async () => {
-      await togglePondTag(pondId, b.dataset.rectag);
-      // togglePondTag 會寫回 Firestore;onSnapshot 回來會更新 options,但本地先即時切換顯示
-      b.classList.toggle("on");
+      // togglePondTag 會寫回 Firestore;onSnapshot 回來會更新 options,成功就先即時切換顯示
+      if (await togglePondTag(pondId, b.dataset.rectag)) b.classList.toggle("on");
     }));
 }
 
@@ -725,8 +990,10 @@ function renderTodayList() {
     box.innerHTML = `<div class="today-head">${escapeHtml(date)}</div><p class="today-empty">這天還沒有紀錄</p>`;
     return;
   }
+  // 還沒上傳的:標題寫幾筆,那一列整列橘底 + 一行字說明(網路很慢時,要在這裡就看得到)
+  const pendingN = recs.filter((r) => pendingRecordIds.has(r.id)).length;
   box.innerHTML = `
-    <div class="today-head">${escapeHtml(date)} 已記錄 ${recs.length} 筆 <span class="today-hint">(點擊可編輯)</span></div>
+    <div class="today-head">${escapeHtml(date)} 已記錄 ${recs.length} 筆${pendingN ? `<b class="today-pending-count">・⏳ ${pendingN} 筆上傳中</b>` : ""} <span class="today-hint">(點擊可編輯)</span></div>
     ${recs.map((r) => {
       const label = recordTimeLabel(r);
       const timeTag = label ? `<span class="today-time">${escapeHtml(label)}</span>` : "";
@@ -734,7 +1001,9 @@ function renderTodayList() {
       const tempTag = t ? ` <span class="today-temp">${escapeHtml(t)}</span>` : "";
       const editingCls = r.id === editingId ? " editing" : "";   // 目前正在編輯這筆 → 高亮
       const editingTag = r.id === editingId ? ` <span class="today-editing">編輯中</span>` : "";
-      return `<button type="button" class="today-item${label ? " has-time" : ""}${editingCls}" data-edit="${r.id}">${timeTag}${recordSummaryLine(r)}${tempTag}${editingTag}</button>`;
+      const pending = pendingRecordIds.has(r.id);
+      const pendingTag = pending ? `<span class="today-pending">⏳ 上傳中・已記在這支手機,會自動補傳</span>` : "";
+      return `<button type="button" class="today-item${label ? " has-time" : ""}${pending ? " pending" : ""}${editingCls}" data-edit="${r.id}">${timeTag}${recordSummaryLine(r)}${tempTag}${pendingTag}${editingTag}</button>`;
     }).join("")}`;
   box.querySelectorAll("[data-edit]").forEach((b) =>
     b.addEventListener("click", () => startEdit(b.dataset.edit)));
@@ -757,7 +1026,10 @@ async function onSaveRecord(e) {
     pondId = optIdByName("ponds", typedName);
     if (!pondId) {
       pondId = uid();
-      addOption("ponds", typedName, pondId).catch(() => {});
+      addOption("ponds", typedName, pondId).catch((err) => {
+        console.error(err);
+        showConfirm(`⚠ 新池塘「${typedName}」沒有存到設定,紀錄會顯示不出池塘名稱。請到「設定」頁重新新增這個池塘。`, { okText: "知道了", cancel: false });
+      });
     }
   }
 
@@ -774,26 +1046,48 @@ async function onSaveRecord(e) {
   // 記住這次的時段/飼料,下次新增/編輯後自動帶回(不必重選)
   saveLastCtx(rec.period, rec.feedNoId);
 
-  const saveBtn = $("#saveBtn");
-  saveBtn.disabled = true;
-
-  const siteTemp = await currentSiteTempField();
-
-  // 注意:離線時 Firestore 的寫入 promise 要等連線才 resolve,不能 await(會卡住)。
-  // 改為發出寫入後立即依「目前是否已同步雲端」給提示;真正失敗(如權限)用 catch 補報。
-  // 上方表單只負責「新增」(編輯走獨立 modal)。
-  const ref = addDoc(collection(db, ...DB_ROOT, "records"), {
-    ...rec, createdAt: serverTimestamp(), siteTemp
-  });
-  ref.catch((err) => { console.error(err); showToast("新增失敗:" + err.message, true); });
-
-  if (cloudSynced) {
-    showToast(`已新增 ✔ ${pondLabel(rec.pondId)} ${fmt(rec.bags)}包`);
-  } else {
-    showToast(`已存到本機 ⏳ 連線後自動上傳`, false);
+  // 按下去:按鈕轉圈「上傳中…」(至少 1 秒),雲端確認收到才說「已新增」、才清表單;
+  // 失敗 → 「沒有記到」,表單內容保留,可以直接再按一次。上方表單只負責「新增」(編輯走獨立 modal)。
+  const startedAt = Date.now();
+  const what = `${pondLabel(rec.pondId)} ${fmt(rec.bags)}包`;
+  savingRecord = true;
+  updateSaveDisabled();
+  let res, newId = "";
+  try {
+    // 溫度:0.3 秒內讀到就一起寫;讀不到(網路差時最多要等 3 秒)就先寫紀錄、溫度讀到再補,
+    // 這樣按下去那一刻清單就有這筆,不會按鈕在轉、清單卻空等。真的讀不到 → pending,之後從板子歷史補
+    const tempP = currentSiteTempField();
+    const quick = await Promise.race([tempP, new Promise((r) => setTimeout(() => r(null), 300))]);
+    const siteTemp = quick || { pending: true, at: startedAt };
+    // 先產生編號再寫入(和 addDoc 一樣是自動編號):一開始就知道是哪一筆,
+    // 清單上那筆從出現的那一刻就標「上傳中」,直到按鈕轉完
+    const ref = doc(collection(db, ...DB_ROOT, "records"));
+    newId = ref.id;
+    holdPending.add(newId);
+    const write = setDoc(ref, { ...rec, createdAt: serverTimestamp(), siteTemp });
+    // 紀錄確認存好之後才補溫度(安靜更新,不標上傳中)
+    if (!quick) Promise.all([write, tempP]).then(([, t]) => {
+      if (t && !t.pending) quietUpdate(ref, { siteTemp: t }).catch((e) => console.warn("補溫度失敗(之後從板子歷史補):", e));
+    }, () => {});
+    res = await waitWrite(write, startedAt);
+    if (res.slow) followSlowWrite(write, "新增", what);
+  } catch (err) {
+    res = { ok: false, err };   // 例如資料格式有問題,SDK 當場丟錯
+  } finally {
+    savingRecord = false;
+    if (newId) releaseHold(newId);
   }
-  flashSaveOk(cloudSynced, "新增");
-  resetForm({ keepContext: true });
+  if (res.ok) {
+    flashSaveOk("新增");
+    showToast(`已新增 ✔ ${what}`);
+    resetForm({ keepContext: true });
+  } else if (res.slow) {
+    // 已經在手機上排隊,之後會自動上傳 → 清表單,免得家人以為沒記到又記一次
+    showToast(`⏳ 網路很慢,${what} 還在上傳中。已記在這支手機,會自動補傳,不用重記。`, false, 7000);
+    resetForm({ keepContext: true });
+  } else {
+    showWriteFail("新增", what, res.err);
+  }
   updateSaveDisabled();   // 依目前(保留的)池塘狀態決定按鈕可否按
 }
 
@@ -816,7 +1110,8 @@ const SITE_TEMP_GIVE_UP_MS = 30 * 60 * 1000;
 // retryPendingSiteTemp,用此 Set 上鎖,確保同一筆同時間只補一次。
 const fillingSiteTemp = new Set();
 async function fillSiteTemp(r) {
-  if (!db || fillingSiteTemp.has(r.id)) return;
+  // 這筆本身還沒上傳完就先不補(補溫度是安靜更新,會蓋掉它的「上傳中」標記);之後會再試
+  if (!db || fillingSiteTemp.has(r.id) || pendingRaw.has(r.id)) return;
   fillingSiteTemp.add(r.id);
   try {
     const at = Number(r.siteTemp.at);
@@ -824,7 +1119,7 @@ async function fillSiteTemp(r) {
     let siteTemp = null;
     if (t) siteTemp = { temp: t.temp, ts: t.ts };
     else if (Date.now() - at > SITE_TEMP_GIVE_UP_MS) siteTemp = { missing: true, at };
-    if (siteTemp) await updateDoc(doc(db, ...DB_ROOT, "records", r.id), { siteTemp });
+    if (siteTemp) await quietUpdate(doc(db, ...DB_ROOT, "records", r.id), { siteTemp });
   } catch (e) { console.warn("補溫度失敗(之後再試):", e); }   // 連不上 RTDB → 維持 pending
   finally { fillingSiteTemp.delete(r.id); }
 }
@@ -862,11 +1157,11 @@ function ensureSiteTempTimer() {
   }
 }
 
-// 儲存成功時:按鈕短暫變色 + 文字回饋。synced=false 時用不同字樣(已存本機)
-function flashSaveOk(synced = true, action = "新增") {
+// 送出後:按鈕短暫變色 + 文字回饋(有沒有上傳到雲端看 toast 與清單的 ⏳)
+function flashSaveOk(action = "新增") {
   const btn = $("#saveBtn");
   btn.classList.add("btn-ok-flash");
-  btn.textContent = synced ? `✔ 已${action}` : "⏳ 已存本機";
+  btn.textContent = `✔ 已${action}`;
   setTimeout(() => {
     btn.classList.remove("btn-ok-flash");
     btn.textContent = "新增";   // 存檔後一律回新增模式
@@ -1500,11 +1795,19 @@ async function loadAlertControl() {
 
 // 多路徑更新:patch 的 key 是相對 alertControl/ 的路徑,值為 null = 刪除
 async function writeAlertControl(patch, { render = true } = {}) {
-  const r = await fetch(`${NODE_RTDB}/alertControl.json`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(patch),
-  });
+  if (DEMO) return demoBlocked();
+  // 9 秒沒回應就放棄(busyWrite 等 10 秒):這裡不會先存在手機,卡住就當沒存到,讓人再按一次
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 9000);
+  let r;
+  try {
+    r = await fetch(`${NODE_RTDB}/alertControl.json`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+      signal: ctrl.signal,
+    });
+  } finally { clearTimeout(timer); }
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   await loadAlertControl();
   if (render) renderNodesPage();
@@ -1604,7 +1907,6 @@ const boardName = (id) => nodeLabel(id, nodeLastData?.[id]);
 function boardNames(ids, max = 3) {
   return ids.slice(0, max).map(boardName).join("、") + (ids.length > max ? ` 等 ${ids.length} 片` : "");
 }
-const alertSaveFail = (e) => `沒存成功,請再試一次(${e.message})`;
 const ALERT_APPLY_HINT = ",1 分鐘內生效";
 
 // 暫停通知的對話框:先選暫停多久(預設 1 小時,下方即時顯示幾點恢復)+ 選填備註,
@@ -1716,10 +2018,9 @@ async function setAlertTag(tag, on) {
       + (kept ? `(已經暫停的 ${kept} 池維持原本的設定)` : ""));
     if (!opt) return;
   }
-  try {
-    await writeAlertControl(pondsPatch(target, on, opt));
+  if (await busyWrite("儲存中…", () => writeAlertControl(pondsPatch(target, on, opt)), { fail: "通知設定沒有存到", local: false }) === "ok") {
     showToast(on ? `已恢復「${tag}」${target.length} 池的通知${ALERT_APPLY_HINT}` : `已暫停「${tag}」${target.length} 池的通知,${alertUntilText(opt)}${ALERT_APPLY_HINT}`);
-  } catch (e) { showToast(alertSaveFail(e), true); }
+  }
 }
 
 // 單一池塘開關
@@ -1733,12 +2034,11 @@ async function toggleAlertPond(pid) {
     opt = await chooseAlertPause(`「${pondName(pid)}」要暫停通知多久?`, `${boards.length} 片板子${boards.length ? `:${boardNames(boards, 6)}` : ""}`);
     if (!opt) return;
   }
-  try {
-    await writeAlertControl(pondsPatch([pid], !turnOff, opt));
+  if (await busyWrite("儲存中…", () => writeAlertControl(pondsPatch([pid], !turnOff, opt)), { fail: "通知設定沒有存到", local: false }) === "ok") {
     showToast(turnOff
       ? `已暫停「${pondName(pid)}」的通知,${alertUntilText(opt)}${ALERT_APPLY_HINT}`
       : `已恢復「${pondName(pid)}」的通知${ALERT_APPLY_HINT}`);
-  } catch (e) { showToast(alertSaveFail(e), true); }
+  }
 }
 
 // 個別板子開關。與池塘(或預設)相同且永久時刪掉個別設定,不留多餘的 entry;
@@ -1755,30 +2055,27 @@ async function toggleAlertNode(id) {
   const value = want === boardGroupOn(id) && opt.until == null && !opt.note
     ? null
     : { enabled: want, ...(opt.until != null && { until: opt.until }), ...(opt.note && { note: opt.note }) };
-  try {
-    await writeAlertControl({ [`nodes/${id}`]: value });
+  if (await busyWrite("儲存中…", () => writeAlertControl({ [`nodes/${id}`]: value }), { fail: "通知設定沒有存到", local: false }) === "ok") {
     showToast(want
       ? `已恢復 ${boardName(id)} 的通知${ALERT_APPLY_HINT}`
       : `已暫停 ${boardName(id)} 的通知,${alertUntilText(opt)}${ALERT_APPLY_HINT}`);
-  } catch (e) { showToast(alertSaveFail(e), true); }
+  }
 }
 
 // 單獨暫停的板子一次全部恢復(做法同 toggleAlertNode 的恢復:跟池塘一樣就刪掉個別設定)
 async function resumeAlertNodes(ids) {
   if (!ids.length || !(await confirmResumeBad(ids))) return;
   const patch = Object.fromEntries(ids.map((id) => [`nodes/${id}`, boardGroupOn(id) ? null : { enabled: true }]));
-  try {
-    await writeAlertControl(patch);
+  if (await busyWrite("儲存中…", () => writeAlertControl(patch), { fail: "通知設定沒有存到", local: false }) === "ok") {
     showToast(`已恢復 ${ids.length} 片的通知${ALERT_APPLY_HINT}`);
-  } catch (e) { showToast(alertSaveFail(e), true); }
+  }
 }
 
 // 讓個別設定回到跟池塘一樣(清掉衝突)
 async function resetAlertNode(id) {
-  try {
-    await writeAlertControl({ [`nodes/${id}`]: null });
+  if (await busyWrite("儲存中…", () => writeAlertControl({ [`nodes/${id}`]: null }), { fail: "通知設定沒有存到", local: false }) === "ok") {
     showToast(`${boardName(id)} 已改成跟池塘一樣`);
-  } catch (e) { showToast(alertSaveFail(e), true); }
+  }
 }
 
 // 板子綁定池塘(寫 Firestore options.nodePonds),寫完立刻同步告警群組
@@ -1786,17 +2083,16 @@ async function bindBoardPond(id, pondId) {
   if (!db) return;
   const nodePonds = { ...(options.nodePonds || {}) };
   if (pondId) nodePonds[id] = pondId; else delete nodePonds[id];
-  try {
-    await updateDoc(doc(db, ...DB_ROOT, "settings", "options"), { nodePonds });
-    options.nodePonds = nodePonds;   // onSnapshot 回來前先用新值,讓同步與畫面立即正確
-    await syncAlertGroups();
-    renderNodesPage();
-    // 綁到一個正在暫停的池塘,這片也會跟著暫停 → 要講,不然以為它會通知
-    const followsPaused = pondId && alertState(id).by === "pond" && !pondAlertOn(pondId);
-    showToast(pondId
-      ? `✓ ${boardName(id)} 已設定在 ${pondLabel(pondId)}${followsPaused ? `(這個池塘暫停通知中,這片也會跟著暫停)` : ""}`
-      : `✓ ${boardName(id)} 已取消指定池塘`);
-  } catch (e) { showToast("沒存成功,請再試一次(" + e.message + ")", true); }
+  const res = await busyWrite("儲存中…", () => updateDoc(doc(db, ...DB_ROOT, "settings", "options"), { nodePonds }), { fail: "池塘設定沒有存到" });
+  if (!res) { renderNodesPage(); return; }   // 失敗:畫面(下拉 / 勾選)回到原本的樣子
+  options.nodePonds = nodePonds;   // onSnapshot 回來前先用新值,讓同步與畫面立即正確
+  await syncAlertGroups();
+  renderNodesPage();
+  // 綁到一個正在暫停的池塘,這片也會跟著暫停 → 要講,不然以為它會通知
+  const followsPaused = pondId && alertState(id).by === "pond" && !pondAlertOn(pondId);
+  if (res === "ok") showToast(pondId
+    ? `✓ ${boardName(id)} 已設定在 ${pondLabel(pondId)}${followsPaused ? `(這個池塘暫停通知中,這片也會跟著暫停)` : ""}`
+    : `✓ ${boardName(id)} 已取消指定池塘`);
 }
 
 // 從池塘這邊增減板子:勾選 = 放在這池,取消勾選 = 移出(變成沒指定池塘)。
@@ -1866,17 +2162,16 @@ async function editPondBoards(pid) {
   const nodePonds = { ...(options.nodePonds || {}) };
   r.added.forEach((id) => { nodePonds[id] = pid; });
   r.removed.forEach((id) => { delete nodePonds[id]; });
-  try {
-    await updateDoc(doc(db, ...DB_ROOT, "settings", "options"), { nodePonds });
-    options.nodePonds = nodePonds;   // onSnapshot 回來前先用新值,讓同步與畫面立即正確
-    await syncAlertGroups();
-    renderNodesPage();
-    // 加進一個正在暫停的池塘,跟著池塘走的板子也會一起暫停 → 要講,不然以為它會通知
-    const followsPaused = !pondAlertOn(pid) && r.added.some((id) => alertState(id).by === "pond");
-    showToast(`✓「${pondName(pid)}」`
-      + [r.added.length && `加入 ${boardNames(r.added)}`, r.removed.length && `移出 ${boardNames(r.removed)}`].filter(Boolean).join("、")
-      + (followsPaused ? "(這個池塘暫停通知中,加入的板子也會跟著暫停)" : ""));
-  } catch (e) { showToast("沒存成功,請再試一次(" + e.message + ")", true); }
+  const res = await busyWrite("儲存中…", () => updateDoc(doc(db, ...DB_ROOT, "settings", "options"), { nodePonds }), { fail: "池塘設定沒有存到" });
+  if (!res) { renderNodesPage(); return; }   // 失敗:畫面(下拉 / 勾選)回到原本的樣子
+  options.nodePonds = nodePonds;   // onSnapshot 回來前先用新值,讓同步與畫面立即正確
+  await syncAlertGroups();
+  renderNodesPage();
+  // 加進一個正在暫停的池塘,跟著池塘走的板子也會一起暫停 → 要講,不然以為它會通知
+  const followsPaused = !pondAlertOn(pid) && r.added.some((id) => alertState(id).by === "pond");
+  if (res === "ok") showToast(`✓「${pondName(pid)}」`
+    + [r.added.length && `加入 ${boardNames(r.added)}`, r.removed.length && `移出 ${boardNames(r.removed)}`].filter(Boolean).join("、")
+    + (followsPaused ? "(這個池塘暫停通知中,加入的板子也會跟著暫停)" : ""));
 }
 
 // 暫停狀態 + 備註(池塘列 / 單獨暫停清單共用)
@@ -2290,14 +2585,13 @@ async function applyBatchBind() {
   const ids = [...nodeBatchSel];
   const nodePonds = { ...(options.nodePonds || {}) };
   for (const id of ids) { if (pondId) nodePonds[id] = pondId; else delete nodePonds[id]; }
-  try {
-    await updateDoc(doc(db, ...DB_ROOT, "settings", "options"), { nodePonds });
-    options.nodePonds = nodePonds;   // onSnapshot 回來前先用新值
-    await syncAlertGroups();
-    exitBatchMode();   // 套用完就離開;要再設定下一批,重按「一次設定多片的池塘」
-    renderNodesPage();
-    showToast(pondId ? `✓ ${ids.length} 片已設定在 ${pondLabel(pondId)}` : `✓ ${ids.length} 片已清除池塘設定`);
-  } catch (e) { showToast("沒存成功,請再試一次(" + e.message + ")", true); }
+  const res = await busyWrite("儲存中…", () => updateDoc(doc(db, ...DB_ROOT, "settings", "options"), { nodePonds }), { fail: "池塘設定沒有存到" });
+  if (!res) { renderNodesPage(); return; }   // 失敗:畫面(下拉 / 勾選)回到原本的樣子
+  options.nodePonds = nodePonds;   // onSnapshot 回來前先用新值
+  await syncAlertGroups();
+  exitBatchMode();   // 套用完就離開;要再設定下一批,重按「一次設定多片的池塘」
+  renderNodesPage();
+  if (res === "ok") showToast(pondId ? `✓ ${ids.length} 片已設定在 ${pondLabel(pondId)}` : `✓ ${ids.length} 片已清除池塘設定`);
 }
 
 // 點方塊 → modal 顯示該板完整資料(沿用 nodeCard);資料每分鐘更新時 modal 一起更新。
@@ -2479,8 +2773,7 @@ function renderEditTags() {
     `).join("")}`;
   box.querySelectorAll("[data-rectag]").forEach((b) =>
     b.addEventListener("click", async () => {
-      await togglePondTag(pondId, b.dataset.rectag);
-      b.classList.toggle("on");
+      if (await togglePondTag(pondId, b.dataset.rectag)) b.classList.toggle("on");
     }));
 }
 
@@ -2505,22 +2798,41 @@ async function onSaveEdit(e) {
     note: $("#editNoteInput").value.trim(),
   };
 
-  $("#editSaveBtn").disabled = true;
+  const btn = $("#editSaveBtn");
+  const startedAt = Date.now();
+  const id = editingId;   // 等待期間 editingId 可能被清掉,先記下來
+  const what = `${pondLabel(rec.pondId)} ${fmt(rec.bags)}包`;
+  const btnText = btn.textContent;
+  btn.disabled = true;
+  btn.innerHTML = SPIN_HTML("上傳中…");
 
   // 溫度:依「更新當下溫度」checkbox 決定。
   //   打勾 → 改成「更新此刻」的溫度(用途:清晨建立、上午吃完才更新,溫度應反映更新時刻)。
   //   不打勾 → 完全不動 siteTemp 欄(用途:晚上或隔天才補登,不該把溫度改成補登當下)。
-  const patch = { ...rec, updatedAt: serverTimestamp() };
-  if ($("#editUpdateWeather").checked) patch.siteTemp = await currentSiteTempField();
-
-  updateDoc(doc(db, ...DB_ROOT, "records", editingId), patch)
-    .catch((err) => { console.error(err); showToast("更新失敗:" + err.message, true); });
-  $("#editSaveBtn").disabled = false;
-
-  showToast(cloudSynced
-    ? `已更新 ✔ ${pondLabel(rec.pondId)} ${fmt(rec.bags)}包`
-    : `已存到本機 ⏳ 連線後自動上傳`);
-  closeEditModal();
+  let res;
+  try {
+    const patch = { ...rec, updatedAt: serverTimestamp() };
+    if ($("#editUpdateWeather").checked) patch.siteTemp = await currentSiteTempField();
+    holdPending.add(id);
+    const write = updateDoc(doc(db, ...DB_ROOT, "records", id), patch);
+    res = await waitWrite(write, startedAt);
+    if (res.slow) followSlowWrite(write, "更新", what);
+  } catch (err) {
+    res = { ok: false, err };
+  } finally {
+    btn.disabled = false;
+    btn.textContent = btnText;
+    releaseHold(id);
+  }
+  if (res.ok) {
+    showToast(`已更新 ✔ ${what}`);
+    closeEditModal();
+  } else if (res.slow) {
+    showToast(`⏳ 網路很慢,修改還在上傳中。已記在這支手機,會自動補傳,不用重改。`, false, 7000);
+    closeEditModal();
+  } else {
+    showWriteFail("更新", what, res.err);   // 視窗不關,改的內容還在,可以再按一次
+  }
 }
 
 // ============================================================
@@ -2622,7 +2934,7 @@ function renderList() {
       <div class="rec">
         <div class="rec-top">
           <span class="rec-pond">${escapeHtml(pondLabel(r.pondId))}
-            <span class="badge ${r.period}">${periodLabel(r.period)}</span>
+            <span class="badge ${r.period}">${periodLabel(r.period)}</span>${pendingRecordIds.has(r.id) ? ` <span class="rec-pending" title="還在這支手機上,網路恢復會自動上傳">⏳ 上傳中</span>` : ""}
           </span>
           <span class="rec-date">${dateLine}</span>
         </div>
@@ -2644,7 +2956,7 @@ function renderList() {
     b.addEventListener("click", () => onDelete(b.dataset.del)));
 }
 
-// 回傳 true=已送出刪除、false=取消或失敗(供編輯模式刪除後決定是否重設表單)
+// 回傳 true=已刪除(或網路很慢、已排隊會自動補傳)、false=取消或失敗(供編輯模式刪除後決定是否關視窗)
 async function onDelete(id) {
   const r = allRecords.find((x) => x.id === id);
   const ok = await showConfirm(
@@ -2652,11 +2964,10 @@ async function onDelete(id) {
     { okText: "刪除", danger: true }
   );
   if (!ok) return false;
-  try {
-    await deleteDoc(doc(db, ...DB_ROOT, "records", id));
-    showToast("已刪除 ✔");
-    return true;
-  } catch (err) { showToast("刪除失敗:" + err.message, true); return false; }
+  const what = r ? ` ${pondLabel(r.pondId)} ${fmt(Number(r.bags) || 0)}包` : "";
+  const res = await busyWrite("刪除中…", () => deleteDoc(doc(db, ...DB_ROOT, "records", id)), { fail: `這筆沒有刪掉${what}` });
+  if (res === "ok") showToast(`已刪除 ✔${what}`);
+  return !!res;
 }
 
 // ============================================================
@@ -3731,15 +4042,15 @@ function renderPondTagsSection() {
 
 // 切換某池對某標籤的歸屬。pondId=池塘 id(pondTags 以 id 為 key)
 async function togglePondTag(pondId, tag) {
-  if (!db) return;
+  if (!db) return false;
   const pondTags = { ...(options.pondTags || {}) };
   const list = new Set(pondTags[pondId] || []);
   if (list.has(tag)) list.delete(tag); else list.add(tag);
   // 依 tags 的順序保存,維持一致
   pondTags[pondId] = (options.tags || []).filter((t) => list.has(t));
-  try {
-    await updateDoc(doc(db, ...DB_ROOT, "settings", "options"), { pondTags });
-  } catch (err) { showToast("儲存群組失敗:" + err.message, true); }
+  const res = await busyWrite("儲存中…", () => updateDoc(doc(db, ...DB_ROOT, "settings", "options"), { pondTags }), { fail: "池塘群組沒有存到" });
+  if (res === "ok") showToast(`✔ 已${list.has(tag) ? "加入" : "移出"}「${tag}」`);
+  return !!res;
 }
 
 // 新增選項。四組帶 id 的選項存 {id,name};tags 維持純字串。
@@ -3756,8 +4067,12 @@ async function addOption(key, value, presetId) {
   }
   const item = isIdKey ? { id: presetId || uid(), name: value } : value;
   const next = [...list, item];
-  await updateDoc(doc(db, ...DB_ROOT, "settings", "options"), { [key]: next });
-  return true;
+  const write = () => updateDoc(doc(db, ...DB_ROOT, "settings", "options"), { [key]: next });
+  // 新增紀錄時手打的新池塘(presetId):跟著紀錄一起走,不另外轉圈
+  if (presetId) { await write(); return true; }
+  const res = await busyWrite("儲存中…", write, { fail: `「${value}」沒有新增` });
+  if (res === "ok") showToast(`✔ 已新增「${value}」`);
+  return !!res;
 }
 
 // 把選項從 from 位置移到 to 位置,寫回 Firestore
@@ -3767,10 +4082,9 @@ async function reorderOption(key, from, to) {
   if (from === to || from < 0 || to < 0 || from >= list.length || to >= list.length) return;
   const [moved] = list.splice(from, 1);
   list.splice(to, 0, moved);
-  try {
-    await updateDoc(doc(db, ...DB_ROOT, "settings", "options"), { [key]: list });
-    showToast(`已調整順序:「${optName(moved)}」`);
-  } catch (err) { showToast("排序失敗:" + err.message, true); }
+  const res = await busyWrite("儲存中…", () => updateDoc(doc(db, ...DB_ROOT, "settings", "options"), { [key]: list }), { fail: "順序沒有存到" });
+  if (res === "ok") showToast(`已調整順序:「${optName(moved)}」`);
+  if (!res) renderSettings();   // 失敗:拖過去的位置還原
 }
 
 // 重新命名選項:單點 chip 觸發。
@@ -3803,10 +4117,8 @@ async function renameOption(key, idx) {
     patch.pondTags = pondTags;
   }
 
-  try {
-    await updateDoc(doc(db, ...DB_ROOT, "settings", "options"), patch);
-    showToast(`已改名:「${old}」→「${next}」`);
-  } catch (err) { showToast("改名失敗:" + err.message, true); }
+  const res = await busyWrite("儲存中…", () => updateDoc(doc(db, ...DB_ROOT, "settings", "options"), patch), { fail: `「${old}」沒有改名` });
+  if (res === "ok") showToast(`已改名:「${old}」→「${next}」`);
 }
 
 // ---------- chip 拖曳排序(Pointer Events,手機 / 桌面通用)----------
@@ -3981,7 +4293,8 @@ async function removeOption(key, idx) {
     patch.nodePonds = nodePonds;
   }
 
-  await updateDoc(doc(db, ...DB_ROOT, "settings", "options"), patch);
+  const res = await busyWrite("刪除中…", () => updateDoc(doc(db, ...DB_ROOT, "settings", "options"), patch), { fail: `「${name}」沒有刪掉` });
+  if (res === "ok") showToast(`✔ 已刪除「${name}」`);
 }
 
 // ============================================================

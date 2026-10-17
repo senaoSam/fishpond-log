@@ -18,10 +18,16 @@ const LATEST_MAX_AGE_SEC = 10 * 60;
 // 歷史查詢:取紀錄時間前後此秒數內最接近的一筆(歷史 5 分鐘一筆)
 const HISTORY_WINDOW_SEC = 10 * 60;
 
-// 當下溫度。回 { temp, ts };讀不到 / 板子失聯 / 離線一律回 null(不丟例外,不擋存檔)。
+// 新增紀錄時最多等溫度這麼久:網路卡住時 fetch 可能掛好幾十秒,這段期間紀錄還沒寫入,
+// 使用者以為按了沒反應而離開,那筆就整個沒記到。讀不到就先存檔,溫度之後會從板子歷史補。
+const LATEST_TIMEOUT_MS = 3000;
+
+// 當下溫度。回 { temp, ts };讀不到 / 板子失聯 / 離線 / 逾時一律回 null(不丟例外,不擋存檔)。
 export async function latestPondTemp() {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), LATEST_TIMEOUT_MS);
   try {
-    const r = await fetch(`${NODE_RTDB}/devices/pond-site/latest.json`, { cache: "no-store" });
+    const r = await fetch(`${NODE_RTDB}/devices/pond-site/latest.json`, { cache: "no-store", signal: ctrl.signal });
     if (!r.ok) return null;
     const l = await r.json();
     const temp = Number(l?.temp), ts = Number(l?.ts);
@@ -30,6 +36,8 @@ export async function latestPondTemp() {
     return { temp, ts };
   } catch {
     return null;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
