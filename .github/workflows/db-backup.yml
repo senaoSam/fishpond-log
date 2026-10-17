@@ -1,14 +1,14 @@
 name: DB backup
 
-# 每月自動備份:把 Firestore 的 records + settings/options 匯成 JSON,
+# 每週自動備份:把 Firestore 的 records + settings/options 匯成 JSON,
 # commit 進 repo 的 backups/。兩個目的:
 #   1. 異地備份(防誤刪 / 帳號出事)
-#   2. 每月的備份 commit = repo 活動,重置 GitHub「60 天無活動即停用排程」
+#   2. 每週的備份 commit = repo 活動,重置 GitHub「60 天無活動即停用排程」
 #      的計時器,讓本備份排程永遠不會被停用。
-#      (檔案內含 exportedAt,就算當月沒新紀錄也保證有 commit。)
+#      (檔案內含 exportedAt,就算當週沒新紀錄也保證有 commit。)
 on:
   schedule:
-    - cron: "0 0 1 * *"   # 每月 1 號 00:00 UTC = 台灣早上 8 點
+    - cron: "0 19 * * 0"  # 每週日 19:00 UTC = 台灣週一凌晨 3 點(cron 只吃 UTC;GitHub 排程常延遲 1~3 小時)
   workflow_dispatch:       # 可手動觸發(測試或臨時備份)
 
 permissions:
@@ -67,7 +67,7 @@ jobs:
                 records.push({ id: d.name.split("/").pop(), ...decFields(d.fields || {}) });
               tok = j.nextPageToken || "";
             } while (tok);
-            // 依日期排序,讓每月備份的 diff 穩定可讀
+            // 依日期排序,讓每次備份的 diff 穩定可讀
             records.sort((a, b) => String(a.date).localeCompare(String(b.date)) || String(a.id).localeCompare(String(b.id)));
 
             // settings/options:單一文件(池塘/料號/拌料/消毒劑/群組設定)

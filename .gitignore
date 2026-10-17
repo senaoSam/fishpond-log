@@ -17,7 +17,7 @@ yarn.lock
 scripts/_migration-preview.json
 # backups/ 下「帶時間戳的遷移資料夾」(如 20260627-013258/)是本機一次性產物,不進 repo
 backups/[0-9]*/
-# 注意:backups/firestore-backup.json 刻意「不」忽略 —— db-backup.yml 每月自動把
+# 注意:backups/firestore-backup.json 刻意「不」忽略 —— db-backup.yml 每週一自動把
 # Firestore 備份 commit 進此檔(兼作 repo 活動、續命排程)。repo 為 public,備份內含
 # 真實資料會公開可見;此為與 Firebase 全公開設計一致的取捨(見 weather.js 註解)。
 
