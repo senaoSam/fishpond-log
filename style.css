@@ -645,6 +645,8 @@ select { appearance: none; background-image: url("data:image/svg+xml;utf8,<svg x
 /* 動作列:最後編輯靠左、編輯/刪除靠右(同一排);無編輯時按鈕仍靠右 */
 .rec-actions { display: flex; gap: 8px; align-items: center; justify-content: flex-end; margin-top: 6px; }
 .rec-edited { color: var(--muted); font-size: 0.78rem; font-variant-numeric: tabular-nums; margin-right: auto; }
+/* 編輯視窗標題下:建立 / 更新時間 */
+.edit-stamp { flex: 0 0 auto; margin: -2px 0 8px; font-size: 0.8rem; color: var(--muted); font-variant-numeric: tabular-nums; }
 .rec-actions-btns { display: flex; gap: 8px; }
 
 /* ---------- Tables (stats) ---------- */

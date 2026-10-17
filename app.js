@@ -114,32 +114,36 @@ function tsToDate(ts) {
 }
 function recordDate(r) { return tsToDate(r.createdAt); }       // 建立時間
 function recordUpdatedDate(r) { return tsToDate(r.updatedAt); } // 最後編輯時間
-// Date → hh:mm:ss(24h);null 回空字串
-function fmtTime(d) {
+// 一筆紀錄有三個時間,畫面上要分開講:
+//   date + period = 紀錄的時間(哪天、早上 / 下午餵的;表單選的,可以改)
+//   createdAt     = 建立時間(第一次按「新增」的時刻,不會變)
+//   updatedAt     = 最後更新時間(最後一次按「更新」,每次編輯覆蓋)
+// 建立 / 更新一律帶日期——只寫時分會被當成是紀錄那天,事後補登就看不出來。
+// Date →「10/03 08:12」;不是今年的補年份「2025/12/30 08:12」
+function fmtStamp(d) {
   if (!d) return "";
   const z = (n) => String(n).padStart(2, "0");
-  return `${z(d.getHours())}:${z(d.getMinutes())}:${z(d.getSeconds())}`;
+  const year = d.getFullYear() !== new Date().getFullYear() ? `${d.getFullYear()}/` : "";
+  return `${year}${z(d.getMonth() + 1)}/${z(d.getDate())} ${z(d.getHours())}:${z(d.getMinutes())}`;
 }
-// 是否同一天
-function sameDay(a, b) {
-  return a && b && a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+// Date → 本地日期「YYYY-MM-DD」(和紀錄的 date 欄同格式)
+function localDateStr(d) {
+  const z = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}`;
 }
-// 紀錄的時間標記:「建立: hh:mm:ss」+(若有編輯)「, 最後編輯: hh:mm:ss」。
-// 最後編輯與建立不同天時,編輯時間前面加「MM/DD-」。回傳純文字(呼叫端自行 escape)。
-function recordTimeLabel(r) {
+// 事後補登:建立那天和紀錄的日期不同
+function recordIsBackfill(r) {
+  const c = recordDate(r);
+  return !!(c && r.date && localDateStr(c) !== r.date);
+}
+// 「建立 10/03 08:12(補登)・更新 10/15 14:03」;沒有時間的舊紀錄回空字串。純文字(呼叫端自行 escape)
+function recordStampLine(r) {
   const c = recordDate(r), u = recordUpdatedDate(r);
-  if (!c && !u) return "";
   const parts = [];
-  if (c) parts.push(`建立: ${fmtTime(c)}`);
-  if (u) {
-    const z = (n) => String(n).padStart(2, "0");
-    const datePrefix = (c && !sameDay(c, u)) ? `${z(u.getMonth() + 1)}/${z(u.getDate())}-` : "";
-    parts.push(`最後編輯: ${datePrefix}${fmtTime(u)}`);
-  }
-  return parts.join(", ");
+  if (c) parts.push(`建立 ${fmtStamp(c)}${recordIsBackfill(r) ? "(補登)" : ""}`);
+  if (u) parts.push(`更新 ${fmtStamp(u)}`);
+  return parts.join("・");
 }
-// 由 createdAt 取建立時間 hh:mm:ss(24h);無 createdAt 回空字串
-function recordTimeStr(r) { return fmtTime(recordDate(r)); }
 // 取建立時間毫秒(供排序);無 createdAt 回 0
 function recordTimeMs(r) {
   const d = recordDate(r);
@@ -885,6 +889,9 @@ function recordDetailText(r) {
     ["溫度", temp ? temp : "—"],
     ["備註", dash(r.note)],
   ];
+  const c = recordDate(r), u = recordUpdatedDate(r);
+  if (c) lines.push(["建立", fmtStamp(c) + (recordIsBackfill(r) ? "(補登)" : "")]);
+  if (u) lines.push(["更新", fmtStamp(u)]);
   return lines.map(([k, v]) => `${k}:${v}`).join("\n");
 }
 
@@ -911,7 +918,7 @@ function renderTodayList() {
   box.innerHTML = `
     <div class="today-head">${escapeHtml(date)} 已記錄 ${recs.length} 筆${pendingN ? `<b class="today-pending-count">・⏳ ${pendingN} 筆上傳中</b>` : ""} <span class="today-hint">(點擊可編輯)</span></div>
     ${recs.map((r) => {
-      const label = recordTimeLabel(r);
+      const label = recordStampLine(r);
       const timeTag = label ? `<span class="today-time">${escapeHtml(label)}</span>` : "";
       const t = siteTempStr(r);
       const tempTag = t ? ` <span class="today-temp">${escapeHtml(t)}</span>` : "";
@@ -2661,6 +2668,10 @@ function startEdit(id) {
   $("#editDisinfectantSelect").value = r.disinfectantId || "";
   $("#editNoteInput").value = r.note || "";
   $("#editUpdateWeather").checked = true;   // 每次開啟預設打勾(modal 重用,需重設避免殘留上次狀態)
+  // 標題下:這筆什麼時候建立、最後什麼時候改過(和上面的「日期」= 紀錄的日期分開)
+  const stamp = recordStampLine(r);
+  $("#editStamp").textContent = stamp;
+  $("#editStamp").hidden = !stamp;
 
   renderTodayList();           // 反白「編輯中」那筆
   $("#editOverlay").hidden = false;
@@ -2835,16 +2846,10 @@ function renderList() {
     const wt = siteTempStr(r);
     if (wt) parts.push(`<span class="rec-temp">${escapeHtml(wt)}</span>`);
     const note = r.note ? `<div class="rec-body"><span class="k">備註</span> ${escapeHtml(r.note)}</div>` : "";
-    // 建立時間接在右上角日期後;最後編輯(若有)放動作列左側,跨建立日才加 MM/DD-
-    const ct = recordTimeStr(r);
-    const dateLine = `${escapeHtml(r.date)}${ct ? " " + escapeHtml(ct) : ""}`;
-    const c2 = recordDate(r), u = recordUpdatedDate(r);
-    let edited = "";
-    if (u) {
-      const z = (n) => String(n).padStart(2, "0");
-      const prefix = (c2 && !sameDay(c2, u)) ? `${z(u.getMonth() + 1)}/${z(u.getDate())}-` : "";
-      edited = `<span class="rec-edited">最後編輯: ${escapeHtml(prefix + fmtTime(u))}</span>`;
-    }
+    // 右上角只放「紀錄的日期」;建立 / 更新時間(一律帶日期)放下方動作列左側,不再和紀錄日期黏在一起
+    const dateLine = escapeHtml(r.date);
+    const stamp = recordStampLine(r);
+    const edited = stamp ? `<span class="rec-edited">${escapeHtml(stamp)}</span>` : "";
     return `
       <div class="rec">
         <div class="rec-top">
