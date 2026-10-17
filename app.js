@@ -7,91 +7,9 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/fireba
 import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
   collection, doc,
-  addDoc as fsAddDoc, setDoc as fsSetDoc, updateDoc as fsUpdateDoc, deleteDoc as fsDeleteDoc,
+  addDoc, setDoc, updateDoc, deleteDoc,
   getDoc, onSnapshot, query, orderBy, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-
-// ---------- 示範模式(只在本機)----------
-// 網址加 ?demo=毫秒:所有寫入都不送出。紀錄的新增 / 編輯 / 刪除只在畫面上模擬,
-// 假裝雲端過這麼久才確認收到;?demo=fail 假裝雲端拒收。其他寫入(設定、板子頁)一樣等、一樣回結果,但不會真的改。
-// 用來看「上傳中」提示與標記的實際效果,不會在資料庫留下任何東西;重新整理就恢復原狀。
-// 只在 localhost 生效,線上網址帶 ?demo 也不會啟動。
-const DEMO = (() => {
-  const v = new URLSearchParams(location.search).get("demo");
-  if (v == null || !/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) return null;
-  return v === "fail" ? { ms: 1000, fail: true } : { ms: Number(v) || 1000, fail: false };
-})();
-const demoRecords = new Map();   // id → 示範新增 / 修改後的紀錄
-const demoDeleted = new Set();   // 示範刪除的 id
-const demoPending = new Set();   // 示範中「還沒被雲端確認」的 id
-let lastRealRecords = [];        // 雲端讀到的紀錄(示範的改動疊在上面)
-let lastRealPending = [];        // 雲端那邊真的還沒上傳的 id
-function demoMerge(real) {
-  const out = real.filter((r) => !demoDeleted.has(r.id)).map((r) => demoRecords.get(r.id) || r);
-  for (const [id, r] of demoRecords) if (!real.some((x) => x.id === id)) out.push(r);
-  return out;
-}
-function demoRefresh() {
-  allRecords = demoMerge(lastRealRecords);
-  pendingRaw = new Set([...lastRealPending, ...demoPending]);
-  refreshPending();
-  renderSyncStatus();
-  renderList();
-  renderStatsView();
-  renderTodayList();
-}
-// serverTimestamp() 換成現在時間(示範的紀錄不會經過雲端)
-function demoClean(data) {
-  const now = new Date().toISOString();
-  return { ...data, ...("createdAt" in data && { createdAt: now }), ...("updatedAt" in data && { updatedAt: now }) };
-}
-// 像 Firestore 的本地寫入:畫面立刻改,過 DEMO.ms 才「確認」;fail 時復原並拒絕
-function demoOp(kind, id, data) {
-  return new Promise((resolve, reject) => {
-    const prev = demoRecords.get(id), wasDeleted = demoDeleted.has(id);
-    const base = prev || lastRealRecords.find((r) => r.id === id);
-    if (kind === "add") demoRecords.set(id, { id, ...data });
-    if (kind === "update") demoRecords.set(id, { ...base, ...data, id });
-    if (kind === "delete") { demoRecords.delete(id); demoDeleted.add(id); }
-    if (kind !== "delete") demoPending.add(id);
-    demoRefresh();
-    setTimeout(() => {
-      demoPending.delete(id);
-      if (DEMO.fail) {
-        if (prev) demoRecords.set(id, prev); else demoRecords.delete(id);
-        if (!wasDeleted) demoDeleted.delete(id);
-        demoRefresh();
-        reject(Object.assign(new Error("示範:雲端拒收"), { code: "permission-denied" }));
-      } else {
-        demoRefresh();
-        resolve({ id });
-      }
-    }, DEMO.ms);
-  });
-}
-// 紀錄以外的寫入(設定、板子頁):示範時一樣等 DEMO.ms 再回成功 / 失敗,看得到轉圈與結果,但資料不會真的改
-const demoBlocked = () => new Promise((resolve, reject) => setTimeout(() => DEMO.fail
-  ? reject(Object.assign(new Error("示範:雲端拒收"), { code: "permission-denied" }))
-  : resolve(), DEMO.ms));
-const isRecordsCol = (ref) => ref?.id === "records";
-const isRecordDoc = (ref) => ref?.parent?.id === "records";
-// 全 App 的寫入都走這四個(示範模式時攔下來)
-function addDoc(ref, data) {
-  if (!DEMO) return fsAddDoc(ref, data);
-  return isRecordsCol(ref) ? demoOp("add", "demo-" + uid(), demoClean(data)) : demoBlocked();
-}
-function updateDoc(ref, data) {
-  if (!DEMO) return fsUpdateDoc(ref, data);
-  return isRecordDoc(ref) ? demoOp("update", ref.id, demoClean(data)) : demoBlocked();
-}
-function deleteDoc(ref) {
-  if (!DEMO) return fsDeleteDoc(ref);
-  return isRecordDoc(ref) ? demoOp("delete", ref.id) : demoBlocked();
-}
-function setDoc(ref, data, opts) {
-  if (!DEMO) return fsSetDoc(ref, data, opts);
-  return isRecordDoc(ref) ? demoOp("add", ref.id, demoClean(data)) : demoBlocked();
-}
 
 // ---------- 部署版本時間戳 ----------
 // header 會顯示「月/日/時」,用來肉眼確認線上載入的是新版而非 cache。
@@ -515,7 +433,7 @@ function renderSyncStatus() {
   const el = $("#syncStatus");
   if (!el || !db) return;
   const n = syncPendingCount();
-  const warn = (persistOff ? "・⚠ 未離線保存" : "") + (DEMO ? `・🧪 示範(${DEMO.fail ? "拒收" : DEMO.ms / 1000 + " 秒"})不寫入` : "");
+  const warn = persistOff ? "・⚠ 未離線保存" : "";
   if (recordsListenErr) setSync("err", `讀取紀錄失敗${warn}`);
   else if (n) setSync("pending", `${n} 筆待上傳${warn}`);
   else if (!recordsFirstSnap) setSync("", `魚塭連線中${warn}`);
@@ -644,14 +562,12 @@ function subscribeData() {
   unsubscribers.push(onSnapshot(q, { includeMetadataChanges: true }, (snap) => {
     // serverTimestamps:"estimate":還沒上傳的 createdAt / updatedAt 先用本機時間估(只影響讀出來的值),
     // 否則是 null → 剛記的那筆沒有時間、排到當天最下面
-    lastRealRecords = snap.docs.map((d) => ({ id: d.id, ...d.data({ serverTimestamps: "estimate" }) }));
-    allRecords = DEMO ? demoMerge(lastRealRecords) : lastRealRecords;
+    allRecords = snap.docs.map((d) => ({ id: d.id, ...d.data({ serverTimestamps: "estimate" }) }));
     // fromCache=true 代表尚未與雲端同步(離線或同步中);hasPendingWrites=這筆有本地未上傳的寫入。
     // 雲端確認收到時(includeMetadataChanges)會再觸發一次,hasPendingWrites 變 false → 標記消失
     cloudSynced = !snap.metadata.fromCache;
     recordsFirstSnap = true;
-    lastRealPending = snap.docs.filter((d) => d.metadata.hasPendingWrites).map((d) => d.id);
-    pendingRaw = new Set([...lastRealPending, ...demoPending]);
+    pendingRaw = new Set(snap.docs.filter((d) => d.metadata.hasPendingWrites).map((d) => d.id));
     refreshPending();
     renderSyncStatus();
     updateSaveDisabled();   // 連線狀態變了 → 連動新增鈕可否按
@@ -1795,7 +1711,6 @@ async function loadAlertControl() {
 
 // 多路徑更新:patch 的 key 是相對 alertControl/ 的路徑,值為 null = 刪除
 async function writeAlertControl(patch, { render = true } = {}) {
-  if (DEMO) return demoBlocked();
   // 9 秒沒回應就放棄(busyWrite 等 10 秒):這裡不會先存在手機,卡住就當沒存到,讓人再按一次
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 9000);
