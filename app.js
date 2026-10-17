@@ -438,12 +438,18 @@ function renderSyncStatus() {
   if (!el || !db) return;
   const n = syncPendingCount();
   const warn = persistOff ? "・⚠ 未離線保存" : "";
+  // 上傳中的筆數:接在同步狀態後面的橘色小標籤(有才出現),一眼就看得到
+  const pend = $("#syncPending");
+  if (pend) {
+    pend.hidden = !n;
+    pend.textContent = n ? `⏳ ${n} 筆上傳中` : "";
+    pend.title = n ? SYNC_HELP_PENDING : "";
+  }
   if (recordsListenErr) setSync("err", `讀取紀錄失敗${warn}`);
-  else if (n) setSync("pending", `${n} 筆待上傳${warn}`);
   else if (!recordsFirstSnap) setSync("", `魚塭連線中${warn}`);
   else if (cloudSynced) setSync("ok", `紀錄已同步${warn}`);
   else setSync("pending", persistOff ? "離線・⚠ 關掉會遺失" : "離線(資料暫存本機)");
-  el.title = persistOff ? SYNC_HELP_PERSIST_OFF : n ? SYNC_HELP_PENDING : "";
+  el.title = persistOff ? SYNC_HELP_PERSIST_OFF : "";
   el.classList.toggle("has-help", !!el.title);
 }
 // pendingRaw + holdPending → pendingRecordIds。按下新增那一刻就標「上傳中」(不延遲),
@@ -515,10 +521,12 @@ function initFirebase() {
       if (persistOff && syncPendingCount()) { e.preventDefault(); e.returnValue = ""; }
     });
     // header 的同步狀態:有說明時點一下看完整說明(手機看不到 title)
-    $("#syncStatus")?.addEventListener("click", () => {
-      const t = $("#syncStatus").title;
-      if (t) showConfirm(t, { okText: "知道了", cancel: false });
-    });
+    for (const sel of ["#syncStatus", "#syncPending"]) {
+      $(sel)?.addEventListener("click", (e) => {
+        const t = e.currentTarget.title;
+        if (t) showConfirm(t, { okText: "知道了", cancel: false });
+      });
+    }
     return true;
   } catch (e) {
     console.error(e);
@@ -1140,10 +1148,10 @@ const NODE_STALE_MULTIPLE = 5;      // 與 watchdog 的 meta.staleMultiple 一�
 const NODE_DEFAULT_INTERVAL = 60;   // meta.interval 缺失時的保底(秒)
 const NODE_POLL_MS = 60 * 1000;     // 對齊板子的上傳週期
 // 固定的兩片:id → 短名(給家人看的,不用角色名)。watchdog 那片固定放在家裡(刻意與感測器
-// 不同地點,魚塭斷電時才有人能發通知),它的工作就是發通知,所以叫「家裡警報板」。
+// 不同地點,魚塭斷電時才有人能發通知),叫「家裡板」。
 // pond-site 的探頭在魚塭旁的空氣中,量的是現場氣溫(不是水溫),所以不叫「溫度感測」。
 // 這兩片一律列出(RTDB 裡不見了也要看到「還沒收到資料」);其餘板子從 devices 動態讀。
-const NODE_LABELS = { "pond-site": "魚塭板子", "watchdog": "家裡警報板" };
+const NODE_LABELS = { "pond-site": "魚塭板子", "watchdog": "家裡板" };
 // 斷電偵測板(A01、A02…):新板子開機會自己註冊(registry 的 MAC → 編號)並寫進
 // devices/{編號},meta.role = "heartbeat"。App 不寫死清單,有幾片就列幾片。
 const isHeartbeat = (node) => node?.meta?.role === "heartbeat" || node?.meta?.group === "heartbeat";
@@ -1214,7 +1222,7 @@ function nodeState(id, node) {
 }
 // 剛開機、時間還沒對好(這時 watchdog 不會通知)
 const nodeJustBooted = (node) => { const ts = Number(node?.latest?.ts); return !!ts && !nodeTimeValid(ts); };
-// 暫停通知中的板子(家裡警報板自己不在通知範圍,永遠不算)
+// 暫停通知中的板子(家裡板自己不在通知範圍,永遠不算)
 const nodeMuted = (id) => id !== "watchdog" && !alertState(id).on;
 // 去掉名稱的狀態字(卡片 / modal 標題旁用):「沒回報 12 分鐘」;正常有氣溫的只寫「正常」
 function nodeStateShort(id, node) {
@@ -1255,7 +1263,13 @@ function renderNodeHeader() {
   // 悄悄少一個反而看不出是哪片出事。nodeState 收到 undefined 會回「還沒收到資料」。
   // 斷電偵測板只列一顆總結 ●;其他未知角色的板子(日後新增)逐片列。
   const ids = Object.keys(NODE_LABELS);
-  const states = ids.map((id) => nodeState(id, data[id]));
+  const states = ids.map((id) => {
+    const st = nodeState(id, data[id]);
+    if (id !== "pond-site") return st;
+    // 魚塭板子在 header 不寫名字:正常只顯示「● 27.2°C」;有狀況寫「氣溫沒回報 12 分鐘」(光寫沒回報看不出是哪片)
+    const temp = Number(data[id]?.latest?.temp);
+    return { ...st, text: st.cls === "ok" && Number.isFinite(temp) ? `${temp.toFixed(1)}°C` : `氣溫${nodeStateShort(id, data[id])}` };
+  });
   const hb = heartbeatSummary(data);
   if (hb) states.push(hb);
   for (const id of otherNodeIds(data)) states.push(nodeState(id, data[id]));
@@ -1639,7 +1653,7 @@ function nodeCard(id, node, logLimit = 3) {
   }
 
   const l = node.latest || {}, m = node.meta || {};
-  // 家裡警報板正在發通知:最重要的一件事,放最上面
+  // 家裡板正在發通知:最重要的一件事,放最上面
   const alerting = l.alerting === true
     ? `<p class="nodes-alerting">⚠ 正在發通知(有板子沒回報,已傳 Discord,沒人按 ✅ 會打電話)</p>` : "";
   const rows = [];
@@ -2313,14 +2327,14 @@ function nodesSummaryHtml() {
     // 說法照 watchdog 的實際行為:沒回報約 5 分鐘就傳 Discord,沒人按 ✅ 再過約 10 分鐘才打電話;
     // 剛開機不會通知;整個不見的(devices 裡沒有)watchdog 看不到,也不會通知
     sub = watchedBad.includes("watchdog")
-      ? "家裡警報板沒回報時,其他板子出事也不會有人收到通知,請去看看"
+      ? "家裡板沒回報時,其他板子出事也不會有人收到通知,請去看看"
       : watchedBad.every((id) => !data[id]) ? "還沒收到資料,不會通知,請檢查這片"
       : watchedBad.every((id) => nodeJustBooted(data[id])) ? "剛開機,等它對好時間"
       : "已傳 Discord,沒人按 ✅ 會打電話";
   } else if (data.watchdog?.latest?.alerting === true) {
-    // 板子剛恢復時,家裡警報板的狀態最多晚 1 分鐘才更新
+    // 板子剛恢復時,家裡板的狀態最多晚 1 分鐘才更新
     cls = "pending";
-    title = "⚠ 家裡警報板正在發通知";
+    title = "⚠ 家裡板正在發通知";
     sub = "如果板子剛恢復,1 分鐘內會停;沒停請看 Discord";
   } else {
     cls = "ok";
@@ -2352,7 +2366,7 @@ function renderNodesPage() {
   // 順序照家人關心的程度:現在狀況 → 斷電偵測方塊 → 通知開關 → 其他 → 固定兩片。
   // 斷電偵測板 / 其他板子數量會很多,用小方塊格狀排列,點方塊才開完整資料(modal),避免整頁無限往下長。
   const fixed = Object.keys(NODE_LABELS).map((id) => nodeCard(id, nodeLastData[id])).join("");
-  // 版面:電腦上主欄(現在狀況、方塊、通知)+ 右側固定寬的側欄(魚塭板子、家裡警報板),
+  // 版面:電腦上主欄(現在狀況、方塊、通知)+ 右側固定寬的側欄(魚塭板子、家裡板),
   // 兩欄上緣對齊;手機上側欄自然接在主欄後面,順序不變。
   box.innerHTML = `<div class="nodes-layout">
     <div class="nodes-main">${

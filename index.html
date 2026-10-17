@@ -12,7 +12,11 @@
 <body>
   <header class="app-header">
     <div class="header-left">
-      <span id="syncStatus" class="sync-status">魚塭連線中</span>
+      <div class="sync-line">
+        <span id="syncStatus" class="sync-status">魚塭連線中</span>
+        <!-- 幾筆還在上傳中(有才出現) -->
+        <span id="syncPending" class="sync-pending" hidden></span>
+      </div>
       <!-- ESP32 心跳:讀 esp32 專案的 RTDB(與本站 Firestore 不同專案),每分鐘更新。
            一開始就先放「查詢中」,這行永遠佔位,避免抓到後把下面內容往下推。 -->
       <span id="nodeStatus" class="node-status"><span class="node-dot unknown">板子狀態:查詢中…</span></span>

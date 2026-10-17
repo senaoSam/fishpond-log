@@ -65,6 +65,14 @@ html, body {
   color: #fff;
 }
 .sync-status { font-size: 0.72rem; opacity: 0.9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+/* 同步狀態 + 上傳中筆數排在同一行 */
+.sync-line { display: flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; }
+.sync-line .sync-status { min-width: 0; }
+/* 上傳中筆數:橘色小標籤,在深色 header 上也很顯眼 */
+.sync-pending {
+  flex: 0 0 auto; font-size: 0.7rem; font-weight: 700; line-height: 1.5; white-space: nowrap;
+  padding: 0 7px; border-radius: 999px; background: #ffd8a8; color: #7a3e00; cursor: pointer;
+}
 /* 有說明可看(待上傳 / 未離線保存):點一下跳完整說明 */
 .sync-status.has-help { cursor: pointer; text-decoration: underline dotted; text-underline-offset: 2px; }
 /* header 右側:時間戳 + 主題切換 */
