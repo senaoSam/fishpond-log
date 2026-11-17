@@ -6,117 +6,7 @@
   <meta name="theme-color" content="#0b7285" />
   <title>每日資產</title>
   <link rel="stylesheet" href="style.css?v=16" />
-  <style>
-    /* 資產頁專屬樣式(沿用 style.css 的 CSS 變數) */
-    .asset-wrap { max-width: 720px; margin: 0 auto; padding: 16px 14px 40px; }
-    .asset-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
-    .asset-head h1 { font-size: 1.3rem; margin: 0; }
-    .asset-head .right { display: flex; align-items: center; gap: 8px; }
-    .asset-sync { font-size: 0.78rem; color: var(--muted); white-space: nowrap; }
-    .asset-head h1 { white-space: nowrap; }
-    .asset-sync.ok::before { content: "● "; color: var(--ok); }
-    .asset-sync.err::before { content: "● "; color: var(--danger); }
-    .asset-sync.demo::before { content: "● "; color: #f59f00; }
-
-    .card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; margin-bottom: 14px; }
-    .card-title { font-weight: 700; margin: 0 0 10px; }
-
-    /* 輸入表單 */
-    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-    .form-grid label { display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem; color: var(--muted); }
-    .form-grid label.full { grid-column: 1 / -1; }
-    .form-grid input { width: 100%; box-sizing: border-box; padding: 10px; font-size: 1rem;
-      border: 1px solid var(--border); border-radius: 8px; background: var(--field); color: var(--text); }
-    .net-preview { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: baseline;
-      background: var(--total-bg); border-radius: 8px; padding: 10px 12px; margin-top: 2px; }
-    .net-preview .lbl { color: var(--muted); font-size: 0.85rem; }
-    .net-preview .val { font-weight: 800; font-size: 1.15rem; font-variant-numeric: tabular-nums; }
-    .btn { padding: 12px 16px; font-size: 1rem; font-weight: 700; border-radius: 10px; cursor: pointer; border: 1px solid transparent; white-space: nowrap; line-height: 1; box-sizing: border-box; }
-    .btn-primary { background: var(--primary); color: #fff; }
-    .btn-primary:active { background: var(--primary-dark); }
-    .btn-ghost { background: none; border-color: var(--border); color: var(--text); }
-    .btn-danger { color: #fff; border-color: var(--danger-solid); background: var(--danger-solid); }
-    .btn-danger:active { background: var(--danger-solid-dark); border-color: var(--danger-solid-dark); }
-    .btn-sm { padding: 6px 12px; font-size: 0.85rem; }
-    .btn-xs { padding: 3px 9px; font-size: 0.75rem; font-weight: 600; border-radius: 7px; }
-
-    /* 表單動作列:新增模式 → 單顆靠右;編輯模式(.editing)→ 三顆等寬等高 */
-    .form-actions { grid-column: 1 / -1; display: flex; align-items: stretch; gap: 8px; margin-top: 10px; justify-content: flex-end; }
-    .form-actions .btn { display: inline-flex; align-items: center; justify-content: center; margin: 0; }
-    .form-actions.editing { justify-content: stretch; }
-    .form-actions.editing .btn { flex: 1 1 0; min-width: 0; }
-
-    /* 圖表 */
-    .chart-box { position: relative; }
-    .chart-svg { width: 100%; height: 260px; display: block; touch-action: none; }
-    .chart-empty { color: var(--muted); text-align: center; padding: 40px 0; }
-    .chart-grid-line { stroke: var(--border); stroke-width: 1; }
-    .chart-zero-line { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 3; opacity: 0.6; }
-    .chart-line { fill: none; stroke: var(--primary); stroke-width: 2.5; }
-    .chart-area { fill: var(--primary); opacity: 0.08; }
-    .chart-dot { fill: var(--card); stroke: var(--primary); stroke-width: 2; }
-    .chart-axis-txt { fill: var(--muted); font-size: 11px; }
-    .chart-tip { position: absolute; pointer-events: none; background: rgba(20,25,30,0.95); color: #fff;
-      font-size: 0.78rem; line-height: 1.5; padding: 6px 9px; border-radius: 8px; white-space: nowrap; transform: translate(-50%, -120%); display: none; z-index: 5; }
-    .chart-tip b { font-variant-numeric: tabular-nums; }
-
-    /* 摘要數字列 */
-    .stat-row { display: flex; gap: 10px; flex-wrap: wrap; }
-    .stat { flex: 1 1 0; min-width: 90px; background: var(--total-bg); border-radius: 8px; padding: 10px; text-align: center; }
-    .stat .k { font-size: 0.78rem; color: var(--muted); }
-    .stat .v { font-weight: 800; font-size: 1.05rem; font-variant-numeric: tabular-nums; margin-top: 2px; }
-    .stat .s { font-size: 0.78rem; font-weight: 700; font-variant-numeric: tabular-nums; }
-    .stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-    .stat-grid .stat { min-width: 0; padding: 8px 4px; }
-    .stat-grid .stat.wide { grid-column: 1 / -1; }
-    .stat-note { color: var(--muted); font-size: 0.75rem; margin: 8px 0 0; }
-
-    /* 模擬模式提示 */
-    .sim-banner { background: rgba(245,159,0,0.12); border: 1px solid #f59f00; border-radius: var(--radius);
-      padding: 10px 12px; margin-bottom: 14px; font-size: 0.85rem; line-height: 1.5;
-      display: flex; justify-content: space-between; align-items: center; gap: 10px; }
-
-    /* 圖表切換 */
-    .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
-    .seg button { background: none; border: 0; color: var(--muted); padding: 5px 10px; font-size: 0.8rem; font-weight: 700; cursor: pointer; }
-    .seg button.on { background: var(--primary); color: #fff; }
-    .card-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-    .card-head .card-title { margin: 0; }
-
-    .hint { font-size: 0.72rem; color: var(--muted); font-weight: 400; }
-    .rec-sub { font-size: 0.8rem; font-variant-numeric: tabular-nums; margin-top: 2px; }
-    .rec-sub .flow { color: var(--primary); font-weight: 700; }
-    .rec-warn { color: #e67700; font-size: 0.78rem; margin-top: 2px; }
-    .pos { color: var(--ok); } .neg { color: var(--danger); }
-
-    /* 清單 */
-    .rec { border: 1px solid var(--border); border-left: 3px solid var(--primary); border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; }
-    .rec-top { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 2px 8px; }
-    .rec-date { font-weight: 700; white-space: nowrap; }
-    .rec-net { font-weight: 800; font-variant-numeric: tabular-nums; }
-    /* 成本/報酬 與 動作按鈕同一行:文字靠左、按鈕靠右下 */
-    .rec-foot { display: flex; justify-content: space-between; align-items: flex-end; gap: 8px; margin-top: 4px; }
-    .rec-detail { color: var(--muted); font-size: 0.85rem; font-variant-numeric: tabular-nums; }
-    .rec-actions { display: flex; gap: 6px; flex-shrink: 0; align-items: stretch; }
-    .rec-actions .btn { display: inline-flex; align-items: center; justify-content: center; margin: 0; }
-    .rec-delta { font-size: 0.85rem; font-variant-numeric: tabular-nums; }
-
-    .empty { text-align: center; color: var(--muted); padding: 24px 0; }
-    .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: rgba(20,25,30,0.95);
-      color: #fff; padding: 10px 16px; border-radius: 10px; font-size: 0.9rem; z-index: 50; opacity: 0; transition: opacity .2s; pointer-events: none; }
-    .toast.show { opacity: 1; }
-    .toast.err { background: var(--danger); }
-    .nav-back { font-size: 0.85rem; color: var(--muted); text-decoration: none; }
-
-    /* 自訂確認對話框 */
-    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.45); display: flex;
-      align-items: center; justify-content: center; z-index: 100; padding: 20px; }
-    .modal-overlay[hidden] { display: none; }
-    .modal { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
-      padding: 18px 16px 14px; max-width: 360px; width: 100%; box-shadow: 0 10px 30px rgba(0,0,0,0.25); }
-    .modal-text { margin: 0 0 16px; font-size: 1rem; color: var(--text); line-height: 1.5; }
-    .modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
-  </style>
+  <link rel="stylesheet" href="assets.css?v=1" />
 </head>
 <body>
   <div class="asset-wrap">
@@ -127,7 +17,10 @@
         <button id="themeToggle" class="btn btn-ghost btn-sm" title="深色模式">🌙</button>
       </div>
     </div>
-    <div style="margin-bottom:12px"><a class="nav-back" href="index.html">← 回魚塭紀錄</a></div>
+    <div class="nav-row">
+      <a class="nav-back" href="index.html">← 回魚塭紀錄</a>
+      <a class="nav-back" href="daytrade.html">📈 當沖記帳 →</a>
+    </div>
 
     <!-- 模擬模式提示 -->
     <div class="sim-banner" id="simBanner" hidden>
@@ -148,18 +41,58 @@
         <label>未實現損益(可負)
           <input type="number" id="returnInput" inputmode="decimal" step="any" placeholder="0" />
         </label>
-        <label>質押/融資
+        <label class="full">質押/融資
           <input type="number" id="pledgeInput" inputmode="decimal" step="any" placeholder="0" />
         </label>
-        <label>可用餘額(交割戶)
-          <input type="number" id="balanceInput" inputmode="decimal" step="any" placeholder="0" />
-        </label>
-        <label>累計已實現損益
-          <input type="number" id="realizedInput" inputmode="decimal" step="any" placeholder="0" />
-        </label>
-        <label>累計配息
-          <input type="number" id="dividendInput" inputmode="decimal" step="any" placeholder="0" />
-        </label>
+        <!-- 累計欄位(id 規則見 ACCUM):平常填左邊「今日」,右邊累計自動算;開「手動」才改累計 -->
+        <div class="accum">
+          <div class="fld">
+            <label for="realizedDayInput">今日已實現 <span class="hint">賠填負數</span></label>
+            <input type="number" id="realizedDayInput" inputmode="decimal" step="any" placeholder="0" />
+            <div class="ro" id="realizedDayRo" hidden></div>
+          </div>
+          <div class="fld">
+            <div class="fld-head">
+              <label for="realizedInput">累計已實現</label>
+              <label class="switch"><input type="checkbox" id="realizedManual" /><span class="knob"></span><span>手動</span></label>
+            </div>
+            <input type="number" id="realizedInput" inputmode="decimal" step="any" placeholder="0" hidden />
+            <div class="ro" id="realizedRo"></div>
+          </div>
+          <p class="accum-note" id="realizedNote"></p>
+        </div>
+        <div class="accum">
+          <div class="fld">
+            <label for="dividendDayInput">今日配息 <span class="hint">入帳金額</span></label>
+            <input type="number" id="dividendDayInput" inputmode="decimal" step="any" placeholder="0" />
+            <div class="ro" id="dividendDayRo" hidden></div>
+          </div>
+          <div class="fld">
+            <div class="fld-head">
+              <label for="dividendInput">累計配息</label>
+              <label class="switch"><input type="checkbox" id="dividendManual" /><span class="knob"></span><span>手動</span></label>
+            </div>
+            <input type="number" id="dividendInput" inputmode="decimal" step="any" placeholder="0" hidden />
+            <div class="ro" id="dividendRo"></div>
+          </div>
+          <p class="accum-note" id="dividendNote"></p>
+        </div>
+        <div class="accum">
+          <div class="fld">
+            <label for="balanceDayInput">今日餘額增減 <span class="hint">扣款填負數</span></label>
+            <input type="number" id="balanceDayInput" inputmode="decimal" step="any" placeholder="0" />
+            <div class="ro" id="balanceDayRo" hidden></div>
+          </div>
+          <div class="fld">
+            <div class="fld-head">
+              <label for="balanceInput">可用餘額</label>
+              <label class="switch"><input type="checkbox" id="balanceManual" /><span class="knob"></span><span>手動</span></label>
+            </div>
+            <input type="number" id="balanceInput" inputmode="decimal" step="any" placeholder="0" hidden />
+            <div class="ro" id="balanceRo"></div>
+          </div>
+          <p class="accum-note" id="balanceNote"></p>
+        </div>
         <label class="full">額外投入 <span class="hint">今天從外部轉入的本金;提出填負數,平常留空</span>
           <input type="number" id="flowInput" inputmode="decimal" step="any" placeholder="0" />
         </label>
@@ -235,9 +168,10 @@
       getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, query
     } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-    // ---------- 小工具 ----------
-    const $ = (s) => document.querySelector(s);
-    const THEME_KEY = "yutun-theme";          // 與魚塭頁共用深色設定
+    import {
+      $, num, round2, fmt, fmtSigned, fmtPct, cls, fmtAxis, todayStr, toast, showConfirm, initTheme
+    } from "./assets-common.js";
+
     const CHART_KEY = "asset-chart-mode";
     const COL = "assets";                       // 新 collection,與魚塭資料隔離
     const META_ID = "_meta";                    // 舊版全域可用餘額;只拿來補舊紀錄缺的 balance
@@ -250,88 +184,20 @@
     // 2026-06-26~10-12 由逐筆交易推算的 flow/realized/dividend 已於 2026-10-13 寫入 Firestore
     const SIM_SEED = {};
 
-    // 每筆紀錄的欄位。缺值(舊資料沒有)時沿用前一筆,第一筆則用 0(balance 用舊全域餘額)
-    const FIELDS = ["cost", "return", "pledge", "balance", "realized", "dividend", "flow"];
-    const CARRY = ["cost", "pledge", "balance", "realized", "dividend"];   // 新增時自動帶上一筆
-    const FILL = ["pledge", "balance", "realized", "dividend"];            // 舊資料缺值時沿用前一筆
-
-    const num = (v) => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
-    // 千分位;負數帶減號
-    const fmt = (n) => {
-      const x = Math.round((Number(n) || 0) * 100) / 100;
-      return x.toLocaleString("en-US", { maximumFractionDigits: 2 });
-    };
-    const fmtSigned = (n) => (n > 0 ? "+" : "") + fmt(n);
-    const fmtPct = (r) => (r > 0 ? "+" : "") + (r * 100).toFixed(2) + "%";
-    const cls = (v) => (v > 0 ? "pos" : v < 0 ? "neg" : "");
-    // 軸標籤用的精簡格式:百萬→M、千→K,避免 Y 軸文字過長被切到
-    const fmtAxis = (n) => {
-      const v = Number(n) || 0, a = Math.abs(v), s = v < 0 ? "-" : "";
-      const trim = (x) => (Math.round(x * 100) / 100).toString();
-      if (a >= 1e6) return s + trim(a / 1e6) + "M";
-      if (a >= 1e3) return s + trim(a / 1e3) + "K";
-      return trim(a) === "0" ? "0" : s + trim(a);
-    };
-    const todayStr = () => {
-      const d = new Date(); const z = (n) => String(n).padStart(2, "0");
-      return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}`;
-    };
-    function toast(msg, err = false) {
-      const t = $("#toast"); t.textContent = msg; t.className = "toast show" + (err ? " err" : "");
-      clearTimeout(toast._t); toast._t = setTimeout(() => t.className = "toast", 2200);
-    }
-
-    // 自訂確認對話框(取代原生 confirm),回傳 Promise<boolean>
-    function showConfirm(message, { okText = "確定", danger = false } = {}) {
-      return new Promise((resolve) => {
-        const overlay = $("#modalOverlay"), okBtn = $("#modalOk"), cancelBtn = $("#modalCancel");
-        $("#modalText").textContent = message;
-        okBtn.textContent = okText;
-        okBtn.classList.toggle("btn-danger", danger);
-        okBtn.classList.toggle("btn-primary", !danger);
-        const close = (result) => {
-          overlay.hidden = true;
-          okBtn.removeEventListener("click", onOk);
-          cancelBtn.removeEventListener("click", onCancel);
-          overlay.removeEventListener("click", onBackdrop);
-          document.removeEventListener("keydown", onKey);
-          resolve(result);
-        };
-        const onOk = () => close(true);
-        const onCancel = () => close(false);
-        const onBackdrop = (e) => { if (e.target === overlay) close(false); };
-        const onKey = (e) => { if (e.key === "Escape") close(false); if (e.key === "Enter") close(true); };
-        okBtn.addEventListener("click", onOk);
-        cancelBtn.addEventListener("click", onCancel);
-        overlay.addEventListener("click", onBackdrop);
-        document.addEventListener("keydown", onKey);
-        overlay.hidden = false;
-        okBtn.focus();
-      });
-    }
+    // 每筆紀錄的欄位。缺值(舊資料沒有)時沿用前一筆,第一筆則用 0
+    const FIELDS = ["cost", "return", "pledge", "flow"];
+    const CARRY = ["cost", "pledge"];   // 新增時自動帶上一筆
+    const FILL = ["pledge"];            // 舊資料缺值時沿用前一筆
+    // 累計欄位:平常只填「今日增減」,累計 = 上一筆累計 + 今日(自動算)。
+    // 開「手動」才直接填累計(對券商帳用)。存檔時自動只存 {k}Day,手動只存 {k}(累計值),
+    // 之後的自動紀錄都從手動值往上加 → 補登或改前面某天,後面的自動紀錄會跟著連動。
+    // 舊紀錄存的都是累計值,等同手動。第一筆的「上一筆」= 0(balance 用舊全域餘額)。
+    // 表單元素 id:#{k}DayInput / #{k}Input / #{k}Manual / #{k}DayRo / #{k}Ro / #{k}Note
+    const ACCUM = ["realized", "dividend", "balance"];
+    const blank = (v) => v == null || v === "";
 
     // ---------- 深色模式 ----------
-    const THEME_COLOR = { light: "#0b7285", dark: "#1a222b" }; // 對應 header 色,給手機狀態列
-    function applyTheme(dark) {
-      document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
-      $("#themeToggle").textContent = dark ? "☀️" : "🌙";
-      const meta = document.querySelector('meta[name="theme-color"]');
-      if (meta) meta.setAttribute("content", dark ? THEME_COLOR.dark : THEME_COLOR.light);
-    }
-    // 優先用使用者上次的選擇;沒有的話跟隨系統偏好(與魚塭頁一致)
-    const savedTheme = localStorage.getItem(THEME_KEY);
-    const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-    applyTheme(savedTheme ? savedTheme === "dark" : prefersDark);
-    $("#themeToggle").addEventListener("click", () => {
-      const dark = document.documentElement.getAttribute("data-theme") !== "dark";
-      localStorage.setItem(THEME_KEY, dark ? "dark" : "light");
-      applyTheme(dark);
-      render();   // 重畫圖以套用新色
-    });
-    // 使用者沒手動選過時,跟著系統設定即時變化
-    window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", (e) => {
-      if (!localStorage.getItem(THEME_KEY)) { applyTheme(e.matches); render(); }
-    });
+    initTheme(() => render());   // 切換後重畫圖以套用新色
 
     // ---------- 狀態 ----------
     let db = null, unsub = null;
@@ -418,10 +284,12 @@
       let prev = null;
       for (const r of list) {
         const d = { ...r };
-        for (const k of FILL) {
-          if (d[k] == null || d[k] === "") d[k] = prev ? prev[k] : (k === "balance" ? metaBalance : 0);
-        }
+        for (const k of FILL) if (blank(d[k])) d[k] = prev ? prev[k] : 0;
         for (const k of FIELDS) d[k] = num(d[k]);
+        for (const k of ACCUM) {
+          d[k + "Manual"] = !blank(r[k]);
+          d[k] = d[k + "Manual"] ? num(r[k]) : accumBase(k, prev) + num(r[k + "Day"]);
+        }
         d.net = d.cost + d.return - d.pledge;
         d.worth = d.net + d.balance;
         if (prev) {
@@ -430,9 +298,10 @@
           d.rate = base > 0 ? d.pnl / base : 0;
           d.dRealized = d.realized - prev.realized;
           d.dDividend = d.dividend - prev.dividend;
+          d.dBalance = d.balance - prev.balance;
           d.gap = d.pnl - ((d.return - prev.return) + d.dRealized + d.dDividend);
         } else {
-          d.pnl = null; d.rate = null; d.gap = 0; d.dRealized = 0; d.dDividend = 0;
+          d.pnl = null; d.rate = null; d.gap = 0; d.dRealized = 0; d.dDividend = 0; d.dBalance = 0;
         }
         d.total = d.return + d.realized + d.dividend;
         d.totalRate = d.cost > 0 ? d.total / d.cost : 0;
@@ -442,27 +311,63 @@
       }
       return out;
     }
+    // 累計欄位的起算值:上一筆的累計;沒有上一筆時 0(balance 用舊全域餘額)
+    const accumBase = (k, prev) => (prev ? prev[k] : k === "balance" ? metaBalance : 0);
     const GAP_WARN = 1000;   // 對帳差超過這個金額才提示(手續費、四捨五入的小差不吵)
 
     // ---------- 輸入表單 ----------
     const INPUT = {
-      cost: "#costInput", return: "#returnInput", pledge: "#pledgeInput", balance: "#balanceInput",
-      realized: "#realizedInput", dividend: "#dividendInput", flow: "#flowInput",
+      cost: "#costInput", return: "#returnInput", pledge: "#pledgeInput", flow: "#flowInput",
     };
     // formDirty:使用者動過表單(打字/改日期/點編輯)後設 true,避免自動帶值蓋掉輸入中的內容
     let formDirty = false;
 
-    // 表單日期之前最近的一筆(推導後),拿來算預覽損益
+    // 表單日期之前最近的一筆(推導後),拿來算預覽損益與累計欄位
     function prevOf(date) {
       let p = null;
       for (const d of data) { if (d.date < date) p = d; else break; }
       return p;
     }
+    const formPrev = () => prevOf(editingId || $("#dateInput").value);
+    const isManual = (k) => $(`#${k}Manual`).checked;
+    // 表單上累計欄位實際的累計值
+    function accumVal(k, p = formPrev()) {
+      return isManual(k) ? num($(`#${k}Input`).value) : accumBase(k, p) + num($(`#${k}DayInput`).value);
+    }
+    // 依開關切換可編輯的那一邊;另一邊顯示算出來的值
+    function syncAccum() {
+      const p = formPrev();
+      for (const k of ACCUM) {
+        const manual = isManual(k), base = accumBase(k, p), cum = accumVal(k, p);
+        $(`#${k}DayInput`).hidden = manual; $(`#${k}DayRo`).hidden = !manual;
+        $(`#${k}Input`).hidden = !manual;   $(`#${k}Ro`).hidden = manual;
+        $(`#${k}Ro`).textContent = fmt(cum);
+        $(`#${k}DayRo`).textContent = fmtSigned(cum - base);
+        const from = p ? `上次 ${fmt(base)}(${p.date.slice(5)})` : `起始 ${fmt(base)}`;
+        $(`#${k}Note`).textContent = manual ? `手動填累計;今日 = 累計 − ${from}` : `累計 = ${from} + 今日`;
+      }
+    }
+    // 切換開關時帶值,讓數字接得上:切到手動 → 累計帶目前算出的值;切回自動 → 今日 = 累計 − 上次
+    for (const k of ACCUM) {
+      $(`#${k}Manual`).addEventListener("change", (e) => {
+        formDirty = true;
+        const base = accumBase(k, formPrev());
+        if (e.target.checked) {
+          $(`#${k}Input`).value = round2(base + num($(`#${k}DayInput`).value));
+        } else {
+          const day = round2(num($(`#${k}Input`).value) - base);
+          $(`#${k}DayInput`).value = day || "";
+        }
+        updatePreview();
+      });
+    }
+
     function updatePreview() {
+      syncAccum();
       const v = (k) => num($(INPUT[k]).value);
-      const worth = v("cost") + v("return") - v("pledge") + v("balance");
+      const worth = v("cost") + v("return") - v("pledge") + accumVal("balance");
       $("#netWorthPreview").textContent = fmt(worth);
-      const p = prevOf(editingId || $("#dateInput").value);
+      const p = formPrev();
       const el = $("#pnlPreview");
       if (!p || $("#returnInput").value === "") { el.textContent = "—"; el.className = "val"; return; }
       const pnl = worth - p.worth - v("flow");
@@ -470,12 +375,11 @@
       el.textContent = fmtSigned(pnl) + (base > 0 ? `(${fmtPct(pnl / base)})` : "");
       el.className = "val " + cls(pnl);
     }
-    Object.values(INPUT).forEach((s) =>
+    [...Object.values(INPUT), ...ACCUM.flatMap((k) => [`#${k}DayInput`, `#${k}Input`]), "#dateInput"].forEach((s) =>
       $(s).addEventListener("input", () => { formDirty = true; updatePreview(); }));
-    $("#dateInput").addEventListener("input", () => { formDirty = true; updatePreview(); });
     $("#dateInput").value = todayStr();
 
-    // 成本、質押、餘額、累計已實現/配息很少變動 → 預設帶入「最近一筆」的值(未實現每天填、投入留空)。
+    // 成本、質押很少變動 → 預設帶入「最近一筆」的值(未實現每天填、投入與今日增減留空)。
     // 僅在表單未被動過時帶,且不覆蓋使用者已輸入的內容。
     function prefillFromLast() {
       if (formDirty || !data.length) return;
@@ -491,6 +395,11 @@
       if (!date) { toast("請選擇日期", true); return; }
       const rec = { date, updatedAt: new Date().toISOString() };
       for (const k of FIELDS) rec[k] = num($(INPUT[k]).value);
+      for (const k of ACCUM) {
+        if (!isManual(k)) { rec[k + "Day"] = num($(`#${k}DayInput`).value); continue; }
+        if ($(`#${k}Input`).value === "") { toast("手動模式請填累計值", true); $(`#${k}Input`).focus(); return; }
+        rec[k] = num($(`#${k}Input`).value);
+      }
       if (simMode) {
         const sim = loadSim();
         sim.edits[date] = rec;
@@ -517,6 +426,12 @@
       $("#dateInput").value = r.date;
       $("#dateInput").disabled = true;          // 編輯不改日期(日期=文件 id)
       for (const k of FIELDS) $(INPUT[k]).value = k === "flow" && !r.flow ? "" : r[k];
+      for (const k of ACCUM) {
+        const manual = r[k + "Manual"], day = num(r[k + "Day"]);
+        $(`#${k}Manual`).checked = manual;
+        $(`#${k}Input`).value = manual ? r[k] : "";
+        $(`#${k}DayInput`).value = manual || !day ? "" : day;
+      }
       $("#cardTitle").textContent = `編輯 ${r.date}`;
       $("#saveBtn").textContent = "更新";
       $("#cancelBtn").hidden = false;
@@ -533,6 +448,10 @@
       $("#dateInput").disabled = false;
       $("#dateInput").value = todayStr();
       for (const k of FIELDS) $(INPUT[k]).value = "";
+      for (const k of ACCUM) {
+        $(`#${k}Manual`).checked = false;
+        $(`#${k}Input`).value = $(`#${k}DayInput`).value = "";
+      }
       $("#cardTitle").textContent = "今日資產";
       $("#saveBtn").textContent = "新增";
       $("#cancelBtn").hidden = true;
@@ -708,6 +627,7 @@
         if (d.flow) sub.push(`<span class="flow">額外投入 ${fmtSigned(d.flow)}</span>`);
         if (d.dRealized) sub.push(`已實現 ${fmtSigned(d.dRealized)}`);
         if (d.dDividend) sub.push(`配息 ${fmtSigned(d.dDividend)}`);
+        if (d.dBalance) sub.push(`餘額 ${fmtSigned(d.dBalance)}`);
         const warn = Math.abs(d.gap) >= GAP_WARN
           ? `<div class="rec-warn">⚠️ 與券商損益差 ${fmtSigned(d.gap)}:可能漏記額外投入、餘額或已實現</div>` : "";
         return `<div class="rec">

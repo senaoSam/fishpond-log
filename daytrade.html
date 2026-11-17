@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#0b7285" />
+  <title>當沖記帳</title>
+  <link rel="stylesheet" href="style.css?v=16" />
+  <link rel="stylesheet" href="assets.css?v=1" />
+  <style>
+    /* 電腦:左右兩欄(左記帳、右分析);窄螢幕:欄位拆開,依 order 疊成單欄 */
+    .dt-wrap { max-width: 1240px; }
+    .dt-cols { display: flex; flex-direction: column; }
+    .dt-col, .dt-pair { display: contents; }
+    @media (min-width: 900px) {
+      .dt-cols { display: grid; grid-template-columns: minmax(340px, 400px) minmax(0, 1fr); gap: 16px; align-items: start; }
+      .dt-col { display: block; }
+      /* 左欄固定在畫面內,紀錄清單在卡片裡捲動,不把整頁拉長 */
+      .dt-left { position: sticky; top: 12px; max-height: calc(100vh - 24px); display: flex; flex-direction: column; }
+      .dt-left > .list-card { flex: 1 1 auto; min-height: 180px; overflow-y: auto; margin-bottom: 0; }
+    }
+    @media (min-width: 1180px) {
+      .dt-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
+    }
+    .lbl-row { display: block; }
+
+    /* 績效數字 */
+    .stat.hero .v { font-size: 1.7rem; font-variant-numeric: normal; }
+    .stat.hero { padding: 12px 8px; }
+    .stat .s.muted { color: var(--muted); font-weight: 600; }
+
+    /* 圖表 */
+    .bar-pos { fill: var(--ok); }
+    .bar-neg { fill: var(--danger); }
+    .cum-line { fill: none; stroke: var(--primary); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+    .chart-base { stroke: var(--muted); stroke-width: 1; opacity: 0.6; }
+    .chart-guide { stroke: var(--muted); stroke-width: 1; opacity: 0.5; }
+    .chart-hl { fill: var(--primary); stroke: var(--card); stroke-width: 2; }
+
+    /* 紀錄清單:依日期分組 */
+    .day { border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; margin-bottom: 8px; }
+    .day-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; padding-bottom: 4px; }
+    .day-head .wd { color: var(--muted); font-weight: 400; font-size: 0.8rem; margin-left: 4px; }
+    .day-sum { font-weight: 800; font-variant-numeric: tabular-nums; }
+    .day-sum .n { color: var(--muted); font-weight: 400; font-size: 0.78rem; margin-left: 6px; }
+    .trade { display: flex; align-items: center; gap: 8px; padding: 5px 0; border-top: 1px dashed var(--border); }
+    .trade .t-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .trade .t-name .note { color: var(--muted); font-size: 0.8rem; margin-left: 6px; }
+    .trade .t-pnl { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .trade.editing { background: var(--total-bg); border-radius: 6px; }
+    .more { display: block; width: 100%; margin-top: 4px; }
+
+    .tbl-wrap { overflow-x: auto; }
+  </style>
+</head>
+<body>
+  <div class="asset-wrap dt-wrap">
+    <div class="asset-head">
+      <h1>📈 當沖記帳</h1>
+      <div class="right">
+        <span id="sync" class="asset-sync">連線中…</span>
+        <button id="themeToggle" class="btn btn-ghost btn-sm" title="深色模式">🌙</button>
+      </div>
+    </div>
+    <div class="nav-row"><a class="nav-back" href="assets.html">← 每日資產</a></div>
+
+    <div class="dt-cols">
+      <!-- 左:記帳 -->
+      <div class="dt-col dt-left">
+        <div class="card" style="order:1">
+          <p class="card-title" id="cardTitle">新增當沖</p>
+          <form id="dtForm" class="form-grid">
+            <label>日期
+              <input type="date" id="dateInput" required />
+            </label>
+            <label><span class="lbl-row">股票 <span class="hint">可留空</span></span>
+              <input type="text" id="stockInput" list="stockList" placeholder="例:2330 台積電" autocomplete="off" />
+            </label>
+            <datalist id="stockList"></datalist>
+            <label class="full"><span class="lbl-row">損益 <span class="hint">淨額(已扣手續費、交易稅),賠填負數</span></span>
+              <input type="number" id="pnlInput" inputmode="decimal" step="any" placeholder="0" />
+            </label>
+            <label class="full">備註
+              <input type="text" id="noteInput" placeholder="選填" autocomplete="off" />
+            </label>
+            <div class="net-preview">
+              <span class="lbl" id="dayLbl">這天小計</span>
+              <span class="val" id="dayTotal">—</span>
+            </div>
+            <div class="form-actions" id="formActions">
+              <button type="button" class="btn btn-ghost" id="cancelBtn" hidden>取消</button>
+              <button type="button" class="btn btn-danger" id="deleteBtn" hidden>刪除</button>
+              <button type="submit" class="btn btn-primary" id="saveBtn">新增</button>
+            </div>
+          </form>
+        </div>
+
+        <div class="card list-card" style="order:4">
+          <p class="card-title">紀錄 <span id="recCount" style="color:var(--muted);font-weight:400;font-size:0.85rem"></span></p>
+          <div id="recList"></div>
+        </div>
+      </div>
+
+      <!-- 右:分析 -->
+      <div class="dt-col">
+        <div class="card" style="order:2">
+          <div class="card-head">
+            <p class="card-title">當沖績效</p>
+            <div class="seg" id="rangeSeg">
+              <button type="button" data-range="all">全部</button>
+              <button type="button" data-range="year">今年</button>
+              <button type="button" data-range="month">本月</button>
+            </div>
+          </div>
+          <div id="statBox"></div>
+          <p class="stat-note">勝率按日 = 賺錢天數 ÷ 交易天數;獲利因子 = 總賺 ÷ 總賠;賺賠比 = 平均每筆賺 ÷ 平均每筆賠;最大回撤 = 累計損益從高點最多回落多少。</p>
+        </div>
+
+        <div class="card" style="order:3">
+          <div class="card-head">
+            <p class="card-title">損益走勢</p>
+            <div class="seg" id="chartSeg">
+              <button type="button" data-mode="cum">累計</button>
+              <button type="button" data-mode="day">每日</button>
+            </div>
+          </div>
+          <div class="chart-box">
+            <div id="chart"></div>
+            <div class="chart-tip" id="chartTip"></div>
+          </div>
+        </div>
+
+        <div class="dt-pair">
+          <div class="card" style="order:5">
+            <p class="card-title">每月</p>
+            <div class="tbl-wrap" id="monthBox"></div>
+          </div>
+          <div class="card" style="order:6">
+            <p class="card-title">個股</p>
+            <div class="tbl-wrap" id="stockBox"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <!-- 自訂確認對話框(取代原生 confirm) -->
+  <div id="modalOverlay" class="modal-overlay" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalText">
+      <p id="modalText" class="modal-text"></p>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="modalCancel">取消</button>
+        <button type="button" class="btn btn-primary" id="modalOk">確定</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { firebaseConfig, dbSecret, DB_ROOT } from "./firebase-config.js";
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+    import {
+      getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, query
+    } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+    import {
+      $, num, fmt, fmtSigned, cls, fmtAxis, todayStr, toast, showConfirm, initTheme
+    } from "./assets-common.js";
+
+    // 當沖紀錄:一筆 = 某天某檔的淨損益(券商 App 的當沖損益,已扣手續費、稅)。
+    // 股票可留空 → 也能一天只記一筆總額。與每日資產完全獨立。
+    // 文件:{ date, stock, pnl, note, createdAt, updatedAt },id 自動產生
+    const COL = "daytrades";
+    const RANGE_KEY = "daytrade-range";
+    const CHART_KEY = "daytrade-chart-mode";
+    const DAYS_PAGE = 20;                        // 紀錄清單一次顯示幾天
+    const NO_STOCK = "(未填股票)";
+
+    const sum = (arr, f = (x) => x) => arr.reduce((s, x) => s + f(x), 0);
+    const pct = (r) => (r * 100).toFixed(1) + "%";
+    const ratio = (r) => (r == null ? "—" : r.toFixed(2));
+    const WD = "日一二三四五六";
+    const weekday = (date) => "週" + WD[new Date(date + "T00:00").getDay()];
+    const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+    initTheme(() => render());   // 切換後重畫圖以套用新色
+
+    // ---------- 狀態 ----------
+    let db = null;
+    let trades = [];        // 全部紀錄,依日期、建立時間排序
+    let editingId = null;   // 正在編輯的紀錄 id(null = 新增模式)
+    let shownDays = DAYS_PAGE;
+    let range = ["all", "year", "month"].includes(localStorage.getItem(RANGE_KEY)) ? localStorage.getItem(RANGE_KEY) : "all";
+    let chartMode = localStorage.getItem(CHART_KEY) === "day" ? "day" : "cum";
+
+    // ---------- Firebase ----------
+    function initFirebase() {
+      if (firebaseConfig.apiKey.startsWith("請填入")) { $("#sync").textContent = "未設定 Firebase"; $("#sync").className = "asset-sync err"; return; }
+      if (!dbSecret) { $("#sync").textContent = "未設定資料庫路徑"; $("#sync").className = "asset-sync err"; return; }
+      db = getFirestore(initializeApp(firebaseConfig));
+    }
+    function subscribe() {
+      if (!db) return;
+      onSnapshot(query(collection(db, ...DB_ROOT, COL)), (snap) => {
+        trades = snap.docs.map((d) => { const x = d.data(); return { id: d.id, ...x, pnl: num(x.pnl) }; })
+          .sort((a, b) => a.date.localeCompare(b.date) || String(a.createdAt).localeCompare(String(b.createdAt)));
+        $("#sync").textContent = snap.metadata.fromCache ? "離線(暫存本機)" : "已同步";
+        $("#sync").className = "asset-sync " + (snap.metadata.fromCache ? "" : "ok");
+        if (editingId && !trades.some((t) => t.id === editingId)) exitEdit();   // 別台裝置刪掉了
+        render();
+      }, (err) => { console.error(err); $("#sync").textContent = "讀取失敗"; $("#sync").className = "asset-sync err"; });
+    }
+
+    // ---------- 計算 ----------
+    // 依日期加總成每日:[{ date, pnl, n, cum }],cum 從 0 起算
+    function byDay(list) {
+      const map = new Map();
+      for (const t of list) {
+        const d = map.get(t.date) || { date: t.date, pnl: 0, n: 0 };
+        d.pnl += t.pnl; d.n++;
+        map.set(t.date, d);
+      }
+      const days = [...map.values()];
+      let cum = 0;
+      for (const d of days) { cum += d.pnl; d.cum = cum; }
+      return days;
+    }
+    function inRange(date) {
+      const t = todayStr();
+      if (range === "year") return date.slice(0, 4) === t.slice(0, 4);
+      if (range === "month") return date.slice(0, 7) === t.slice(0, 7);
+      return true;
+    }
+    // 連續賺 / 賠天數的最長紀錄(損益 0 的日子中斷連續)
+    function longestStreak(days, win) {
+      let best = 0, cur = 0;
+      for (const d of days) { cur = (win ? d.pnl > 0 : d.pnl < 0) ? cur + 1 : 0; best = Math.max(best, cur); }
+      return best;
+    }
+    function stats(list) {
+      const days = byDay(list);
+      const wins = list.filter((t) => t.pnl > 0), losses = list.filter((t) => t.pnl < 0);
+      const sumW = sum(wins, (t) => t.pnl), sumL = sum(losses, (t) => t.pnl);
+      const avgW = wins.length ? sumW / wins.length : 0, avgL = losses.length ? sumL / losses.length : 0;
+      let peak = 0, mdd = 0;
+      for (const d of days) { peak = Math.max(peak, d.cum); mdd = Math.max(mdd, peak - d.cum); }
+      const dayPnls = days.map((d) => d.pnl);
+      return {
+        days, total: sum(list, (t) => t.pnl), nTrades: list.length,
+        winDays: days.filter((d) => d.pnl > 0).length, lossDays: days.filter((d) => d.pnl < 0).length,
+        wins: wins.length, losses: losses.length,
+        avgW, avgL,
+        payoff: avgL ? avgW / -avgL : null,
+        pf: sumL ? sumW / -sumL : null,
+        best: days.length ? Math.max(...dayPnls) : 0,
+        worst: days.length ? Math.min(...dayPnls) : 0,
+        mdd,
+        winStreak: longestStreak(days, true), lossStreak: longestStreak(days, false),
+      };
+    }
+
+    // ---------- 輸入表單 ----------
+    $("#dateInput").value = todayStr();
+
+    // 這天已記的筆數與小計(含正在輸入的這筆,編輯時不重複算原本那筆)
+    function updateDayTotal() {
+      const date = $("#dateInput").value;
+      const others = trades.filter((t) => t.date === date && t.id !== editingId);
+      const typed = $("#pnlInput").value !== "";
+      const n = others.length + (typed ? 1 : 0);
+      const total = sum(others, (t) => t.pnl) + (typed ? num($("#pnlInput").value) : 0);
+      $("#dayLbl").innerHTML = (date ? `${date.slice(5)} ${weekday(date)} 小計` : "這天小計") +
+        (n ? ` <span class="hint">${n} 筆${typed ? "(含這筆)" : ""}</span>` : "");
+      $("#dayTotal").textContent = n ? fmtSigned(total) : "—";
+      $("#dayTotal").className = "val " + (n ? cls(total) : "");
+    }
+    ["#dateInput", "#pnlInput"].forEach((s) => $(s).addEventListener("input", updateDayTotal));
+
+    // 股票輸入提示:用過的股票,最近用的在前
+    function renderStockList() {
+      const seen = new Set();
+      for (let i = trades.length - 1; i >= 0 && seen.size < 40; i--) if (trades[i].stock) seen.add(trades[i].stock);
+      $("#stockList").innerHTML = [...seen].map((s) => `<option value="${esc(s)}"></option>`).join("");
+    }
+
+    $("#dtForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const date = $("#dateInput").value;
+      if (!date) { toast("請選擇日期", true); return; }
+      if ($("#pnlInput").value === "") { toast("請填損益", true); $("#pnlInput").focus(); return; }
+      if (!db) { toast("尚未連線 Firebase", true); return; }
+      const now = new Date().toISOString();
+      const old = editingId && trades.find((t) => t.id === editingId);
+      const rec = {
+        date, stock: $("#stockInput").value.trim(), pnl: num($("#pnlInput").value),
+        note: $("#noteInput").value.trim(), createdAt: old ? old.createdAt : now, updatedAt: now,
+      };
+      const ref = editingId ? doc(db, ...DB_ROOT, COL, editingId) : doc(collection(db, ...DB_ROOT, COL));
+      try {
+        await setDoc(ref, rec);
+        toast(editingId ? "已更新 ✔" : "已新增 ✔");
+        if (editingId) { exitEdit(); return; }
+        // 連續記同一天的下一檔:留日期,清其他欄位
+        $("#stockInput").value = $("#pnlInput").value = $("#noteInput").value = "";
+        updateDayTotal();
+        $("#stockInput").focus();
+      } catch (err) { toast("儲存失敗:" + err.message, true); }
+    });
+
+    function loadToForm(t) {
+      editingId = t.id;
+      $("#dateInput").value = t.date;
+      $("#stockInput").value = t.stock || "";
+      $("#pnlInput").value = t.pnl;
+      $("#noteInput").value = t.note || "";
+      $("#cardTitle").textContent = "編輯紀錄";
+      $("#saveBtn").textContent = "更新";
+      $("#cancelBtn").hidden = false;
+      $("#deleteBtn").hidden = false;
+      $("#formActions").classList.add("editing");
+      updateDayTotal();
+      renderList();
+      // 單欄(手機)時表單在最上面,捲上去;兩欄時表單本來就看得到
+      if ($("#dtForm").getBoundingClientRect().top < 0) window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+    function exitEdit() {
+      editingId = null;
+      $("#dateInput").value = todayStr();
+      $("#stockInput").value = $("#pnlInput").value = $("#noteInput").value = "";
+      $("#cardTitle").textContent = "新增當沖";
+      $("#saveBtn").textContent = "新增";
+      $("#cancelBtn").hidden = true;
+      $("#deleteBtn").hidden = true;
+      $("#formActions").classList.remove("editing");
+      updateDayTotal();
+      renderList();
+    }
+    $("#cancelBtn").addEventListener("click", exitEdit);
+    $("#deleteBtn").addEventListener("click", () => { if (editingId) delTrade(trades.find((t) => t.id === editingId)); });
+
+    async function delTrade(t) {
+      if (!t) return;
+      const what = `${t.date}${t.stock ? " " + t.stock : ""} ${fmtSigned(t.pnl)}`;
+      if (!await showConfirm(`刪除 ${what}?`, { okText: "刪除", danger: true })) return;
+      try {
+        await deleteDoc(doc(db, ...DB_ROOT, COL, t.id));
+        toast("已刪除 ✔");
+        if (editingId === t.id) exitEdit();
+      } catch (err) { toast("刪除失敗:" + err.message, true); }
+    }
+
+    // ---------- 渲染 ----------
+    function render() {
+      renderStockList();
+      renderList();
+      renderAnalysis();
+      updateDayTotal();
+    }
+    function renderAnalysis() {
+      const list = trades.filter((t) => inRange(t.date));
+      const s = stats(list);
+      renderStats(s);
+      renderChart(s.days);
+      renderMonths(list);
+      renderStocks(list);
+    }
+
+    $("#rangeSeg").addEventListener("click", (e) => {
+      const b = e.target.closest("button[data-range]");
+      if (!b) return;
+      range = b.dataset.range;
+      localStorage.setItem(RANGE_KEY, range);
+      renderAnalysis();
+    });
+
+    function renderStats(s) {
+      $("#rangeSeg").querySelectorAll("button").forEach((b) => b.classList.toggle("on", b.dataset.range === range));
+      const box = $("#statBox");
+      if (!s.nTrades) { box.innerHTML = '<p class="empty">這段期間還沒有紀錄</p>'; return; }
+      const tile = (k, v, c = "", sub = "") =>
+        `<div class="stat"><div class="k">${k}</div><div class="v ${c}">${v}</div>${sub ? `<div class="s muted">${sub}</div>` : ""}</div>`;
+      const nd = s.days.length;
+      box.innerHTML = `<div class="stat-grid">
+        <div class="stat wide hero"><div class="k">累計損益</div><div class="v ${cls(s.total)}">${fmtSigned(s.total)}</div>
+          <div class="s muted">${nd} 天 · ${s.nTrades} 筆</div></div>
+        ${tile("勝率(按日)", pct(s.winDays / nd), "", `${s.winDays} 賺 ${s.lossDays} 賠`)}
+        ${tile("勝率(按筆)", pct(s.wins / s.nTrades), "", `${s.wins} 賺 ${s.losses} 賠`)}
+        ${tile("獲利因子", ratio(s.pf))}
+        ${tile("平均每筆賺", fmtSigned(Math.round(s.avgW)), cls(s.avgW))}
+        ${tile("平均每筆賠", fmtSigned(Math.round(s.avgL)), cls(s.avgL))}
+        ${tile("賺賠比", ratio(s.payoff))}
+        ${tile("最大單日賺", fmtSigned(s.best), cls(s.best))}
+        ${tile("最大單日賠", fmtSigned(s.worst), cls(s.worst))}
+        ${tile("最大回撤", s.mdd ? fmtSigned(-s.mdd) : "0", cls(-s.mdd))}
+        ${tile("日均損益", fmtSigned(Math.round(s.total / nd)), cls(s.total))}
+        ${tile("最長連賺", `${s.winStreak} 天`)}
+        ${tile("最長連賠", `${s.lossStreak} 天`)}
+      </div>`;
+    }
+
+    // 每月:月份 / 天數 / 筆數 / 勝率(按日)/ 損益,新→舊
+    function renderMonths(list) {
+      const box = $("#monthBox");
+      const map = new Map();
+      for (const d of byDay(list)) {
+        const m = map.get(d.date.slice(0, 7)) || { days: 0, n: 0, win: 0, pnl: 0 };
+        m.days++; m.n += d.n; m.pnl += d.pnl; if (d.pnl > 0) m.win++;
+        map.set(d.date.slice(0, 7), m);
+      }
+      if (!map.size) { box.innerHTML = '<p class="empty">—</p>'; return; }
+      const rows = [...map.entries()].sort((a, b) => b[0].localeCompare(a[0])).map(([k, m]) =>
+        `<tr><td>${k}</td><td class="num">${m.days}</td><td class="num">${m.n}</td><td class="num">${pct(m.win / m.days)}</td>
+          <td class="num ${cls(m.pnl)}"><b>${fmtSigned(m.pnl)}</b></td></tr>`).join("");
+      box.innerHTML = `<table><thead><tr><th>月份</th><th class="num">天數</th><th class="num">筆數</th><th class="num">日勝率</th><th class="num">損益</th></tr></thead>
+        <tbody>${rows}</tbody></table>`;
+    }
+
+    // 個股:股票 / 筆數 / 勝率(按筆)/ 平均 / 損益,賺最多的在前
+    function renderStocks(list) {
+      const box = $("#stockBox");
+      const map = new Map();
+      for (const t of list) {
+        const k = t.stock || NO_STOCK;
+        const m = map.get(k) || { n: 0, win: 0, pnl: 0 };
+        m.n++; m.pnl += t.pnl; if (t.pnl > 0) m.win++;
+        map.set(k, m);
+      }
+      if (!map.size) { box.innerHTML = '<p class="empty">—</p>'; return; }
+      const rows = [...map.entries()].sort((a, b) => b[1].pnl - a[1].pnl).map(([k, m]) =>
+        `<tr><td>${esc(k)}</td><td class="num">${m.n}</td><td class="num">${pct(m.win / m.n)}</td>
+          <td class="num ${cls(m.pnl)}">${fmtSigned(Math.round(m.pnl / m.n))}</td><td class="num ${cls(m.pnl)}"><b>${fmtSigned(m.pnl)}</b></td></tr>`).join("");
+      box.innerHTML = `<table><thead><tr><th>股票</th><th class="num">筆數</th><th class="num">勝率</th><th class="num">平均</th><th class="num">損益</th></tr></thead>
+        <tbody>${rows}</tbody></table>`;
+    }
+
+    // 紀錄清單:依日期分組,新→舊;一次顯示 DAYS_PAGE 天
+    function renderList() {
+      const box = $("#recList");
+      $("#recCount").textContent = trades.length ? `共 ${trades.length} 筆` : "";
+      if (!trades.length) { box.innerHTML = '<p class="empty">還沒有紀錄</p>'; return; }
+      const days = byDay(trades).reverse();
+      const groups = new Map(days.map((d) => [d.date, []]));
+      for (const t of trades) groups.get(t.date).push(t);
+      box.innerHTML = days.slice(0, shownDays).map((d) => `<div class="day">
+          <div class="day-head"><span class="rec-date">${d.date}<span class="wd">${weekday(d.date)}</span></span>
+            <span class="day-sum ${cls(d.pnl)}">${fmtSigned(d.pnl)}<span class="n">${d.n} 筆</span></span></div>
+          ${groups.get(d.date).map((t) => `<div class="trade${t.id === editingId ? " editing" : ""}">
+            <span class="t-name">${t.stock ? esc(t.stock) : `<span class="hint">${NO_STOCK}</span>`}${t.note ? `<span class="note">${esc(t.note)}</span>` : ""}</span>
+            <span class="t-pnl ${cls(t.pnl)}">${fmtSigned(t.pnl)}</span>
+            <span class="rec-actions">
+              <button class="btn btn-ghost btn-xs" data-edit="${t.id}" title="編輯">✏️</button>
+              <button class="btn btn-danger btn-xs" data-del="${t.id}" title="刪除">🗑</button>
+            </span></div>`).join("")}
+        </div>`).join("") +
+        (days.length > shownDays ? `<button type="button" class="btn btn-ghost btn-sm more" id="moreBtn">再顯示 ${Math.min(DAYS_PAGE, days.length - shownDays)} 天(還有 ${days.length - shownDays} 天)</button>` : "");
+    }
+    $("#recList").addEventListener("click", (e) => {
+      const b = e.target.closest("button");
+      if (!b) return;
+      if (b.id === "moreBtn") { shownDays += DAYS_PAGE; renderList(); return; }
+      const t = trades.find((x) => x.id === (b.dataset.edit || b.dataset.del));
+      if (b.dataset.edit) loadToForm(t);
+      else if (b.dataset.del) delTrade(t);
+    });
+
+    // ---------- 圖表(累計 = 折線;每日 = 正負柱) ----------
+    $("#chartSeg").addEventListener("click", (e) => {
+      const b = e.target.closest("button[data-mode]");
+      if (!b) return;
+      chartMode = b.dataset.mode;
+      localStorage.setItem(CHART_KEY, chartMode);
+      renderAnalysis();
+    });
+    // Y 軸刻度取整數級距(1/2/2.5/5 × 10^n),並一定包含 0
+    function niceScale(min, max, count = 4) {
+      min = Math.min(0, min); max = Math.max(0, max);
+      if (min === max) max = min + 1;
+      const raw = (max - min) / count, mag = 10 ** Math.floor(Math.log10(raw));
+      const step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((s) => s >= raw);
+      const lo = Math.floor(min / step) * step, hi = Math.ceil(max / step) * step;
+      const ticks = [];
+      for (let i = 0; lo + i * step <= hi + step / 1e6; i++) ticks.push(lo + i * step);
+      return { lo, hi, ticks };
+    }
+    // 柱子:基線那端方角、資料那端 4px 圓角
+    function barPath(cx, y0, y1, w) {
+      const h = Math.abs(y1 - y0);
+      if (h < 0.5) return "";
+      const r = Math.min(4, w / 2, h), x0 = cx - w / 2, x1 = cx + w / 2, s = y1 < y0 ? 1 : -1;
+      return `M${x0},${y0}V${y1 + s * r}Q${x0},${y1} ${x0 + r},${y1}H${x1 - r}Q${x1},${y1} ${x1},${y1 + s * r}V${y0}Z`;
+    }
+    function renderChart(days) {
+      $("#chartSeg").querySelectorAll("button").forEach((b) => b.classList.toggle("on", b.dataset.mode === chartMode));
+      const box = $("#chart"), tip = $("#chartTip");
+      tip.style.display = "none";
+      if (!days.length) { box.innerHTML = '<div class="chart-empty">這段期間還沒有紀錄。</div>'; return; }
+
+      const bars = chartMode === "day";
+      const val = bars ? (d) => d.pnl : (d) => d.cum;
+      const vals = days.map(val);
+      const { lo, hi, ticks } = niceScale(Math.min(...vals), Math.max(...vals));
+
+      const W = box.clientWidth || 680, H = 260;
+      const padR = 18, padT = 12, padB = 28;
+      const padL = Math.max(40, Math.max(...ticks.map((t) => fmtAxis(t).length)) * 7.5 + 12);
+      const innerW = W - padL - padR, innerH = H - padT - padB;
+      const n = days.length, slot = innerW / n;
+      const x = (i) => padL + slot * (i + 0.5);
+      const y = (v) => padT + innerH - ((v - lo) / (hi - lo)) * innerH;
+
+      let grid = "";
+      for (const t of ticks) {
+        if (t === 0) continue;   // 0 另畫較明顯的基線
+        grid += `<line class="chart-grid-line" x1="${padL}" y1="${y(t)}" x2="${W - padR}" y2="${y(t)}"/>`;
+      }
+      const labels = ticks.map((t) => `<text class="chart-axis-txt" x="${padL - 6}" y="${y(t) + 3}" text-anchor="end">${fmtAxis(t)}</text>`).join("");
+      const base = `<line class="chart-base" x1="${padL}" y1="${y(0)}" x2="${W - padR}" y2="${y(0)}"/>`;
+
+      let marks;
+      if (bars) {
+        const bw = Math.max(1, Math.min(24, slot * 0.7));
+        marks = days.map((d, i) => {
+          const p = barPath(x(i), y(0), y(d.pnl), bw);
+          return p ? `<path class="${d.pnl > 0 ? "bar-pos" : "bar-neg"}" d="${p}"/>` : "";
+        }).join("");
+      } else {
+        const pts = days.map((d, i) => `${x(i).toFixed(1)},${y(d.cum).toFixed(1)}`);
+        const area = `M${x(0).toFixed(1)},${y(0)} L${pts.join(" L")} L${x(n - 1).toFixed(1)},${y(0)} Z`;
+        const last = days[n - 1];
+        marks = `<path class="chart-area" d="${area}"/><path class="cum-line" d="M${pts.join(" L")}"/>` +
+          `<circle class="chart-hl" cx="${x(n - 1)}" cy="${y(last.cum)}" r="4"/>`;
+      }
+
+      // X 軸標籤(最多 6 個)
+      const step = Math.max(1, Math.ceil(n / 6));
+      let xlab = "";
+      for (let i = 0; i < n; i += step)
+        xlab += `<text class="chart-axis-txt" x="${x(i)}" y="${H - 8}" text-anchor="middle">${days[i].date.slice(5)}</text>`;
+
+      const hot = days.map((d, i) =>
+        `<rect x="${(padL + slot * i).toFixed(1)}" y="${padT}" width="${slot.toFixed(1)}" height="${innerH}" fill="transparent" data-i="${i}"/>`).join("");
+
+      box.innerHTML = `<svg class="chart-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+        ${grid}${base}${marks}
+        <line class="chart-guide" id="guide" y1="${padT}" y2="${padT + innerH}" visibility="hidden"/>
+        <circle class="chart-hl" id="hoverDot" r="4" visibility="hidden"/>
+        ${labels}${xlab}${hot}</svg>`;
+
+      // tooltip:滑鼠移過 / 手指點到某天
+      const svg = box.querySelector("svg"), guide = svg.querySelector("#guide"), dot = svg.querySelector("#hoverDot");
+      const showTip = (i) => {
+        const d = days[i], cx = x(i), cy = y(val(d));
+        guide.setAttribute("x1", cx); guide.setAttribute("x2", cx); guide.setAttribute("visibility", "visible");
+        if (!bars) { dot.setAttribute("cx", cx); dot.setAttribute("cy", cy); dot.setAttribute("visibility", "visible"); }
+        tip.innerHTML = `${d.date} ${weekday(d.date)}<br><b>當日 ${fmtSigned(d.pnl)}</b>(${d.n} 筆)<br>累計 ${fmtSigned(d.cum)}`;
+        tip.style.display = "block";
+        const rect = box.getBoundingClientRect(), half = tip.offsetWidth / 2;
+        const sx = Math.min(Math.max((cx / W) * rect.width, half), rect.width - half);   // 不超出卡片左右
+        tip.style.left = sx + "px";
+        tip.style.top = (Math.min(cy, y(0)) / H) * rect.height + "px";
+      };
+      svg.querySelectorAll("[data-i]").forEach((el) => {
+        const i = +el.dataset.i;
+        el.addEventListener("pointerenter", () => showTip(i));
+        el.addEventListener("pointerdown", () => showTip(i));
+      });
+      svg.addEventListener("pointerleave", () => {
+        tip.style.display = "none";
+        guide.setAttribute("visibility", "hidden"); dot.setAttribute("visibility", "hidden");
+      });
+    }
+
+    // 視窗縮放時重畫圖(寬度變了)
+    let rT; window.addEventListener("resize", () => { clearTimeout(rT); rT = setTimeout(renderAnalysis, 150); });
+
+    // ---------- 啟動 ----------
+    initFirebase();
+    subscribe();
+    render();
+  </script>
+</body>
+</html>
